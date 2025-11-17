@@ -1,4 +1,0 @@
-@echo off
-set ANTHROPIC_BASE_URL=https://7663bb2d894a9f5374f2b689d4599aab424cfa12-3000.dstack-pha-prod7.phala.network/api
-set ANTHROPIC_AUTH_TOKEN=cr_105c75a7417aaff73750be4df4f330b89161535de90c83bc93f6dbda04efe4ef
-Claude
