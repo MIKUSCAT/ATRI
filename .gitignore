@@ -1,0 +1,33 @@
+.DS_Store
+Thumbs.db
+*.log
+
+# Python / 脚本缓存
+__pycache__/
+
+# Node / Worker
+node_modules/
+**/node_modules/
+*.tsbuildinfo
+worker/.wrangler/
+worker/dist/
+
+# Android / Gradle
+ATRI/.gradle/
+ATRI/.idea/
+ATRI/local.properties
+ATRI/app/build/
+ATRI/app/release/
+ATRI/build/
+
+# 构建产物
+build/
+dist/
+
+# 环境变量与密钥
+.env
+.env.*
+*.env
+worker/.env
+ATRI/app/*.keystore
+ATRI/app/*.jks
