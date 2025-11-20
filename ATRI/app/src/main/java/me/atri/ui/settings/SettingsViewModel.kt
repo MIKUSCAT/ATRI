@@ -16,11 +16,13 @@ data class SettingsUiState(
     val apiUrl: String = "",
     val userName: String = "",
     val modelName: String = "",
+    val userId: String = "",
     val isLoading: Boolean = false,
     val isClearing: Boolean = false,
     val statusMessage: String? = null,
     val availableModels: List<ModelOption> = emptyList(),
-    val modelsLoading: Boolean = false
+    val modelsLoading: Boolean = false,
+    val showModelSavedDialog: Boolean = false
 ) {
     data class ModelOption(
         val id: String,
@@ -56,6 +58,11 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
+            preferencesStore.userId.collect { id ->
+                _uiState.update { it.copy(userId = id) }
+            }
+        }
+        viewModelScope.launch {
             preferencesStore.modelName.collect { model ->
                 _uiState.update { it.copy(modelName = model) }
             }
@@ -80,7 +87,7 @@ class SettingsViewModel(
     fun updateModelName(model: String) {
         viewModelScope.launch {
             preferencesStore.setModelName(model)
-            _uiState.update { it.copy(statusMessage = "模型已保存") }
+            _uiState.update { it.copy(showModelSavedDialog = true) }
         }
     }
 
@@ -110,6 +117,22 @@ class SettingsViewModel(
                 }
             }
         }
+    }
+
+    fun importUserId(input: String) {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) {
+            _uiState.update { it.copy(statusMessage = "账号 ID 不能为空") }
+            return
+        }
+        viewModelScope.launch {
+            preferencesStore.setUserId(trimmed)
+            _uiState.update { it.copy(userId = trimmed, statusMessage = "已导入账号 ID") }
+        }
+    }
+
+    fun dismissModelSavedDialog() {
+        _uiState.update { it.copy(showModelSavedDialog = false) }
     }
 
     fun clearMemories() {

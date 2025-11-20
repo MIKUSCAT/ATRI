@@ -42,9 +42,9 @@ import coil.compose.AsyncImage
 fun DailyWelcome(
     state: ChatViewModel.WelcomeUiState,
     avatarPath: String,
-    sessions: List<DateSection>,
+    sessions: List<ChatDateSection>,
     onStartChat: () -> Unit,
-    onSelectSession: (DateSection) -> Unit
+    onSelectSession: (ChatDateSection) -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -119,8 +119,8 @@ fun DailyWelcomeLoading() {
 
 @Composable
 private fun DiaryNotebook(
-    sessions: List<DateSection>,
-    onSelectSession: (DateSection) -> Unit,
+    sessions: List<ChatDateSection>,
+    onSelectSession: (ChatDateSection) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -177,8 +177,8 @@ private fun DiaryNotebook(
 
 @Composable
 private fun SessionList(
-    sessions: List<DateSection>,
-    onSelectSession: (DateSection) -> Unit,
+    sessions: List<ChatDateSection>,
+    onSelectSession: (ChatDateSection) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (sessions.isEmpty()) {
@@ -209,7 +209,7 @@ private fun SessionList(
 
 @Composable
 private fun SessionCard(
-    section: DateSection,
+    section: ChatDateSection,
     onClick: () -> Unit
 ) {
     Surface(

@@ -1,8 +1,7 @@
 package me.atri.ui.chat
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,18 +24,13 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -48,16 +42,14 @@ import me.atri.data.model.AttachmentType
 import me.atri.ui.theme.MessageBubbleAtri
 import me.atri.ui.theme.MessageBubbleUser
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: MessageEntity,
     isLoading: Boolean = false,
-    onLongPress: (MessageEntity, Rect?) -> Unit = { _, _ -> },
+    onLongPress: (MessageEntity) -> Unit = {},
     onVersionSwitch: (String, Int) -> Unit = { _, _ -> }
 ) {
     val haptic = LocalHapticFeedback.current
-    var bubbleBounds by remember { mutableStateOf<Rect?>(null) }
     val alignment = if (message.isFromAtri) Alignment.Start else Alignment.End
 
     Row(
@@ -93,14 +85,14 @@ fun MessageBubble(
             Surface(
                 modifier = Modifier
                     .widthIn(min = 56.dp, max = 360.dp)
-                    .onGloballyPositioned { bubbleBounds = it.boundsInRoot() }
-                    .combinedClickable(
-                        onClick = {},
-                        onLongClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onLongPress(message, bubbleBounds)
-                        }
-                    ),
+                    .pointerInput(message.id) {
+                        detectTapGestures(
+                            onLongPress = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onLongPress(message)
+                            }
+                        )
+                    },
                 shape = RoundedCornerShape(
                     topStart = 28.dp,
                     topEnd = 28.dp,
@@ -177,13 +169,22 @@ fun MessageBubble(
                     }
 
                     if (message.content.isNotEmpty()) {
+                        val contentText = message.content
+                        val hasMarkdown = remember(message.id, contentText) {
+                            val markdownHints = listOf("*", "_", "[", "`")
+                            markdownHints.any { hint -> contentText.contains(hint) }
+                        }
                         ProvideTextStyle(
                             value = MaterialTheme.typography.bodyMedium.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         ) {
-                            Material3RichText {
-                                Markdown(message.content)
+                            if (hasMarkdown) {
+                                Material3RichText {
+                                    Markdown(contentText)
+                                }
+                            } else {
+                                Text(text = contentText)
                             }
                         }
                     }

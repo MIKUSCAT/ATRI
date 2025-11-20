@@ -1,6 +1,7 @@
 import prompts from '../config/prompts.json';
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
+import { CHAT_MODEL } from '../types';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 
 const diaryPrompts = prompts.diary;
@@ -51,14 +52,18 @@ export async function generateDiaryFromConversation(env: Env, params: {
     .replace(/\{daysSinceInfo\}/g, daysSinceInfo);
 
   try {
-    const response = await callChatCompletions(env, {
-      messages: [
-        { role: 'system', content: diaryPrompts.system },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 500
-    });
+    const response = await callChatCompletions(
+      env,
+      {
+        messages: [
+          { role: 'system', content: diaryPrompts.system },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      },
+      { model: CHAT_MODEL }
+    );
 
     const data = await response.json();
     const diaryContent = data.choices?.[0]?.message?.content || '';

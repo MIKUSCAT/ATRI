@@ -2,7 +2,7 @@ import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
 
 export async function embedText(text: string, env: Env): Promise<number[]> {
-  const base = env.EMBEDDINGS_API_URL || 'https://api.siliconflow.cn/v1';
+  const base = env.EMBEDDINGS_API_URL || 'https://api.example.com/v1';
   const model = env.EMBEDDINGS_MODEL || 'BAAI/bge-m3';
   const res = await fetch(`${base}/embeddings`, {
     method: 'POST',

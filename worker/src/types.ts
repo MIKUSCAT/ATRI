@@ -10,7 +10,7 @@ export interface Env {
   ADMIN_API_KEY?: string;
 }
 
-export const CHAT_MODEL = 'gpt-4o';
+export const CHAT_MODEL = 'gpt-4o-mini';
 export const ATTACHMENT_TYPES = ['image', 'document'] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 

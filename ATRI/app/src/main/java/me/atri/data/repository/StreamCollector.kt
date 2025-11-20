@@ -29,7 +29,8 @@ class StreamCollector(
         var thinkingStartTime: Long? = null
         var thinkingEndTime: Long? = null
         var lastUpdateTime = System.currentTimeMillis()
-        val updateInterval = 100L
+        // 0 代表无节流，每次分片都立即推送，流式最丝滑
+        val updateInterval = 0L
 
         fun resolveThinkingBounds(chunkType: String) {
             if (chunkType == "reasoning" && thinkingStartTime == null) {

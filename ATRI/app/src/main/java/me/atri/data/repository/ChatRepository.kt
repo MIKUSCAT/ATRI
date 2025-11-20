@@ -67,7 +67,7 @@ class ChatRepository(
         content: String,
         attachments: List<PendingAttachment>,
         reusedAttachments: List<Attachment> = emptyList(),
-        onStreamResponse: suspend (String, String?, Long?, Long?) -> String?
+        onStreamResponse: suspend (String, String?, Long?, Long?) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
@@ -105,45 +105,15 @@ class ChatRepository(
                 recentMessages = recentMessages
             )
 
-            var atriFinalText = ""
-            var atriMessageId: String? = null
-            executeChatRequest(request) { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                atriFinalText = streamedText
-                val idFromCallback = onStreamResponse(streamedText, thinkingText, thinkingStart, thinkingEnd)
-                if (!idFromCallback.isNullOrBlank()) {
-                    atriMessageId = idFromCallback
-                }
-            }
-            if (atriFinalText.isNotBlank() && !atriMessageId.isNullOrBlank()) {
-                val atriMessage = messageDao.getMessageById(atriMessageId!!)
-                logConversationSafely(
-                    logId = atriMessageId,
-                    userId = userId,
-                    userName = null,
-                    role = "atri",
-                    content = atriFinalText,
-                    timestamp = atriMessage?.timestamp ?: System.currentTimeMillis(),
-                    attachments = atriMessage?.attachments ?: emptyList()
-                )
-            }
+            executeChatRequest(request, onStreamResponse)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
-    suspend fun insertAtriMessage(content: String): String {
-        val entity = MessageEntity(
-            content = content,
-            isFromAtri = true,
-            timestamp = System.currentTimeMillis()
-        )
-        messageDao.insert(entity)
-        markConversationTouched(entity.timestamp)
-        return entity.id
-    }
 
     suspend fun regenerateResponse(
-        onStreamResponse: suspend (String, String?, Long?, Long?) -> String?,
+        onStreamResponse: suspend (String, String?, Long?, Long?) -> Unit,
         contextMessages: List<MessageEntity>? = null,
         userContent: String? = null,
         userAttachments: List<Attachment>? = null
@@ -164,31 +134,43 @@ class ChatRepository(
                 recentMessages = recentMessages
             )
 
-            var atriFinalText = ""
-            var atriMessageId: String? = null
-            executeChatRequest(request) { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                atriFinalText = streamedText
-                val idFromCallback = onStreamResponse(streamedText, thinkingText, thinkingStart, thinkingEnd)
-                if (!idFromCallback.isNullOrBlank()) {
-                    atriMessageId = idFromCallback
-                }
-            }
-            if (atriFinalText.isNotBlank() && !atriMessageId.isNullOrBlank()) {
-                val atriMessage = messageDao.getMessageById(atriMessageId!!)
-                logConversationSafely(
-                    logId = atriMessageId,
-                    userId = userId,
-                    userName = null,
-                    role = "atri",
-                    content = atriFinalText,
-                    timestamp = atriMessage?.timestamp ?: System.currentTimeMillis(),
-                    attachments = atriMessage?.attachments ?: emptyList()
-                )
-            }
+            executeChatRequest(request, onStreamResponse)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun persistAtriMessage(finalMessage: MessageEntity) = withContext(Dispatchers.IO) {
+        val sanitized = finalMessage.copy(content = cleanTimestampPrefix(finalMessage.content))
+        val existing = messageDao.getMessageById(sanitized.id)
+
+        val persisted = if (existing == null) {
+            messageDao.insert(sanitized)
+            sanitized
+        } else {
+            saveMessageVersion(
+                message = existing,
+                newContent = sanitized.content,
+                newAttachments = sanitized.attachments,
+                thinkingContent = sanitized.thinkingContent,
+                thinkingStartTime = sanitized.thinkingStartTime,
+                thinkingEndTime = sanitized.thinkingEndTime
+            )
+        }
+
+        markConversationTouched(persisted.timestamp)
+
+        val userId = preferencesStore.ensureUserId()
+        logConversationSafely(
+            logId = persisted.id,
+            userId = userId,
+            userName = null,
+            role = "atri",
+            content = persisted.content,
+            timestamp = persisted.timestamp,
+            attachments = persisted.attachments
+        )
     }
     suspend fun editMessage(
         id: String,

@@ -4,7 +4,6 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import me.atri.BuildConfig
 import me.atri.data.api.AtriApiService
 import me.atri.data.datastore.PreferencesStore
 import okhttp3.MediaType.Companion.toMediaType
@@ -17,11 +16,8 @@ import java.util.concurrent.TimeUnit
 val networkModule = module {
     single {
         val logging = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) {
-                HttpLoggingInterceptor.Level.BODY
-            } else {
-                HttpLoggingInterceptor.Level.NONE
-            }
+            // BODY 会把流式响应一次性读完，流式聊天会卡住，这里改成只看基础日志
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
         OkHttpClient.Builder()
@@ -34,7 +30,7 @@ val networkModule = module {
 
     single {
         val preferencesStore = get<PreferencesStore>()
-        val baseUrl = runBlocking { preferencesStore.apiUrl.first() }.ifEmpty { "https://atri-worker.example.com" }
+        val baseUrl = runBlocking { preferencesStore.apiUrl.first() }.ifEmpty { "https://api.example.com/" }
 
         val json = Json {
             ignoreUnknownKeys = true

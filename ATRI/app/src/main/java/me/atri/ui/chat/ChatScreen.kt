@@ -46,7 +46,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +59,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -70,64 +71,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.atri.data.db.entity.MessageEntity
 import org.koin.androidx.compose.koinViewModel
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.time.temporal.ChronoUnit
 import me.atri.utils.FileUtils.saveAtriAvatar
-
-fun formatMessageTime(timestamp: Long): String {
-    val messageDate = Calendar.getInstance().apply { timeInMillis = timestamp }
-    val now = Calendar.getInstance()
-    val isToday = messageDate.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-            messageDate.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
-    val isYesterday = messageDate.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-            messageDate.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR) - 1
-    val isSameYear = messageDate.get(Calendar.YEAR) == now.get(Calendar.YEAR)
-    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    val time = timeFormat.format(Date(timestamp))
-    return when {
-        isToday -> time
-        isYesterday -> "昨天 $time"
-        isSameYear -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
-        else -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
-    }
-}
-
-fun shouldShowTimestamp(currentMessage: MessageEntity, previousMessage: MessageEntity?): Boolean {
-    if (previousMessage == null) return true
-    val zone = ZoneId.systemDefault()
-    val currentMoment = Instant.ofEpochMilli(currentMessage.timestamp).atZone(zone)
-    val previousMoment = Instant.ofEpochMilli(previousMessage.timestamp).atZone(zone)
-    if (currentMoment.toLocalDate() != previousMoment.toLocalDate()) return true
-    val minutesDiff = ChronoUnit.MINUTES.between(previousMoment, currentMoment)
-    return minutesDiff >= 1
-}
-
-fun buildDateDisplayLabel(date: LocalDate, zoneId: ZoneId): String {
-    val today = LocalDate.now(zoneId)
-    val yesterday = today.minusDays(1)
-    val prefix = when (date) {
-        today -> "今天"
-        yesterday -> "昨天"
-        else -> date.format(DateTimeFormatter.ofPattern("M月d日"))
-    }
-    val detail = date.format(DateTimeFormatter.ofPattern("M 月 d 日"))
-    return "$prefix · $detail"
-}
-
-data class DateSection(
-    val date: LocalDate,
-    val label: String,
-    val firstIndex: Int,
-    val count: Int
-)
+import java.util.Locale
 
 @Composable
 fun TimestampText(timestamp: Long) {
@@ -146,6 +95,31 @@ fun TimestampText(timestamp: Long) {
         ) {
             Text(
                 text = formatMessageTime(timestamp),
+                style = MaterialTheme.typography.labelMedium,
+                color = textColor,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DateHeader(label: String) {
+    val bubbleColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+    val textColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = bubbleColor,
+            tonalElevation = 0.dp
+        ) {
+            Text(
+                text = label,
                 style = MaterialTheme.typography.labelMedium,
                 color = textColor,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -308,9 +282,9 @@ private fun DrawerDateHeader(totalDays: Int) {
 
 @Composable
 private fun DrawerDateBrowser(
-    sections: List<DateSection>,
+    sections: List<ChatDateSection>,
     modifier: Modifier = Modifier,
-    onSelect: (DateSection) -> Unit
+    onSelect: (ChatDateSection) -> Unit
 ) {
     val zoneId = remember { ZoneId.systemDefault() }
     val today = remember(zoneId) { LocalDate.now(zoneId) }
@@ -347,7 +321,7 @@ private fun DrawerDateBrowser(
 
 @Composable
 private fun DateSectionCard(
-    section: DateSection,
+    section: ChatDateSection,
     zoneId: ZoneId,
     today: LocalDate,
     onClick: () -> Unit
@@ -417,20 +391,12 @@ fun ChatScreen(
     val atriAvatarPath by viewModel.atriAvatarPath.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var selectedMessage by remember { mutableStateOf<SelectedMessageState?>(null) }
+    var listBounds by remember { mutableStateOf<Rect?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var pendingScrollIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val showWelcome = !welcomeDismissed
-    val zone = remember { ZoneId.systemDefault() }
-    val currentDateLabel by remember(uiState.messages) {
-        derivedStateOf {
-            val date = uiState.messages.lastOrNull()?.timestamp?.let {
-                Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
-            } ?: LocalDate.now(zone)
-            buildDateDisplayLabel(date, zone)
-        }
-    }
     val avatarPickerScope = rememberCoroutineScope()
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -445,42 +411,16 @@ fun ChatScreen(
         }
     }
 
-    // 构建“日期 -> 首条索引、数量”的分组，仅显示有消息的日期
-    val dateSections by remember(uiState.messages) {
-        derivedStateOf {
-            val zone = ZoneId.systemDefault()
-            val today = LocalDate.now(zone)
-            val yesterday = today.minusDays(1)
-            val map = linkedMapOf<LocalDate, Pair<Int, Int>>()
-            uiState.messages.forEachIndexed { idx, m ->
-                val d = Instant.ofEpochMilli(m.timestamp).atZone(zone).toLocalDate()
-                val p = map[d]
-                if (p == null) map[d] = idx to 1 else map[d] = p.first to (p.second + 1)
-            }
-            val fmt = DateTimeFormatter.ISO_LOCAL_DATE
-            map.entries
-                .map { (d, p) ->
-                    val label = when (d) {
-                        today -> "今天"
-                        yesterday -> "昨天"
-                        else -> d.format(fmt)
-                    }
-                    DateSection(d, label, p.first, p.second)
-                }
-                .sortedByDescending { it.date }
+    LaunchedEffect(uiState.displayItems.size, showWelcome) {
+        if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
+            listState.animateScrollToItem(uiState.displayItems.lastIndex)
         }
     }
 
-    LaunchedEffect(uiState.messages.size, showWelcome) {
-        if (uiState.messages.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
-            listState.animateScrollToItem(uiState.messages.size - 1)
-        }
-    }
-
-    LaunchedEffect(pendingScrollIndex, showWelcome, uiState.messages.size) {
+    LaunchedEffect(pendingScrollIndex, showWelcome, uiState.displayItems.size) {
         val target = pendingScrollIndex
-        if (!showWelcome && target != null && uiState.messages.isNotEmpty()) {
-            val bounded = target.coerceIn(0, uiState.messages.lastIndex)
+        if (!showWelcome && target != null && uiState.displayItems.isNotEmpty()) {
+            val bounded = target.coerceIn(0, uiState.displayItems.lastIndex)
             listState.scrollToItem(bounded)
             pendingScrollIndex = null
         }
@@ -505,9 +445,9 @@ fun ChatScreen(
                         }
                     )
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
-                    DrawerDateHeader(totalDays = dateSections.size)
+                    DrawerDateHeader(totalDays = uiState.dateSections.size)
                     DrawerDateBrowser(
-                        sections = dateSections,
+                        sections = uiState.dateSections,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
@@ -532,7 +472,7 @@ fun ChatScreen(
                 if (!showWelcome) {
                     ChatTopBar(
                         status = uiState.currentStatus,
-                        currentDateLabel = currentDateLabel,
+                        currentDateLabel = uiState.currentDateLabel,
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                         onOpenDiary = onOpenDiary
                     )
@@ -561,9 +501,9 @@ fun ChatScreen(
                         DailyWelcome(
                             state = welcomeState,
                             avatarPath = atriAvatarPath,
-                            sessions = dateSections,
+                            sessions = uiState.dateSections,
                             onStartChat = {
-                                pendingScrollIndex = uiState.messages.lastIndex.takeIf { it >= 0 }
+                                pendingScrollIndex = uiState.displayItems.lastIndex.takeIf { it >= 0 }
                                 onDismissWelcome()
                             },
                             onSelectSession = { section ->
@@ -575,7 +515,9 @@ fun ChatScreen(
                 } else {
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { listBounds = it.boundsInRoot() },
                         contentPadding = PaddingValues(
                             start = 16.dp,
                             end = 16.dp,
@@ -584,23 +526,47 @@ fun ChatScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        itemsIndexed(uiState.messages, key = { _, m -> m.id }) { index, message ->
-                            val previousMessage = if (index > 0) uiState.messages[index - 1] else null
-                            if (shouldShowTimestamp(message, previousMessage)) {
-                                TimestampText(timestamp = message.timestamp)
+                        itemsIndexed(
+                            uiState.displayItems,
+                            key = { _, item ->
+                                when (item) {
+                                    is ChatItem.MessageItem -> item.message.id
+                                    is ChatItem.DateHeaderItem -> "date-${item.date}"
+                                }
                             }
-                        MessageBubble(
-                            message = message,
-                            isLoading = uiState.isLoading && index == uiState.messages.lastIndex,
-                            onLongPress = { pressed, bounds ->
-                                selectedMessage = SelectedMessageState(pressed, bounds)
-                            },
-                            onVersionSwitch = { messageId, versionIndex ->
-                                viewModel.switchMessageVersion(messageId, versionIndex)
+                        ) { _, item ->
+                            when (item) {
+                                is ChatItem.DateHeaderItem -> DateHeader(label = item.label)
+                                is ChatItem.MessageItem -> {
+                                    if (item.showTimestamp) {
+                                        TimestampText(timestamp = item.message.timestamp)
+                                    }
+                                    MessageBubble(
+                                        message = item.message,
+                                        isLoading = uiState.isLoading && uiState.generatingMessage?.id == item.message.id,
+                                        onLongPress = { pressed ->
+                                            val anchor = listBounds?.let { bounds ->
+                                                val info = listState.layoutInfo.visibleItemsInfo
+                                                    .firstOrNull { it.key == item.message.id }
+                                                info?.let {
+                                                    Rect(
+                                                        left = bounds.left,
+                                                        top = bounds.top + it.offset,
+                                                        right = bounds.right,
+                                                        bottom = bounds.top + it.offset + it.size
+                                                    )
+                                                }
+                                            }
+                                            selectedMessage = SelectedMessageState(pressed, anchor)
+                                        },
+                                        onVersionSwitch = { messageId, versionIndex ->
+                                            viewModel.switchMessageVersion(messageId, versionIndex)
+                                        }
+                                    )
+                                }
                             }
-                        )
-                    }
-                        if (uiState.isLoading) {
+                        }
+                        if (uiState.isLoading && uiState.generatingMessage == null) {
                             item { TypingIndicator() }
                         }
                     }

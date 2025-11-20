@@ -1,0 +1,26 @@
+name = "atri-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "YOUR_ACCOUNT_ID"
+
+[vars]
+OPENAI_API_URL = "https://api.example.com/v1"
+EMBEDDINGS_API_URL = "https://api.example.com/v1"
+EMBEDDINGS_MODEL = "text-embedding-3-small"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "atri-memories"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "atri-media"
+preview_bucket_name = "atri-media"
+
+[[d1_databases]]
+binding = "ATRI_DB"
+database_name = "atri_diary"
+database_id = "YOUR_D1_DATABASE_ID"
+
+[triggers]
+crons = ["59 15 * * *"]

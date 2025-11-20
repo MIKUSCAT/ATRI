@@ -33,8 +33,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
 
@@ -45,6 +47,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
 
     Scaffold(
         topBar = {
@@ -71,13 +74,13 @@ fun SettingsScreen(
             var apiUrl by remember { mutableStateOf(uiState.apiUrl) }
             var userName by remember { mutableStateOf(uiState.userName) }
             var modelName by remember { mutableStateOf(uiState.modelName) }
+            var importUserId by remember { mutableStateOf("") }
             val availableModels = uiState.availableModels
 
-            LaunchedEffect(uiState) {
-                apiUrl = uiState.apiUrl
-                userName = uiState.userName
-                modelName = uiState.modelName
-            }
+            LaunchedEffect(uiState.apiUrl) { apiUrl = uiState.apiUrl }
+            LaunchedEffect(uiState.userName) { userName = uiState.userName }
+            LaunchedEffect(uiState.modelName) { modelName = uiState.modelName }
+            LaunchedEffect(uiState.userId) { importUserId = "" }
 
             Text(
                 text = "API 配置",
@@ -89,7 +92,7 @@ fun SettingsScreen(
                 value = apiUrl,
                 onValueChange = { apiUrl = it },
                 label = { Text("Worker URL") },
-                placeholder = { Text("https://atri-worker.example.com") },
+                placeholder = { Text("https://atri-worker.2441248911.workers.dev") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -127,6 +130,44 @@ fun SettingsScreen(
             }
 
             Text(
+                text = "账号 ID",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            OutlinedTextField(
+                value = uiState.userId,
+                onValueChange = {},
+                label = { Text("当前账号 ID") },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                trailingIcon = {
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(uiState.userId))
+                    }) {
+                        Text("复制")
+                    }
+                }
+            )
+
+            OutlinedTextField(
+                value = importUserId,
+                onValueChange = { importUserId = it },
+                label = { Text("导入旧账号 ID") },
+                placeholder = { Text("粘贴之前备份的 ID") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Button(
+                onClick = { viewModel.importUserId(importUserId) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = importUserId.isNotBlank()
+            ) {
+                Text("使用这个 ID")
+            }
+
+            Text(
                 text = "模型选择",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary
@@ -139,7 +180,7 @@ fun SettingsScreen(
                 onValueChange = { modelName = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("推理模型 ID") },
-                placeholder = { Text("例如：openai.gpt-5-chat") },
+                placeholder = { Text("例如：gpt-4o-mini") },
                 singleLine = true,
                 supportingText = {
                     when {
@@ -234,6 +275,19 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            if (uiState.showModelSavedDialog) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.dismissModelSavedDialog() },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.dismissModelSavedDialog() }) {
+                            Text("好的")
+                        }
+                    },
+                    title = { Text("模型已保存") },
+                    text = { Text("已切换到新的推理模型。") }
                 )
             }
 
