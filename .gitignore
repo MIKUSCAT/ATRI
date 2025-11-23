@@ -1,0 +1,45 @@
+# ===== 只保留核心项目文件 =====
+# 保留：ATRI/, scripts/, worker/, shared/, README.md, TECH_ARCHITECTURE_BLUEPRINT.md
+
+# 排除所有文档和截图
+*.docx
+*.pdf
+*.jpg
+*.png
+*.txt
+
+# 排除杂项脚本
+*.bat
+
+# 排除临时文件夹
+.claude/
+rikkahub-master/
+ios/
+
+# 排除其他 .md 文件（只保留 README 和 TECH_ARCHITECTURE_BLUEPRINT）
+ATRI_*.md
+GPT_*.md
+*PLAN*.md
+
+# 排除环境配置示例
+.env*
+
+# ===== Android 构建产物 =====
+ATRI/.gradle/
+ATRI/.idea/
+ATRI/build/
+ATRI/app/build/
+ATRI/.kotlin/
+ATRI/local.properties
+*.apk
+*.aab
+
+# ===== Worker 构建产物 =====
+worker/node_modules/
+worker/.wrangler/
+worker/dist/
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+nul

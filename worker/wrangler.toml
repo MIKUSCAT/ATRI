@@ -1,0 +1,30 @@
+name = "atri-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
+
+[vars]
+OPENAI_API_URL = "https://aigate.binklac.com/v1"
+EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
+EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "atri-memories"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "atri-media"
+preview_bucket_name = "atri-media"
+
+[[d1_databases]]
+binding = "ATRI_DB"
+database_name = "atri_diary"
+database_id = "f4f017b6-af87-4db7-9fc9-fd1eaddd455c"
+
+[triggers]
+crons = ["0 16 * * *"]
+
+# Custom domain (需要在Cloudflare Dashboard手动添加)
+# Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
+# 添加: mikuscat.qzz.io

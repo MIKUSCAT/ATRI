@@ -1,0 +1,23 @@
+{
+  "name": "atri-worker",
+  "version": "1.0.0",
+  "description": "ATRI Cloudflare Worker Backend",
+  "main": "src/index.ts",
+  "scripts": {
+    "predev": "python3 ../scripts/sync_shared.py || python ../scripts/sync_shared.py",
+    "predeploy": "python3 ../scripts/sync_shared.py || python ../scripts/sync_shared.py",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "sync-prompts": "python3 ../scripts/sync_shared.py || python ../scripts/sync_shared.py"
+  },
+  "keywords": ["cloudflare", "worker", "ai"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "wrangler": "^3.87.0"
+  },
+  "dependencies": {
+    "itty-router": "^5.0.21"
+  }
+}

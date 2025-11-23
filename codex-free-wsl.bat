@@ -1,0 +1,3 @@
+@echo off
+echo Starting WSL Codex with Free profile...
+wsl -d Ubuntu-24.04 bash -c "export FREE_API_KEY=cr_ec9a46e63f5381a6ef5f3e7949c9196f8a7a7cefc830dfc4dbe14f6966f1bbb1 && codex --profile free"

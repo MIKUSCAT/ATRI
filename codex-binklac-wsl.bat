@@ -1,0 +1,3 @@
+@echo off
+echo Starting WSL Codex with Binklac profile...
+wsl -d Ubuntu-24.04 bash -c "export BINKLAC_API_KEY=sk-binklac-moqFJtFscyq1FVqUt0s1xRT8pUQI7e4Wp8Sx1UnZ7hGNRlIf && codex --profile binklac"
