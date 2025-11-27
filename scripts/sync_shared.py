@@ -7,12 +7,11 @@ SHARED = ROOT / 'shared'
 PROMPTS_SRC = SHARED / 'prompts.json'
 ANDROID_ASSETS = ROOT / 'ATRI' / 'app' / 'src' / 'main' / 'assets'
 WORKER_CONFIG = ROOT / 'worker' / 'src' / 'config'
-IOS_RESOURCES = ROOT / 'ios' / 'ATRI-iOS' / 'Resources'
+
 
 TARGETS = [
     (PROMPTS_SRC, ANDROID_ASSETS / 'prompts.json'),
     (PROMPTS_SRC, WORKER_CONFIG / 'prompts.json'),
-    (PROMPTS_SRC, IOS_RESOURCES / 'prompts.json'),
 ]
 
 def main():

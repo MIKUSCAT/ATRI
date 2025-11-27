@@ -1,4 +1,4 @@
 @echo off
-set ANTHROPIC_BASE_URL=https://pmpjfbhq.cn-nb1.rainapp.top
-set ANTHROPIC_AUTH_TOKEN=sk-PjSfBNCyWEI8DZQlPlP7KrzNqUgJKZP7YY85gNuIqpp0scIz
+set ANTHROPIC_BASE_URL=https://c.cspok.cn
+set ANTHROPIC_AUTH_TOKEN=sk-zaMeCsGtUTAfaBQW9IgTN0JRTxLimV1BGf59BgKKk90S0n4l
 Claude

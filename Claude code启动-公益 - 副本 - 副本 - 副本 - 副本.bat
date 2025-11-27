@@ -1,5 +1,5 @@
 @echo off
-set ANTHROPIC_BASE_URL=https://privnode.com
-set ANTHROPIC_API_KEY=sk-2t2Xoobijrj3VSgvMQzyr9ePWODD8l9KBesLWyF1UVzzkBxX
+set ANTHROPIC_BASE_URL=https://claude-code-api.zeabur.app
+set ANTHROPIC_AUTH_TOKEN=sk-JXaEHGQi3Gg9ZENblQkLUCPUV5wWFwcdymO5M59dXc3Oo3Kl
 
 claude

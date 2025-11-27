@@ -118,7 +118,17 @@
       "Bash(tasklist:*)",
       "Bash(taskkill:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Read(//e//**)",
+      "Bash(cd /d \"E:\\ATRI\\ATRI\")",
+      "Bash(git -C \"E:/ATRI/ATRI\" status)",
+      "Bash(git -C E:/ATRI/ATRI status)",
+      "Bash(for dir in \"E:/ATRI/ATRI\" \"E:/ATRI/worker\" \"E:/ATRI/shared\" \"E:/ATRI/scripts\")",
+      "Bash(do echo \"=== $dir ===\")",
+      "Bash(git -C \"$dir\" status)",
+      "Bash(done)",
+      "Bash(git -C \"E:/ATRI/ATRI\" add -A)",
+      "Bash(git -C \"E:/ATRI/ATRI\" commit -m \"Update ATRI\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")"
     ],
     "deny": [],
     "ask": []
