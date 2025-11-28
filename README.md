@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌊 ATRI - My Dear Moments
+# ATRI - My Dear Moments
 
 **一个温暖的AI陪伴系统 | Android + Cloudflare Edge**
 
@@ -362,6 +362,6 @@ DEFAULT_MODEL = "gpt-4o"
 
 **如果这个项目对你有帮助，请给一个 ⭐ Star！**
 
-Made with ❤️ by the ATRI community
+Made with ❤️ by the MIKUSCAT
 
 </div>
