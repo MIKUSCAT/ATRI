@@ -202,7 +202,7 @@ ATRI/
 
 - **运行时**: Cloudflare Workers
 - **框架**: TypeScript + itty-router
-- **数据���**: D1 (SQLite)
+- **数据库**: D1 (SQLite)
 - **向量**: Vectorize
 - **存储**: R2
 - **AI**: OpenAI API (兼容)
