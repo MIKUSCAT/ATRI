@@ -5,11 +5,15 @@ import {
   listPendingDiaryUsers,
   saveDiaryEntry,
   getLastConversationDate,
-  calculateDaysBetween
+  calculateDaysBetween,
+  saveDailyLearning,
+  saveUserMemories
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
-import { upsertDiaryMemory } from '../services/memory-service';
+import { upsertDiaryMemory, upsertStructuredMemories } from '../services/memory-service';
+import { generateDailyLearning } from '../services/daily-learning';
+import { extractMemoriesFromText, toUserMemoryInputs } from '../services/memory-extractor';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
   const date = targetDate || formatDateInZone(Date.now(), DEFAULT_TIMEZONE);
@@ -53,6 +57,36 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         content: diary.content,
         timestamp: diary.timestamp
       });
+
+      try {
+        const extractionText = `【今日对话】\n${transcript}\n\n【今日日记】\n${diary.content}`;
+        const extracted = await extractMemoriesFromText(env, { text: extractionText });
+        if (extracted.memories.length > 0) {
+          const memoryInputs = toUserMemoryInputs(user.userId, extracted.memories, date);
+          await saveUserMemories(env, memoryInputs);
+          await upsertStructuredMemories(env, user.userId, extracted.memories, date);
+          console.log('[ATRI] Extracted memories for', user.userId, ':', extracted.memories.length);
+        }
+      } catch (err) {
+        console.warn('[ATRI] Memory extraction skipped', { userId: user.userId, date, err });
+      }
+
+      try {
+        const learning = await generateDailyLearning(env, {
+          transcript,
+          diaryContent: diary.content,
+          date,
+          userName: user.userName || '这个人'
+        });
+        await saveDailyLearning(env, {
+          userId: user.userId,
+          date,
+          summary: learning.summary,
+          payload: JSON.stringify(learning.payload || {})
+        });
+      } catch (err) {
+        console.warn('[ATRI] Daily learning generation skipped', { userId: user.userId, date, err });
+      }
 
       console.log('[ATRI] Diary auto generated for', user.userId, date);
     } catch (error) {

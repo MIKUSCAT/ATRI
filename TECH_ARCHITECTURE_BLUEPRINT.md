@@ -7,12 +7,12 @@
 ## 1. 系统角色速览
 | 角色 | 技术栈 | 主要工作 |
 | --- | --- | --- |
-| Android 客户端 (`E:/ATRI/ATRI`) | Kotlin + Jetpack Compose + Room + Retrofit | 提供聊天 UI、填写 Worker 地址、保存本地消息与日记、上报会话日志、触发日记生成。 |
-| Cloudflare Worker (`E:/ATRI/worker`) | TypeScript + itty-router + Wrangler | 接收聊天/日记/附件请求，调用 OpenAI 兼容接口，写入 Cloudflare D1、Vectorize、R2，并在 Cron 中自动生成日记。 |
-| 共享提示词 (`E:/ATRI/shared`) | JSON | 统一维护 chat/diary 的人格定义。 |
-| 同步脚本 (`E:/ATRI/scripts`) | Python | 将提示词复制到 Android 资产目录与 Worker 配置，保证端到端一致。 |
+| Android 客户端 (`ATRI/ATRI`) | Kotlin + Jetpack Compose + Room + Retrofit | 提供聊天 UI、填写 Worker 地址、保存本地消息与日记、上报会话日志、触发日记生成。 |
+| Cloudflare Worker (`ATRI/worker`) | TypeScript + itty-router + Wrangler | 接收聊天/日记/附件请求，调用 OpenAI 兼容接口，写入 Cloudflare D1、Vectorize、R2，并在 Cron 中自动生成日记。 |
+| 共享提示词 (`shared/`) | JSON | 统一维护 chat/diary 的人格定义。 |
+| 同步脚本 (`scripts/`) | Python | 将提示词复制到 Android 资产目录与 Worker 配置，保证端到端一致。 |
 
-外部服务：Cloudflare D1（结构化数据）、Vectorize（向量检索）、R2（文件）、OpenAI 推理接口、SiliconFlow Embedding。
+外部服务：Cloudflare D1（结构化数据）、Vectorize（向量检索）、R2（文件）、OpenAI 推理接口、自选 Embedding API。
 
 ---
 
@@ -39,7 +39,7 @@ Cloudflare Cron ─scheduled──▶ runDiaryCron() ─▶ fetchConversationLog
 
 ## 3. 文件结构（含重点文件）
 ```
-E:/ATRI
+repo-root
 ├─ ATRI/
 │  ├─ app/src/main/java/me/atri/
 │  │  ├─ ui/chat/ChatScreen.kt                 # SSE 渲染、消息输入、状态栏
@@ -103,7 +103,7 @@ E:/ATRI
 3. Android 解析 SSE（见 `utils/sse`），实时渲染在聊天 UI。
 
 ### 4.2 记忆检索与写入
-- 检索：`searchMemories()` 先调用 `embedText()`（SiliconFlow），然后在 `VECTORIZE` 索引里查询 topK=3，并过滤 `metadata.u == userId`。
+- 检索：`searchMemories()` 先调用 `embedText()`（外部 Embedding API），然后在 `VECTORIZE` 索引里查询 topK=3，并过滤 `metadata.u == userId`。
 - 写入：
   - 日记：`upsertDiaryMemory()` 以 `diary:<userId>:<date>` 作为向量 ID，仅写入 `userId + 日期 + mood + timestamp` 的轻量元数据，正文依旧保存在 D1。
   - 聊天记忆：逻辑目前收敛到客户端触发，调用 `/conversation/log` 保存原文，然后由 Cron 拿历史对话生成日记，再写 Vectorize。若后续要恢复 `/memory/extract`，可以基于 `memory-service` 继续扩展。

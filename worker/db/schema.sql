@@ -32,3 +32,38 @@ CREATE TABLE IF NOT EXISTS diary_entries (
 
 CREATE INDEX IF NOT EXISTS idx_diary_user_date
   ON diary_entries(user_id, date);
+
+-- 每日学习总结（从当天对话+日记提炼）
+CREATE TABLE IF NOT EXISTS daily_learning (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  summary TEXT,
+  payload TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_user_date
+  ON daily_learning(user_id, date);
+
+-- 结构化长期记忆（用户偏好/禁忌/关系等）
+CREATE TABLE IF NOT EXISTS user_memories (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  category TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  importance INTEGER DEFAULT 5,
+  evidence TEXT,
+  source_date TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_user
+  ON user_memories(user_id);
+CREATE INDEX IF NOT EXISTS idx_memories_user_category
+  ON user_memories(user_id, category);
+CREATE INDEX IF NOT EXISTS idx_memories_user_importance
+  ON user_memories(user_id, importance DESC);

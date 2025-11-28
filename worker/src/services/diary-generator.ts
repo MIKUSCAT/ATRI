@@ -57,7 +57,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
         ],
         temperature: 0.7
       },
-      { model: 'gpt-4' }
+      { model: 'openai.gpt-5-chat' }
     );
 
     const data = await response.json();
@@ -80,8 +80,8 @@ export async function generateDiaryFromConversation(env: Env, params: {
       }
     }
 
-    // 兜底逻辑：如果解析不到心情，尝试从文本中检测
-    const finalMood = parsed.mood || detectMoodFromDiary(finalContent);
+    // 兜底逻辑：如果解析不到心情，留空（不再做正则匹配）
+    const finalMood = parsed.mood || '';
 
     return {
       content: finalContent,
@@ -105,25 +105,6 @@ function formatDiaryDate(timestamp: number) {
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
   const weekday = weekdays[date.getDay()];
   return `${year}年${month}月${day}日 ${weekday}`;
-}
-
-function detectMoodFromDiary(content: string): string {
-  const text = content || '';
-  const normalized = text.replace(/\s+/g, '');
-  const moodRules: Array<{ keyword: RegExp; label: string }> = [
-    { keyword: /开心|高兴|愉快|雀跃/, label: '开心' },
-    { keyword: /安心|踏实|宁静|平静/, label: '平静' },
-    { keyword: /累|疲惫|疲倦|困/, label: '疲惫' },
-    { keyword: /担心|焦虑|不安/, label: '担心' },
-    { keyword: /难过|失落|想哭|委屈|心疼/, label: '难过' },
-    { keyword: /兴奋|期待|激动/, label: '期待' }
-  ];
-  for (const rule of moodRules) {
-    if (rule.keyword.test(normalized)) {
-      return rule.label;
-    }
-  }
-  return '平静';
 }
 
 function parseDiaryResponse(raw: string): { diary?: string; highlights?: string[]; mood?: string } {

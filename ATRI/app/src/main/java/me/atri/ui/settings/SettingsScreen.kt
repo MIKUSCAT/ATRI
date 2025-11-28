@@ -108,7 +108,7 @@ fun SettingsScreen(
                         value = apiUrl,
                         onValueChange = { apiUrl = it },
                         label = { Text("Worker URL") },
-                        placeholder = { Text("https://atri-worker.2441248911.workers.dev") },
+                        placeholder = { Text("https://your-worker.example.com") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )

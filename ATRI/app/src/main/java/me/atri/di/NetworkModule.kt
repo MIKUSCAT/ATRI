@@ -30,7 +30,8 @@ val networkModule = module {
 
     single {
         val preferencesStore = get<PreferencesStore>()
-        val baseUrl = runBlocking { preferencesStore.apiUrl.first() }.ifEmpty { "https://your-worker.workers.dev" }
+        val baseUrl = runBlocking { preferencesStore.apiUrl.first() }
+            .ifEmpty { "https://your-worker.example.com" }
 
         val json = Json {
             ignoreUnknownKeys = true

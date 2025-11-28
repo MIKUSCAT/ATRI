@@ -7,7 +7,7 @@ import {
 } from '../utils/attachments';
 import { sanitizeText } from '../utils/sanitize';
 import { searchMemories } from '../services/memory-service';
-import { composeSystemPrompt, formatRecentMessages } from '../services/chat-service';
+import { composeSystemPrompt, formatRecentMessages, EmotionContext } from '../services/chat-service';
 import { callChatCompletions, ChatCompletionError } from '../services/openai-service';
 import { pipeChatStream } from '../utils/stream';
 import {
@@ -15,9 +15,15 @@ import {
   ConversationLogRecord,
   fetchConversationLogs,
   fetchConversationLogsSince,
-  getDiaryEntryById
+  getDiaryEntryById,
+  DailyLearningRecord,
+  getRecentDailyLearnings,
+  getTopUserMemories,
+  listDiaryEntries,
+  getLastConversationDate,
+  calculateDaysBetween
 } from '../services/data-service';
-import { DEFAULT_TIMEZONE, formatTimeInZone, resolveDayStartTimestamp } from '../utils/date';
+import { DEFAULT_TIMEZONE, formatTimeInZone, resolveDayStartTimestamp, formatDateInZone } from '../utils/date';
 
 export function registerChatRoutes(router: Router) {
   router.post('/chat', async (request, env: Env) => {
@@ -38,6 +44,7 @@ export function registerChatRoutes(router: Router) {
 
       let relatedMemories: Array<{ key: string; value: string; importance: number }> = [];
       let longTermContext = '';
+      let learningNotes = '';
 
       const dayInfo = resolveDayStartTimestamp(clientTimeIso);
       let workingMemoryTimeline = '';
@@ -78,13 +85,44 @@ export function registerChatRoutes(router: Router) {
       } catch (err) {
         console.warn('[ATRI] memory search skipped:', err);
       }
+
+      try {
+        if (userId) {
+          const learnings = await getRecentDailyLearnings(env, userId, 3);
+          learningNotes = formatDailyLearningNotes(learnings);
+        }
+      } catch (error) {
+        console.warn('[ATRI] learning notes load failed', { userId, error });
+      }
+
+      let structuredMemories: Awaited<ReturnType<typeof getTopUserMemories>> = [];
+      try {
+        if (userId) {
+          structuredMemories = await getTopUserMemories(env, userId, 15);
+        }
+      } catch (error) {
+        console.warn('[ATRI] structured memories load failed', { userId, error });
+      }
+
+      let emotionContext: EmotionContext = {};
+      try {
+        if (userId) {
+          emotionContext = await buildEmotionContext(env, userId, clientTimeIso);
+        }
+      } catch (error) {
+        console.warn('[ATRI] emotion context build failed', { userId, error });
+      }
+
       const systemPrompt = composeSystemPrompt(
         currentStage,
         userName,
         clientTimeIso,
         relatedMemories,
         longTermContext,
-        workingMemoryTimeline
+        workingMemoryTimeline,
+        learningNotes,
+        structuredMemories,
+        emotionContext
       );
 
       const sanitizedUserContent = sanitizeText(String(content || ''));
@@ -127,7 +165,7 @@ export function registerChatRoutes(router: Router) {
         {
           messages,
           stream: true,
-          temperature: 0.7,
+          temperature: 1,
           max_tokens: 4096
         },
         {
@@ -232,4 +270,86 @@ function resolveModelKey(modelKey?: string | null) {
     return modelKey.trim();
   }
   return CHAT_MODEL;
+}
+
+function formatDailyLearningNotes(list: DailyLearningRecord[]) {
+  const notes = Array.isArray(list) ? list : [];
+  if (!notes.length) return '';
+
+  const lines: string[] = [];
+  for (const item of notes) {
+    const date = item.date || '未知日期';
+    let payload: any = {};
+    try {
+      if (item.payload) {
+        payload = JSON.parse(String(item.payload));
+      }
+    } catch (err) {
+      console.warn('[ATRI] learning payload parse failed', err);
+      payload = {};
+    }
+
+    const good = Array.isArray(payload?.self_reflection?.good_moments)
+      ? payload.self_reflection.good_moments[0]
+      : '';
+    const bad = Array.isArray(payload?.self_reflection?.format_issue)
+      ? payload.self_reflection.format_issue[0]
+      : '';
+    const plan = Array.isArray(payload?.tomorrow_plan?.do_less)
+      ? payload.tomorrow_plan.do_less[0]
+      : '';
+    const more = Array.isArray(payload?.tomorrow_plan?.do_more)
+      ? payload.tomorrow_plan.do_more[0]
+      : '';
+
+    const lineParts = [
+      good ? `亮点：${good}` : '',
+      bad ? `问题：${bad}` : '',
+      more ? `明天多做：${more}` : '',
+      plan ? `明天少做：${plan}` : ''
+    ].filter(Boolean);
+
+    const line = lineParts.length
+      ? `【${date}】` + lineParts.join(' ｜ ')
+      : `【${date}】暂无复盘详情`;
+    lines.push(line);
+  }
+
+  return lines.join('\n');
+}
+
+async function buildEmotionContext(
+  env: Env,
+  userId: string,
+  clientTimeIso?: string
+): Promise<EmotionContext> {
+  const ctx: EmotionContext = {};
+
+  const today = formatDateInZone(Date.now(), DEFAULT_TIMEZONE);
+  const lastDate = await getLastConversationDate(env, userId, today);
+  if (lastDate) {
+    ctx.daysSinceChat = calculateDaysBetween(lastDate, today);
+  }
+
+  const recentDiaries = await listDiaryEntries(env, userId, 1);
+  if (recentDiaries.length > 0 && recentDiaries[0].mood) {
+    ctx.lastMood = recentDiaries[0].mood;
+  }
+
+  const learnings = await getRecentDailyLearnings(env, userId, 1);
+  if (learnings.length > 0 && learnings[0].payload) {
+    try {
+      const payload = JSON.parse(String(learnings[0].payload));
+      if (Array.isArray(payload?.self_reflection?.bad_moments)) {
+        ctx.recentBadMoments = payload.self_reflection.bad_moments.slice(0, 2);
+      }
+      if (Array.isArray(payload?.self_reflection?.good_moments)) {
+        ctx.recentGoodMoments = payload.self_reflection.good_moments.slice(0, 2);
+      }
+    } catch (err) {
+      // ignore parse error
+    }
+  }
+
+  return ctx;
 }

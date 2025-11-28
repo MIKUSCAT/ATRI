@@ -130,7 +130,7 @@ ATRI/
 
 Worker 所有路由都依赖共享提示词（`src/config/prompts.json`）和封装好的工具：
 - `services/openai-service.ts`：统一封装 ChatCompletions 请求与错误处理。
-- `services/memory-service.ts`：调用 SiliconFlow embeddings，写入 / 查询 Vectorize。
+- `services/memory-service.ts`：调用自定义的 Embedding API，写入 / 查询 Vectorize。
 - `utils/sanitize.ts`：统一清洗输入，避免脏字符或 ID 过长。
 
 `wrangler.toml` 内定义了 Vectorize/R2 绑定、开放 API URL、embedding 模型等。部署时可以在 Cloudflare Dashboard 配置自定义域名。
@@ -168,7 +168,8 @@ npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put EMBEDDINGS_API_KEY
 npm run deploy
 ```
-部署成功后记下 Worker URL（示例 `https://atri-worker.<your-subdomain>.workers.dev`），或在 Dashboard 为其绑定自定义域名。
+部署成功后记下 Worker URL（示例 `https://atri-worker.<your-subdomain>.workers.dev`），或在 Dashboard 为其绑定自定义域名。  
+> 提示：开源仓库里 `wrangler.toml` 仅提供占位信息，记得把 `account_id`、Vectorize/R2/D1 的名称与 `database_id` 换成你自己的 Cloudflare 资源，再写入对应的 API Key。
 
 ### 7.2 构建 Android 客户端
 ```bash
@@ -179,7 +180,7 @@ python ../scripts/sync_shared.py   # 同步提示词
 调试时可直接在 Android Studio 里运行 `app` 模块。首次进入会提示你填写昵称，然后可以在设置页输入 Worker URL。
 
 ### 7.3 手机端配置
-1. 打开设置页，填入 Worker URL（必须是 https）。
+1. 打开设置页，填入 Worker URL（必须是 https，APP 默认写了 `https://your-worker.example.com` 作为占位，记得换成你自己的地址）。
 2. 若想"清空记忆"，点击同页的按钮即可删除本地聊天/日记并重新生成一个新的 userId，之后的对话会以全新身份存储。
 3. 保存后返回聊天界面即可使用。日记需要在「日记」页手动点击生成。
 
@@ -217,7 +218,7 @@ python ../scripts/sync_shared.py   # 同步提示词
    - 在 APP 里实现"从云端同步日记"。
 
 4. **向量检索不到结果？**
-   检查 `EMBEDDINGS_API_KEY`，确认 Worker 能访问 SiliconFlow。也可在日志中查看 `Embeddings API error`。
+   检查 `EMBEDDINGS_API_KEY` 与 `EMBEDDINGS_API_URL` 是否填写正确，并确认 Cloudflare Worker 能访问你选择的向量服务。遇到报错可在日志中搜索 `Embeddings API error`。
 
 5. **提示词修改没生效？**
    是否运行了 `scripts/sync_shared.py`？若没同步，APP 和 Worker 读到的还是旧版本。
