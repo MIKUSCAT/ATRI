@@ -124,7 +124,7 @@ npx wrangler secret put APP_TOKEN
 
 ### Step 2: Install the App
 
-Download the pre-built APK from `dist/ATRI.apk`, or build from source in `ATRI/`.
+Download the pre-built APK: [`app-debug.apk`](app-debug.apk), or build from source in `ATRI/`.
 
 ### Step 3: Configure & Chat
 
@@ -215,9 +215,9 @@ Download the pre-built APK from `dist/ATRI.apk`, or build from source in `ATRI/`
 ## 📚 Learn More
 
 | Resource | Content |
-|----------|---------|
-| `TECH_ARCHITECTURE_BLUEPRINT.md` | Architecture, API, storage, extensions |
-| `shared/prompts.json` | Character prompts and personality definitions |
+|:---------|:--------|
+| [`TECH_ARCHITECTURE_BLUEPRINT.md`](TECH_ARCHITECTURE_BLUEPRINT.md) | Architecture, API, storage, extensions |
+| [`shared/prompts.json`](shared/prompts.json) | Character prompts and personality definitions |
 
 ---
 

@@ -121,13 +121,9 @@ npx wrangler secret put APP_TOKEN
 
 ### 2️⃣ 安装 Android 客户端
 
-仓库中提供了预编译的安装包：
+仓库中提供了预编译的安装包：[`app-debug.apk`](app-debug.apk)
 
-```
-dist/ATRI.apk
-```
-
-直接传到手机安装即可。开发者也可以在 `ATRI/` 目录下自行编译。
+直接下载传到手机安装即可。开发者也可以在 `ATRI/` 目录下自行编译。
 
 ### 3️⃣ 首次配置
 
@@ -203,9 +199,9 @@ dist/ATRI.apk
 ## 📚 进一步了解
 
 | 文档 | 内容 |
-|------|------|
-| `TECH_ARCHITECTURE_BLUEPRINT.md` | 工程架构、数据流、API 设计、扩展指南 |
-| `shared/prompts.json` | 人格定义、日记生成、记忆系统提示词 |
+|:-----|:-----|
+| [`TECH_ARCHITECTURE_BLUEPRINT.md`](TECH_ARCHITECTURE_BLUEPRINT.md) | 工程架构、数据流、API 设计、扩展指南 |
+| [`shared/prompts.json`](shared/prompts.json) | 人格定义、日记生成、记忆系统提示词 |
 
 ---
 
