@@ -144,11 +144,18 @@ class ChatRepository(
         }
     }
 
-    suspend fun persistAtriMessage(finalMessage: MessageEntity) = withContext(Dispatchers.IO) {
+    suspend fun persistAtriMessage(finalMessage: MessageEntity, mood: BioChatResponse.Mood? = null) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
+        // 将 PAD 状态转换为 JSON 字符串存储
+        val moodJson = if (mood != null) {
+            """{"p":${mood.p},"a":${mood.a},"d":${mood.d}}"""
+        } else {
+            null
+        }
         val sanitized = finalMessage.copy(
             content = cleanedContent,
-            attachments = finalMessage.attachments
+            attachments = finalMessage.attachments,
+            mood = moodJson
         )
         val existing = messageDao.getMessageById(sanitized.id)
 
@@ -162,7 +169,8 @@ class ChatRepository(
                 newAttachments = sanitized.attachments,
                 thinkingContent = sanitized.thinkingContent,
                 thinkingStartTime = sanitized.thinkingStartTime,
-                thinkingEndTime = sanitized.thinkingEndTime
+                thinkingEndTime = sanitized.thinkingEndTime,
+                mood = moodJson
             )
         }
 
@@ -176,7 +184,8 @@ class ChatRepository(
             role = "atri",
             content = persisted.content,
             timestamp = persisted.timestamp,
-            attachments = persisted.attachments
+            attachments = persisted.attachments,
+            mood = persisted.mood
         )
     }
 
@@ -267,7 +276,8 @@ class ChatRepository(
         newAttachments: List<Attachment>,
         thinkingContent: String? = null,
         thinkingStartTime: Long? = null,
-        thinkingEndTime: Long? = null
+        thinkingEndTime: Long? = null,
+        mood: String? = null
     ): MessageEntity {
         val existingVersions = messageVersionDao.getVersions(message.id)
         if (existingVersions.isEmpty()) {
@@ -302,7 +312,8 @@ class ChatRepository(
                 totalVersions = newVersionIndex + 1,
                 thinkingContent = thinkingContent,
                 thinkingStartTime = thinkingStartTime,
-                thinkingEndTime = thinkingEndTime
+                thinkingEndTime = thinkingEndTime,
+                mood = mood
             )
         } else {
             message.copy(
@@ -310,7 +321,8 @@ class ChatRepository(
                 attachments = newAttachments,
                 thinkingContent = thinkingContent,
                 thinkingStartTime = thinkingStartTime,
-                thinkingEndTime = thinkingEndTime
+                thinkingEndTime = thinkingEndTime,
+                mood = mood
             )
         }
 
@@ -457,7 +469,8 @@ class ChatRepository(
         role: String,
         content: String,
         timestamp: Long,
-        attachments: List<Attachment>
+        attachments: List<Attachment>,
+        mood: String? = null
     ) {
         if (content.isBlank()) return
         val date = Instant.ofEpochMilli(timestamp)
@@ -473,7 +486,8 @@ class ChatRepository(
             attachments = attachments.map { it.toPayload() },
             userName = userName,
             timeZone = zoneId.id,
-            date = date
+            date = date,
+            mood = mood
         )
         runCatching {
             val response = apiService.logConversation(request)

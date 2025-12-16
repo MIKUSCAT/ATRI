@@ -23,7 +23,7 @@ import me.atri.data.db.entity.MessageVersionEntity
         DiaryEntity::class,
         MemoryEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(AttachmentTypeConverters::class)
@@ -108,6 +108,14 @@ abstract class AtriDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 5 to 6
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 添加 mood 字段到 messages 表
+                db.execSQL("ALTER TABLE messages ADD COLUMN mood TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AtriDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -119,7 +127,8 @@ abstract class AtriDatabase : RoomDatabase() {
                         MIGRATION_1_2,
                         MIGRATION_2_3,
                         MIGRATION_3_4,
-                        MIGRATION_4_5
+                        MIGRATION_4_5,
+                        MIGRATION_5_6
                     )
                     // 仅在开发阶段保留，生产环境应移除
                     // .fallbackToDestructiveMigration()
