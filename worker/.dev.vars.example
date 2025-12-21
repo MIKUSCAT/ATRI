@@ -1,0 +1,11 @@
+# For local development only (wrangler dev)
+# Copy to .dev.vars and fill in values.
+# DO NOT commit .dev.vars
+
+OPENAI_API_KEY=
+EMBEDDINGS_API_KEY=
+
+# Optional
+DIARY_API_KEY=
+ADMIN_API_KEY=
+APP_TOKEN=

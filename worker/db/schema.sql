@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   attachments TEXT,
+  mood TEXT,
   timestamp INTEGER NOT NULL,
   user_name TEXT,
   time_zone TEXT,
@@ -53,6 +54,14 @@ CREATE TABLE IF NOT EXISTS user_settings (
 
 -- 用户长期档案（事实/喜好/雷区/说话风格/关系进展）
 CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id TEXT PRIMARY KEY,
+  content TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- ATRI 说话方式自我审查表（仅 ATRI 自己看，每天更新一份）
+CREATE TABLE IF NOT EXISTS atri_self_reviews (
   user_id TEXT PRIMARY KEY,
   content TEXT,
   created_at INTEGER NOT NULL,

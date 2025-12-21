@@ -10,6 +10,7 @@ export type ConversationLogInput = {
   content: string;
   timestamp?: number;
   attachments?: unknown[];
+  mood?: string;
   userName?: string;
   timeZone?: string;
   date?: string;
@@ -22,6 +23,7 @@ export type ConversationLogRecord = {
   role: ConversationRole;
   content: string;
   attachments: unknown[];
+  mood?: string;
   timestamp: number;
   userName?: string;
   timeZone?: string;
@@ -53,6 +55,13 @@ export type UserProfileRecord = {
   updatedAt: number;
 };
 
+export type AtriSelfReviewRecord = {
+  userId: string;
+  content?: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type PadValues = [number, number, number];
 
 export type UserStateRecord = {
@@ -72,14 +81,15 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
   const attachments = payload.attachments ?? [];
   await env.ATRI_DB.prepare(
     `INSERT INTO conversation_logs
-        (id, user_id, date, role, content, attachments, timestamp, user_name, time_zone, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, date, role, content, attachments, mood, timestamp, user_name, time_zone, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        user_id = excluded.user_id,
        date = excluded.date,
        role = excluded.role,
        content = excluded.content,
        attachments = excluded.attachments,
+       mood = excluded.mood,
        timestamp = excluded.timestamp,
        user_name = excluded.user_name,
        time_zone = excluded.time_zone`
@@ -91,6 +101,7 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
       payload.role,
       payload.content,
       JSON.stringify(attachments),
+      payload.mood ?? null,
       timestamp,
       payload.userName ?? null,
       timeZone,
@@ -102,7 +113,7 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
 
 export async function fetchConversationLogs(env: Env, userId: string, date: string): Promise<ConversationLogRecord[]> {
   const result = await env.ATRI_DB.prepare(
-    `SELECT id, user_id as userId, date, role, content, attachments, timestamp, user_name as userName, time_zone as timeZone
+    `SELECT id, user_id as userId, date, role, content, attachments, mood, timestamp, user_name as userName, time_zone as timeZone
      FROM conversation_logs
      WHERE user_id = ? AND date = ?
      ORDER BY timestamp ASC`
@@ -122,7 +133,7 @@ export async function fetchConversationLogsSince(
   startTimestamp: number
 ): Promise<ConversationLogRecord[]> {
   const result = await env.ATRI_DB.prepare(
-    `SELECT id, user_id as userId, date, role, content, attachments, timestamp, user_name as userName, time_zone as timeZone
+    `SELECT id, user_id as userId, date, role, content, attachments, mood, timestamp, user_name as userName, time_zone as timeZone
      FROM conversation_logs
      WHERE user_id = ? AND timestamp >= ?
      ORDER BY timestamp ASC`
@@ -301,6 +312,35 @@ export async function saveUserProfile(env: Env, params: {
   const cleaned = (params.content || '').trim();
   await env.ATRI_DB.prepare(
     `INSERT INTO user_profiles (user_id, content, created_at, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       content = excluded.content,
+       updated_at = excluded.updated_at`
+  )
+    .bind(params.userId, cleaned, now, now)
+    .run();
+  return { userId: params.userId, updatedAt: now };
+}
+
+export async function getAtriSelfReview(env: Env, userId: string): Promise<AtriSelfReviewRecord | null> {
+  const row = await env.ATRI_DB.prepare(
+    `SELECT user_id as userId, content, created_at as createdAt, updated_at as updatedAt
+     FROM atri_self_reviews
+     WHERE user_id = ?`
+  )
+    .bind(userId)
+    .first<AtriSelfReviewRecord>();
+  return row ?? null;
+}
+
+export async function saveAtriSelfReview(env: Env, params: {
+  userId: string;
+  content: string;
+}) {
+  const now = Date.now();
+  const cleaned = (params.content || '').trim();
+  await env.ATRI_DB.prepare(
+    `INSERT INTO atri_self_reviews (user_id, content, created_at, updated_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        content = excluded.content,

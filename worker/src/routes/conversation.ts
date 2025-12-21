@@ -37,6 +37,7 @@ export function registerConversationRoutes(router: Router) {
         role: role as 'user' | 'atri',
         content: cleanedContent,
         attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
+        mood: typeof body.mood === 'string' ? body.mood : undefined,
         timestamp: typeof body.timestamp === 'number' ? body.timestamp : undefined,
         userName: typeof body.userName === 'string' ? body.userName : undefined,
         timeZone: typeof body.timeZone === 'string' ? body.timeZone : undefined,

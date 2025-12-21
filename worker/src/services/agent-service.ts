@@ -14,6 +14,7 @@ import {
   fetchConversationLogsSince,
   getDiaryEntryById,
   getFirstConversationTimestamp,
+  getAtriSelfReview,
   getUserProfile,
   getUserState,
   saveUserState,
@@ -64,6 +65,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
       ? workingMemory
       : buildWorkingMemoryFromRecentMessages(params.recentMessages, params.userName);
   const userProfileSnippet = await loadUserProfileSnippet(env, params.userId);
+  const selfReviewSnippet = await loadAtriSelfReviewSnippet(env, params.userId);
   let firstConversationAt: number | null = null;
   try {
     firstConversationAt = await getFirstConversationTimestamp(env, params.userId);
@@ -85,7 +87,8 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
     workingMemoryTimeline: workingMemoryOrRecent,
-    userProfileSnippet
+    userProfileSnippet,
+    selfReviewSnippet
   });
 
   const userContentParts = buildUserContentParts({
@@ -115,7 +118,13 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     model: params.model,
     userId: params.userId,
     userName: params.userName,
-    state: touchedState
+    state: touchedState,
+    platform: params.platform,
+    clientTimeIso: params.clientTimeIso,
+    workingMemoryTimeline: workingMemoryOrRecent,
+    userProfileSnippet,
+    selfReviewSnippet,
+    firstConversationAt: firstConversationAt ?? undefined
   });
 
   const finalState = {
@@ -157,6 +166,7 @@ function composeAgentSystemPrompt(params: {
   clientTimeIso?: string;
   workingMemoryTimeline?: string;
   userProfileSnippet?: string;
+  selfReviewSnippet?: string;
 }) {
   const [p, a, d] = params.padValues;
   const template = prompts.agent?.system || '';
@@ -213,6 +223,11 @@ function composeAgentSystemPrompt(params: {
     basePrompt = `${basePrompt}\n\n## 我对这个人的长期理解\n${profileText}`;
   }
 
+  const selfReviewText = params.selfReviewSnippet?.trim();
+  if (selfReviewText) {
+    basePrompt = `${basePrompt}\n\n## 我自己的说话提醒（只给我自己看，不要直接复述给对方）\n${selfReviewText}`;
+  }
+
   return basePrompt;
 }
 
@@ -227,6 +242,54 @@ async function loadUserProfileSnippet(env: Env, userId: string) {
     console.warn('[ATRI] user profile加载失败', { userId, error });
     return '';
   }
+}
+
+async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
+  try {
+    const record = await getAtriSelfReview(env, userId);
+    if (!record?.content) {
+      return '';
+    }
+    return buildAtriSelfReviewSnippet(record.content);
+  } catch (error) {
+    console.warn('[ATRI] self review加载失败', { userId, error });
+    return '';
+  }
+}
+
+function buildAtriSelfReviewSnippet(content: string) {
+  const trimmed = String(content || '').trim();
+  if (!trimmed) return '';
+
+  let data: any;
+  try {
+    data = JSON.parse(trimmed);
+  } catch {
+    return '';
+  }
+
+  const rows = Array.isArray(data?.["表格"]) ? data["表格"] : [];
+  const map = new Map<string, any>();
+  for (const row of rows) {
+    const dim = String(row?.["维度"] || '').trim();
+    if (dim) {
+      map.set(dim, row);
+    }
+  }
+
+  const order = ['语气', '长度', '提问方式', '共情回应', '主动程度', '口癖重复'];
+  const lines: string[] = [];
+  for (const dim of order) {
+    const row = map.get(dim);
+    const improvement = String(row?.["改进"] || '').trim();
+    if (improvement) {
+      lines.push(`${dim}：${improvement}`);
+    }
+    if (lines.length >= 6) break;
+  }
+
+  if (!lines.length) return '';
+  return lines.map(line => `- ${line}`).join('\n');
 }
 
 function buildUserProfileSnippet(content: string) {
@@ -320,6 +383,12 @@ async function runToolLoop(env: Env, params: {
   userId: string;
   userName?: string;
   state: any;
+  platform?: string;
+  clientTimeIso?: string;
+  workingMemoryTimeline?: string;
+  userProfileSnippet?: string;
+  selfReviewSnippet?: string;
+  firstConversationAt?: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
 
@@ -332,7 +401,7 @@ async function runToolLoop(env: Env, params: {
           messages: params.messages,
           tools: AGENT_TOOLS,
           tool_choice: 'auto',
-          temperature: 0.7,
+          temperature: 1.0,
           stream: false,
           max_tokens: 4096
         },
@@ -368,6 +437,21 @@ async function runToolLoop(env: Env, params: {
           content: result.output
         });
       }
+
+      // ✨ 修复：在继续循环前，用最新的 latestState 重新生成 System Prompt
+      const updatedSystemPrompt = composeAgentSystemPrompt({
+        padValues: latestState.padValues,
+        intimacy: latestState.intimacy,
+        firstInteractionAt: params.firstConversationAt,
+        userName: params.userName,
+        platform: params.platform,
+        clientTimeIso: params.clientTimeIso,
+        workingMemoryTimeline: params.workingMemoryTimeline,
+        userProfileSnippet: params.userProfileSnippet,
+        selfReviewSnippet: params.selfReviewSnippet
+      });
+      params.messages[0].content = updatedSystemPrompt;
+
       continue;
     }
 

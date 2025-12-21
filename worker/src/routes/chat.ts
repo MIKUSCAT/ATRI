@@ -4,6 +4,7 @@ import { jsonResponse } from '../utils/json-response';
 import { normalizeAttachmentList } from '../utils/attachments';
 import { sanitizeText } from '../utils/sanitize';
 import { runAgentChat } from '../services/agent-service';
+import { saveUserModelPreference } from '../services/data-service';
 import { requireAppToken } from '../utils/auth';
 
 interface ChatRequestBody {
@@ -67,6 +68,15 @@ export function registerChatRoutes(router: Router) {
       const messageText = sanitizeText(parsed.content);
       if (!messageText) {
         return jsonResponse({ error: 'invalid_request', message: 'content cannot be empty' }, 400);
+      }
+
+      // 记录用户当前使用的对话模型，供 Cron 的日记/档案/自查任务复用
+      if (parsed.modelKey) {
+        try {
+          await saveUserModelPreference(env, parsed.userId, parsed.modelKey);
+        } catch (err) {
+          console.warn('[ATRI] save user model preference failed', { userId: parsed.userId, err });
+        }
       }
 
       const result = await runAgentChat(env, {

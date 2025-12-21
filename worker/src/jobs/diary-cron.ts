@@ -6,14 +6,18 @@ import {
   saveDiaryEntry,
   getLastConversationDate,
   calculateDaysBetween,
+  getFirstConversationTimestamp,
   getUserModelPreference,
   getUserProfile,
-  saveUserProfile
+  saveUserProfile,
+  getAtriSelfReview,
+  saveAtriSelfReview
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryMemory } from '../services/memory-service';
 import { generateUserProfile } from '../services/profile-generator';
+import { generateAtriSelfReview } from '../services/self-review-generator';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
   const date = targetDate || formatDateInZone(Date.now(), DEFAULT_TIMEZONE);
@@ -31,6 +35,11 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
 
       const lastDate = await getLastConversationDate(env, user.userId, date);
       const daysSince = lastDate ? calculateDaysBetween(lastDate, date) : null;
+      const firstConversationAt = await getFirstConversationTimestamp(env, user.userId);
+      const firstDate = firstConversationAt
+        ? formatDateInZone(firstConversationAt, user.timeZone || DEFAULT_TIMEZONE)
+        : null;
+      const daysTogether = firstDate ? Math.max(1, calculateDaysBetween(firstDate, date) + 1) : 1;
 
       let preferredModel: string | null = null;
       try {
@@ -80,6 +89,23 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         await saveUserProfile(env, { userId: user.userId, content: profile.raw });
       } catch (err) {
         console.warn('[ATRI] User profile update skipped', { userId: user.userId, date, err });
+      }
+
+      // 生成并保存 ATRI 自我审查表（只给 ATRI 自己看，用于下一次对话的“隐藏提醒”）
+      try {
+        const previousSelfReview = await getAtriSelfReview(env, user.userId);
+        const selfReview = await generateAtriSelfReview(env, {
+          transcript,
+          diaryContent: diary.content,
+          date,
+          daysTogether,
+          userName: user.userName || '这个人',
+          previousSelfReview: previousSelfReview?.content || '',
+          modelKey: preferredModel
+        });
+        await saveAtriSelfReview(env, { userId: user.userId, content: selfReview.raw });
+      } catch (err) {
+        console.warn('[ATRI] Self review update skipped', { userId: user.userId, date, err });
       }
 
       console.log('[ATRI] Diary auto generated for', user.userId, date);
