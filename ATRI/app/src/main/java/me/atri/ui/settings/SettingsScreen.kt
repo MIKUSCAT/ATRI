@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -159,6 +160,27 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !uiState.modelsLoading && modelName != uiState.modelName
                     ) { Text("保存模型") }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "流式输出",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "实时显示 AI 回复（实验性功能）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = uiState.streamEnabled,
+                            onCheckedChange = { viewModel.updateStreamEnabled(it) }
+                        )
+                    }
                 }
             }
 

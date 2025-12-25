@@ -18,6 +18,7 @@ data class SettingsUiState(
     val modelName: String = "",
     val userId: String = "",
     val appToken: String = "",
+    val streamEnabled: Boolean = false,
     val isLoading: Boolean = false,
     val isClearing: Boolean = false,
     val statusMessage: String? = null,
@@ -73,6 +74,11 @@ class SettingsViewModel(
                 _uiState.update { it.copy(appToken = token) }
             }
         }
+        viewModelScope.launch {
+            preferencesStore.streamEnabled.collect { enabled ->
+                _uiState.update { it.copy(streamEnabled = enabled) }
+            }
+        }
     }
 
     fun updateApiUrl(url: String) {
@@ -101,6 +107,12 @@ class SettingsViewModel(
         viewModelScope.launch {
             preferencesStore.setAppToken(token.trim())
             _uiState.update { it.copy(statusMessage = "已保存鉴权 Token") }
+        }
+    }
+
+    fun updateStreamEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesStore.setStreamEnabled(enabled)
         }
     }
 

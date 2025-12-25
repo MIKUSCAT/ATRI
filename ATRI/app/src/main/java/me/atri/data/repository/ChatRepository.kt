@@ -367,6 +367,7 @@ class ChatRepository(
         val ensuredUserId = userId ?: preferencesStore.ensureUserId()
         val userName = preferencesStore.userName.first()
         val preferredModel = preferencesStore.modelName.first().takeIf { it.isNotBlank() }
+        val streamEnabled = preferencesStore.streamEnabled.first()
         val requestContent = content
         val compatImage = attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url
         val resolvedInlineImage = inlineImageDataUrl?.takeIf { it.isNotBlank() }
@@ -385,7 +386,8 @@ class ChatRepository(
             attachments = requestAttachments.map { it.toPayload() },
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
-            modelKey = preferredModel
+            modelKey = preferredModel,
+            stream = if (streamEnabled) true else null
         )
     }
 

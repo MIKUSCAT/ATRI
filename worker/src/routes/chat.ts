@@ -17,6 +17,7 @@ interface ChatRequestBody {
   modelKey?: string;
   imageUrl?: string;
   attachments?: AttachmentPayload[];
+  stream?: boolean;
 }
 
 function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null {
@@ -44,7 +45,8 @@ function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null
     clientTimeIso: getString(body, ['clientTimeIso', 'client_time']),
     modelKey: getString(body, ['modelKey', 'model']),
     imageUrl,
-    attachments
+    attachments,
+    stream: body.stream === true
   };
 }
 
@@ -105,8 +107,14 @@ export function registerChatRoutes(router: Router) {
         attachments: parsed.attachments || [],
         inlineImage: parsed.imageUrl,
         model: resolveModelKey(parsed.modelKey),
-        logId: parsed.logId
+        logId: parsed.logId,
+        stream: parsed.stream
       });
+
+      // 如果是流式响应，直接返回 Response
+      if (result instanceof Response) {
+        return result;
+      }
       return jsonResponse(result);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
