@@ -15,7 +15,8 @@ data class DiaryUiState(
     val entries: List<DiaryEntryDto> = emptyList(),
     val error: String? = null,
     val selectedEntry: DiaryEntryDto? = null,
-    val isRefreshingEntry: Boolean = false
+    val isRefreshingEntry: Boolean = false,
+    val isRegeneratingEntry: Boolean = false
 )
 
 class DiaryViewModel(
@@ -65,6 +66,27 @@ class DiaryViewModel(
                     entries = newList,
                     selectedEntry = updatedEntry ?: state.selectedEntry,
                     isRefreshingEntry = false,
+                    error = result.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
+    fun regenerateEntry(date: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRegeneratingEntry = true, error = null) }
+            val result = diaryRepository.regenerateDiary(date)
+            _uiState.update { state ->
+                val updatedEntry = result.getOrNull()
+                val newList = if (updatedEntry != null) {
+                    state.entries.map { if (it.date == updatedEntry.date) updatedEntry else it }
+                } else {
+                    state.entries
+                }
+                state.copy(
+                    entries = newList,
+                    selectedEntry = updatedEntry ?: state.selectedEntry,
+                    isRegeneratingEntry = false,
                     error = result.exceptionOrNull()?.message
                 )
             }

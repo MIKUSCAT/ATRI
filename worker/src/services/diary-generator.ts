@@ -1,5 +1,5 @@
 import prompts from '../config/prompts.json';
-import { Env } from '../types';
+import { Env, CHAT_MODEL } from '../types';
 import { sanitizeText } from '../utils/sanitize';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 
@@ -12,11 +12,32 @@ export type DiaryGenerationResult = {
   highlights: string[];
 };
 
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries: number = 2,
+  delayMs: number = 1000
+): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (i < retries) {
+        await new Promise(resolve => setTimeout(resolve, delayMs * (i + 1)));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function generateDiaryFromConversation(env: Env, params: {
   conversation: string;
   userName?: string;
+  date?: string;
   timestamp?: number;
   daysSinceLastChat?: number | null;
+  modelKey?: string | null;
 }) {
   const cleanedConversation = sanitizeText(params.conversation).trim();
   if (!cleanedConversation) {
@@ -27,7 +48,8 @@ export async function generateDiaryFromConversation(env: Env, params: {
   const limitedConversation = cleanedConversation;
 
   const timestamp = typeof params.timestamp === 'number' ? params.timestamp : Date.now();
-  const formattedDate = formatDiaryDate(timestamp);
+  const dateKey = typeof params.date === 'string' ? params.date.trim() : '';
+  const formattedDate = dateKey ? formatDiaryDateFromIsoDate(dateKey) : formatDiaryDate(timestamp);
 
   let daysSinceInfo = '';
   if (params.daysSinceLastChat === null || params.daysSinceLastChat === undefined) {
@@ -48,17 +70,25 @@ export async function generateDiaryFromConversation(env: Env, params: {
     .replace(/\{conversation\}/g, limitedConversation)
     .replace(/\{daysSinceInfo\}/g, daysSinceInfo);
   try {
-    const response = await callChatCompletions(
+    const diaryApiUrl = typeof env.DIARY_API_URL === 'string' ? env.DIARY_API_URL.trim() : '';
+    const diaryApiKey = typeof env.DIARY_API_KEY === 'string' ? env.DIARY_API_KEY.trim() : '';
+    const response = await withRetry(() => callChatCompletions(
       env,
       {
         messages: [
           { role: 'system', content: diaryPrompts.system },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7
+        temperature: 0.7,
+        max_tokens: 4096
       },
-      { model: 'openai.gpt-5-chat' }
-    );
+      {
+        model: resolveDiaryModel(env, params.modelKey),
+        apiUrl: diaryApiUrl || undefined,
+        apiKey: diaryApiKey || undefined,
+        timeoutMs: 120000
+      }
+    ));
 
     const data = await response.json();
     const rawContent = data.choices?.[0]?.message?.content || '';
@@ -97,6 +127,12 @@ export async function generateDiaryFromConversation(env: Env, params: {
   }
 }
 
+function resolveDiaryModel(env: Env, modelKey?: string | null) {
+  const trimmed = typeof modelKey === 'string' ? modelKey.trim() : '';
+  const envModel = typeof env.DIARY_MODEL === 'string' ? env.DIARY_MODEL.trim() : '';
+  return trimmed || envModel || CHAT_MODEL;
+}
+
 function formatDiaryDate(timestamp: number) {
   const date = new Date(timestamp);
   const year = date.getFullYear();
@@ -104,6 +140,20 @@ function formatDiaryDate(timestamp: number) {
   const day = date.getDate();
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
   const weekday = weekdays[date.getDay()];
+  return `${year}年${month}月${day}日 ${weekday}`;
+}
+
+function formatDiaryDateFromIsoDate(dateStr: string) {
+  const match = String(dateStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return dateStr || '';
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const weekday = weekdays[date.getUTCDay()];
   return `${year}年${month}月${day}日 ${weekday}`;
 }
 

@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import me.atri.data.api.AtriApiService
+import me.atri.data.api.request.DiaryRegenerateRequest
 import me.atri.data.api.response.DiaryEntryDto
 import me.atri.data.datastore.PreferencesStore
 import me.atri.data.db.dao.DiaryDao
@@ -39,6 +40,34 @@ class DiaryRepository(
             val body = response.body()
             if (body == null || body.status == "missing") {
                 return@withContext Result.success(null)
+            }
+            Result.success(body.entry)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun regenerateDiary(date: String): Result<DiaryEntryDto?> = withContext(Dispatchers.IO) {
+        try {
+            val userId = preferencesStore.ensureUserId()
+            val response = apiService.regenerateDiary(DiaryRegenerateRequest(userId = userId, date = date))
+            if (!response.isSuccessful) {
+                val message = when (response.code()) {
+                    401, 403 -> "鉴权失败，请检查 X-App-Token"
+                    404 -> "当天没有聊天记录，无法重生成"
+                    else -> "重新生成失败: ${response.code()}"
+                }
+                return@withContext Result.failure(Exception(message))
+            }
+            val body = response.body()
+            if (body == null) {
+                return@withContext Result.failure(Exception("重新生成失败: 空响应"))
+            }
+            if (body.status == "missing") {
+                return@withContext Result.success(null)
+            }
+            if (body.status == "error") {
+                return@withContext Result.failure(Exception(body.error ?: "重新生成失败"))
             }
             Result.success(body.entry)
         } catch (e: Exception) {
