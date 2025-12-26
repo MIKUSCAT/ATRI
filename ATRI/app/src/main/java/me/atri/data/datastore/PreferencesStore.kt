@@ -25,7 +25,6 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
         private val MODEL_NAME = stringPreferencesKey("model_name")
         private val ATRI_AVATAR_PATH = stringPreferencesKey("atri_avatar_path")
         private val LAST_CHAT_DATE = stringPreferencesKey("last_chat_date")
-        private val STREAM_ENABLED = booleanPreferencesKey("stream_enabled")
     }
 
     val userId: Flow<String> = dataStore.data.map { it[USER_ID] ?: "" }
@@ -39,7 +38,6 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
     val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "gpt-4" }
     val atriAvatarPath: Flow<String> = dataStore.data.map { it[ATRI_AVATAR_PATH] ?: "" }
     val lastConversationDate: Flow<String> = dataStore.data.map { it[LAST_CHAT_DATE] ?: "" }
-    val streamEnabled: Flow<Boolean> = dataStore.data.map { it[STREAM_ENABLED] ?: false }
 
     suspend fun ensureUserId(): String {
         val current = dataStore.data.first()[USER_ID]
@@ -106,9 +104,5 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setLastConversationDate(date: String) {
         dataStore.edit { it[LAST_CHAT_DATE] = date }
-    }
-
-    suspend fun setStreamEnabled(enabled: Boolean) {
-        dataStore.edit { it[STREAM_ENABLED] = enabled }
     }
 }

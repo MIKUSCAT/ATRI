@@ -1,7 +1,8 @@
 import prompts from '../config/prompts.json';
 import { Env, CHAT_MODEL } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
+import { ChatCompletionError } from './openai-service';
+import { callChatCompletionsUnified } from './gemini-service';
 
 const diaryPrompts = prompts.diary;
 
@@ -70,7 +71,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
   try {
     const diaryApiUrl = typeof env.DIARY_API_URL === 'string' ? env.DIARY_API_URL.trim() : '';
     const diaryApiKey = typeof env.DIARY_API_KEY === 'string' ? env.DIARY_API_KEY.trim() : '';
-    const response = await withRetry(() => callChatCompletions(
+    const response = await withRetry(() => callChatCompletionsUnified(
       env,
       {
         messages: [

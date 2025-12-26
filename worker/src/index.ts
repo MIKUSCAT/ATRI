@@ -4,7 +4,9 @@ import { registerChatRoutes } from './routes/chat';
 import { registerDiaryRoutes } from './routes/diary';
 import { registerConversationRoutes } from './routes/conversation';
 import { registerAdminRoutes } from './routes/admin';
+import { registerProactiveRoutes } from './routes/proactive';
 import { runDiaryCron } from './jobs/diary-cron';
+import { runProactiveCron } from './jobs/proactive-cron';
 import { Env } from './types';
 import { registerModelRoutes } from './routes/models';
 
@@ -16,6 +18,7 @@ registerDiaryRoutes(router);
 registerConversationRoutes(router);
 registerAdminRoutes(router);
 registerModelRoutes(router);
+registerProactiveRoutes(router);
 
 router.options('*', () => {
   return new Response(null, {
@@ -32,6 +35,9 @@ router.all('*', () => new Response('Not Found', { status: 404 }));
 export default {
   fetch: router.fetch,
   scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(runDiaryCron(env));
+    ctx.waitUntil(Promise.all([
+      runDiaryCron(env),
+      runProactiveCron(env)
+    ]));
   }
 };

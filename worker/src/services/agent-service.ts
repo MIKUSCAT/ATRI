@@ -35,7 +35,6 @@ type AgentChatParams = {
   userName?: string;
   clientTimeIso?: string;
   logId?: string;
-  stream?: boolean;
 };
 
 type AgentChatResult = {
@@ -43,7 +42,7 @@ type AgentChatResult = {
   mood: { p: number; a: number; d: number };
   action: string | null;
   intimacy: number;
-} | Response;
+};
 
 type AgentToolCall = {
   id: string;
@@ -54,7 +53,7 @@ type AgentToolCall = {
   };
 };
 
-export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult | Response> {
+export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult> {
   const contextDate = await resolveConversationDateForChat(env, {
     userId: params.userId,
     clientTimeIso: params.clientTimeIso,
@@ -128,7 +127,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
         : { role: 'user', content: userContentParts }
   );
 
-  const { reply, state, streamResponse } = await runToolLoop(env, {
+  const { reply, state } = await runToolLoop(env, {
     messages,
     model: params.model,
     userId: params.userId,
@@ -138,8 +137,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     clientTimeIso: params.clientTimeIso,
     userProfileSnippet,
     selfReviewSnippet,
-    firstConversationAt: firstConversationAt ?? undefined,
-    stream: params.stream
+    firstConversationAt: firstConversationAt ?? undefined
   });
 
   const finalState = {
@@ -148,14 +146,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     updatedAt: Date.now()
   };
   await saveUserState(env, finalState);
-
-  // 如果是流式响应，包装并返回
-  if (streamResponse) {
-    return wrapStreamWithMetadata(streamResponse, {
-      mood: { p: finalState.padValues[0], a: finalState.padValues[1], d: finalState.padValues[2] },
-      intimacy: finalState.intimacy
-    });
-  }
 
   return {
     reply: sanitizeAssistantReply(reply) || AGENT_FALLBACK_REPLY,
@@ -167,45 +157,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     action: null,
     intimacy: finalState.intimacy
   };
-}
-
-/**
- * 包装流式响应，在流结束后添加元数据
- */
-function wrapStreamWithMetadata(
-  response: Response,
-  metadata: { mood: { p: number; a: number; d: number }; intimacy: number }
-): Response {
-  const reader = response.body?.getReader();
-  if (!reader) return response;
-
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          controller.enqueue(value);
-        }
-        // 在流结束前发送元数据
-        const metaEvent = `data: ${JSON.stringify({ type: 'metadata', ...metadata })}\n\n`;
-        controller.enqueue(encoder.encode(metaEvent));
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    }
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    }
-  });
 }
 
 async function resolveConversationDateForChat(
@@ -463,8 +414,7 @@ async function runToolLoop(env: Env, params: {
   userProfileSnippet?: string;
   selfReviewSnippet?: string;
   firstConversationAt?: number;
-  stream?: boolean;
-}): Promise<{ reply: string; state: any; streamResponse?: Response }> {
+}): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
 
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
@@ -528,22 +478,6 @@ async function runToolLoop(env: Env, params: {
       params.messages[0].content = updatedSystemPrompt;
 
       continue;
-    }
-
-    // 没有工具调用，这是最终回复
-    // 如果启用流式，重新发起流式请求
-    if (params.stream) {
-      const streamResponse = await callChatCompletionsUnified(
-        env,
-        {
-          messages: params.messages,
-          temperature: 1.0,
-          stream: true,
-          max_tokens: 4096
-        },
-        { timeoutMs: 120000, model: params.model }
-      );
-      return { reply: '', state: latestState, streamResponse };
     }
 
     const finalText = extractMessageText(message);

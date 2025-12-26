@@ -9,6 +9,8 @@ import me.atri.data.api.response.LastConversationResponse
 import me.atri.data.api.response.BioChatResponse
 import me.atri.data.api.response.ModelListResponse
 import me.atri.data.api.response.UploadResponse
+import me.atri.data.api.response.ProactiveCheckResponse
+import me.atri.data.api.response.ProactiveSettings
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -60,4 +62,20 @@ interface AtriApiService {
 
     @GET("/models")
     suspend fun fetchModelList(): Response<ModelListResponse>
+
+    @GET("/proactive/check")
+    suspend fun checkProactiveMessage(
+        @Query("userId") userId: String,
+        @Query("timeZone") timeZone: String
+    ): Response<ProactiveCheckResponse>
+
+    @GET("/proactive/settings")
+    suspend fun getProactiveSettings(
+        @Query("userId") userId: String
+    ): Response<ProactiveSettings>
+
+    @POST("/proactive/settings")
+    suspend fun updateProactiveSettings(
+        @Body settings: ProactiveSettings
+    ): Response<Unit>
 }

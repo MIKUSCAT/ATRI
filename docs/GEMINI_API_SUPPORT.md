@@ -67,7 +67,7 @@ curl -X POST https://your-worker.workers.dev/api/v1/chat \
 ✅ **System Instruction**：自动转换 OpenAI 的 system 消息为 Gemini 的 systemInstruction
 ✅ **Function Calling**：完整支持工具调用（Tool Calling）
 ✅ **多模态输入**：支持图片和文档附件
-✅ **流式响应**：完整支持 streaming，自动转换为 OpenAI SSE 格式
+✅ **流式响应**：支持 streaming（未来版本）
 ✅ **自动格式转换**：OpenAI 格式 ↔ Gemini 格式自动转换
 
 ### 格式转换

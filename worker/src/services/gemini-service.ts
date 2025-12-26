@@ -109,14 +109,12 @@ export async function callGeminiGenerateContent(
     model?: string;
     apiUrl?: string;
     apiKey?: string;
-    stream?: boolean;
   }
 ): Promise<Response> {
   const timeoutMs = options?.timeoutMs ?? 60000;
   const model = options?.model ?? 'gemini-2.5-flash';
   const apiUrl = (options?.apiUrl || env.GEMINI_API_URL || '').trim();
   const apiKey = (options?.apiKey || env.GEMINI_API_KEY || '').trim();
-  const stream = options?.stream ?? false;
 
   if (!apiUrl || !apiKey) {
     throw new GeminiApiError(500, 'missing_gemini_api_config');
@@ -126,10 +124,7 @@ export async function callGeminiGenerateContent(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   // 构建完整的 API URL
-  const action = stream ? 'streamGenerateContent' : 'generateContent';
-  const endpoint = stream
-    ? `${apiUrl}/v1beta/models/${model}:${action}?alt=sse`
-    : `${apiUrl}/v1beta/models/${model}:${action}`;
+  const endpoint = `${apiUrl}/v1beta/models/${model}:generateContent`;
 
   try {
     const response = await fetch(endpoint, {
@@ -455,7 +450,6 @@ async function callGeminiNative(
   options: NonNullable<Parameters<typeof callChatCompletionsUnified>[2]>
 ): Promise<Response> {
   const { contents, systemInstruction } = convertOpenAIMessagesToGemini(payload.messages);
-  const stream = payload.stream ?? false;
 
   const geminiRequest: GeminiRequest = {
     contents,
@@ -478,89 +472,13 @@ async function callGeminiNative(
     };
   }
 
-  const response = await callGeminiGenerateContent(env, geminiRequest, { ...options, stream });
-
-  if (stream) {
-    return convertGeminiStreamToOpenAI(response, options.model!);
-  }
-
+  const response = await callGeminiGenerateContent(env, geminiRequest, options);
   const geminiResponse: GeminiResponse = await response.json();
+
+  // 转换为 OpenAI 兼容格式返回
   const openAIResponse = convertGeminiResponseToOpenAI(geminiResponse, options.model!);
 
   return new Response(JSON.stringify(openAIResponse), {
     headers: { 'Content-Type': 'application/json' }
-  });
-}
-
-/**
- * 将 Gemini 流式响应转换为 OpenAI 兼容的 SSE 格式
- */
-function convertGeminiStreamToOpenAI(response: Response, model: string): Response {
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new GeminiApiError(500, 'No response body');
-  }
-
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  const chatId = `chatcmpl-${Date.now()}`;
-  const created = Math.floor(Date.now() / 1000);
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === '[DONE]') continue;
-
-            try {
-              const geminiChunk: GeminiResponse = JSON.parse(jsonStr);
-              const text = geminiChunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
-              const finishReason = geminiChunk.candidates?.[0]?.finishReason;
-
-              const openAIChunk = {
-                id: chatId,
-                object: 'chat.completion.chunk',
-                created,
-                model,
-                choices: [{
-                  index: 0,
-                  delta: text ? { content: text } : {},
-                  finish_reason: finishReason ? mapFinishReason(finishReason) : null
-                }]
-              };
-
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(openAIChunk)}\n\n`));
-            } catch {
-              // 忽略解析错误
-            }
-          }
-        }
-
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    }
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    }
   });
 }
