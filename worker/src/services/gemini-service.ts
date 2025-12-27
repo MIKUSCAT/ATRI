@@ -17,10 +17,44 @@ export interface GeminiContent {
   parts: GeminiPart[];
 }
 
+// Gemini Part 基础类型
+export interface GeminiTextPart {
+  text: string;
+  thoughtSignature?: string;
+}
+
+export interface GeminiInlineDataPart {
+  inlineData: { mimeType: string; data: string };
+  thoughtSignature?: string;
+}
+
+export interface GeminiFileDataPart {
+  fileData: { mimeType: string; fileUri: string };
+  thoughtSignature?: string;
+}
+
+export interface GeminiFunctionCallPart {
+  functionCall: {
+    name: string;
+    args: Record<string, unknown>;
+  };
+  // Gemini API 使用 thought_signature (下划线格式)
+  thought_signature?: string;
+}
+
+export interface GeminiFunctionResponsePart {
+  functionResponse: {
+    name: string;
+    response: Record<string, unknown>;
+  };
+}
+
 export type GeminiPart =
-  | { text: string }
-  | { inlineData: { mimeType: string; data: string } }
-  | { fileData: { mimeType: string; fileUri: string } };
+  | GeminiTextPart
+  | GeminiInlineDataPart
+  | GeminiFileDataPart
+  | GeminiFunctionCallPart
+  | GeminiFunctionResponsePart;
 
 export interface GeminiFunctionDeclaration {
   name: string;
@@ -62,15 +96,20 @@ export interface GeminiRequest {
   generationConfig?: GeminiGenerationConfig;
 }
 
+export interface GeminiCandidatePart {
+  text?: string;
+  functionCall?: {
+    name: string;
+    args: Record<string, unknown>;
+  };
+  // Gemini API 可能使用 thought_signature (下划线) 或 thoughtSignature (驼峰)
+  thought_signature?: string;
+  thoughtSignature?: string;
+}
+
 export interface GeminiCandidate {
   content: {
-    parts: Array<{
-      text?: string;
-      functionCall?: {
-        name: string;
-        args: Record<string, unknown>;
-      };
-    }>;
+    parts: GeminiCandidatePart[];
     role: string;
   };
   finishReason?: string;
@@ -154,45 +193,99 @@ export async function callGeminiGenerateContent(
 }
 
 /**
+ * OpenAI 格式消息的扩展类型，支持 thoughtSignature
+ */
+export interface OpenAIMessageWithSignature {
+  role: string;
+  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> | null;
+  tool_calls?: Array<{
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+    // Gemini 3 思路签名 - 存储在 extra_content.google.thought_signature 中
+    extra_content?: {
+      google?: {
+        thought_signature?: string;
+      };
+    };
+  }>;
+  tool_call_id?: string;
+  name?: string;
+}
+
+/**
  * 将 OpenAI 格式的消息转换为 Gemini 格式
+ * 支持 Gemini 3 的 thoughtSignature 传递
  */
 export function convertOpenAIMessagesToGemini(
-  messages: Array<{
-    role: string;
-    content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
-    tool_calls?: Array<{
-      id: string;
-      type: string;
-      function: { name: string; arguments: string };
-    }>;
-    tool_call_id?: string;
-    name?: string;
-  }>
+  messages: OpenAIMessageWithSignature[]
 ): { contents: GeminiContent[]; systemInstruction?: { parts: { text: string }[] } } {
   let systemInstruction: { parts: { text: string }[] } | undefined;
   const contents: GeminiContent[] = [];
+  
+  // 用于收集连续的 functionResponse
+  let pendingFunctionResponses: GeminiFunctionResponsePart[] = [];
 
-  for (const msg of messages) {
+  const flushFunctionResponses = () => {
+    if (pendingFunctionResponses.length > 0) {
+      contents.push({
+        role: 'user',
+        parts: pendingFunctionResponses
+      });
+      pendingFunctionResponses = [];
+    }
+  };
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    
     // 处理 system 消息 -> systemInstruction
     if (msg.role === 'system') {
+      flushFunctionResponses();
       const text = typeof msg.content === 'string'
         ? msg.content
-        : msg.content.filter(p => p.type === 'text').map(p => p.text).join('\n');
+        : Array.isArray(msg.content)
+          ? msg.content.filter(p => p.type === 'text').map(p => p.text).join('\n')
+          : '';
       systemInstruction = { parts: [{ text }] };
       continue;
     }
 
-    // 处理 tool 消息 -> 作为 user 角色的 function response
+    // 处理 tool 消息 -> 收集为 functionResponse
+    // 多个连续的 tool 消息应该合并到同一个 user 消息的 parts 中
     if (msg.role === 'tool') {
-      // Gemini 使用 functionResponse 格式
-      contents.push({
-        role: 'user',
-        parts: [{
-          text: `[Function Response: ${msg.name}]\n${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`
-        }]
+      // 解析 tool response 内容
+      let responseData: Record<string, unknown>;
+      try {
+        if (typeof msg.content === 'string') {
+          responseData = JSON.parse(msg.content);
+        } else if (msg.content === null) {
+          responseData = {};
+        } else {
+          // content 是数组类型时，转换为对象
+          responseData = { parts: msg.content };
+        }
+      } catch {
+        responseData = { result: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) };
+      }
+      
+      pendingFunctionResponses.push({
+        functionResponse: {
+          name: msg.name || 'unknown',
+          response: responseData
+        }
       });
+      
+      // 检查下一条消息是否还是 tool，如果不是则 flush
+      const nextMsg = messages[i + 1];
+      if (!nextMsg || nextMsg.role !== 'tool') {
+        flushFunctionResponses();
+      }
       continue;
     }
+    
+    // 非 tool 消息前先 flush 任何待处理的 functionResponse
+    flushFunctionResponses();
 
     // 转换角色
     const role: 'user' | 'model' = msg.role === 'assistant' ? 'model' : 'user';
@@ -230,12 +323,38 @@ export function convertOpenAIMessagesToGemini(
       }
     }
 
-    // 处理 assistant 的 tool_calls
+    // 处理 assistant 的 tool_calls - 转换为 Gemini 的 functionCall 格式
+    // 重要：必须保留 thoughtSignature！
     if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      let isFirstFunctionCall = true;
       for (const toolCall of msg.tool_calls) {
-        parts.push({
-          text: `[Function Call: ${toolCall.function.name}(${toolCall.function.arguments})]`
-        });
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments);
+        } catch {
+          args = {};
+        }
+        
+        const functionCallPart: GeminiFunctionCallPart = {
+          functionCall: {
+            name: toolCall.function.name,
+            args
+          }
+        };
+        
+        // 只有第一个 functionCall 需要携带 thought_signature（并行函数调用的情况）
+        // 或者每个顺序调用都有自己的签名
+        // 注意：Gemini API 使用下划线格式 thought_signature
+        const signature = toolCall.extra_content?.google?.thought_signature;
+        if (signature && isFirstFunctionCall) {
+          functionCallPart.thought_signature = signature;
+          isFirstFunctionCall = false;
+        } else if (signature) {
+          // 顺序调用时每个都可能有签名
+          functionCallPart.thought_signature = signature;
+        }
+        
+        parts.push(functionCallPart);
       }
     }
 
@@ -243,6 +362,9 @@ export function convertOpenAIMessagesToGemini(
       contents.push({ role, parts });
     }
   }
+  
+  // 最终 flush，以防最后的消息是 tool 消息
+  flushFunctionResponses();
 
   return { contents, systemInstruction };
 }
@@ -280,7 +402,22 @@ export function convertOpenAIToolsToGemini(
 }
 
 /**
+ * OpenAI 兼容格式的 tool_call，支持 thoughtSignature
+ */
+export interface OpenAIToolCallWithSignature {
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+  extra_content?: {
+    google?: {
+      thought_signature?: string;
+    };
+  };
+}
+
+/**
  * 将 Gemini 响应转换为 OpenAI 兼容格式
+ * 重要：保留 thoughtSignature 以便后续请求传回
  */
 export function convertGeminiResponseToOpenAI(
   geminiResponse: GeminiResponse,
@@ -295,11 +432,7 @@ export function convertGeminiResponseToOpenAI(
     message: {
       role: string;
       content: string | null;
-      tool_calls?: Array<{
-        id: string;
-        type: string;
-        function: { name: string; arguments: string };
-      }>;
+      tool_calls?: OpenAIToolCallWithSignature[];
     };
     finish_reason: string;
   }>;
@@ -309,34 +442,70 @@ export function convertGeminiResponseToOpenAI(
     total_tokens: number;
   };
 } {
-  const choices = geminiResponse.candidates.map((candidate, index) => {
+  // 安全检查：确保 candidates 存在
+  const candidates = geminiResponse?.candidates || [];
+  
+  if (candidates.length === 0) {
+    // 没有候选结果时返回空响应
+    console.warn('[Gemini] No candidates in response:', JSON.stringify(geminiResponse));
+    return {
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: null
+        },
+        finish_reason: 'stop'
+      }]
+    };
+  }
+  
+  const choices = candidates.map((candidate, index) => {
     let content: string | null = null;
-    const toolCalls: Array<{
-      id: string;
-      type: string;
-      function: { name: string; arguments: string };
-    }> = [];
+    const toolCalls: OpenAIToolCallWithSignature[] = [];
 
-    for (const part of candidate.content.parts) {
+    // 安全检查：确保 content 和 parts 存在
+    const parts = candidate?.content?.parts || [];
+    
+    for (const part of parts) {
       if (part.text) {
         content = (content || '') + part.text;
       }
       if (part.functionCall) {
-        toolCalls.push({
+        const toolCall: OpenAIToolCallWithSignature = {
           id: `call_${Date.now()}_${index}_${toolCalls.length}`,
           type: 'function',
           function: {
             name: part.functionCall.name,
-            arguments: JSON.stringify(part.functionCall.args)
+            arguments: JSON.stringify(part.functionCall.args || {})
           }
-        });
+        };
+        
+        // 重要：保留 thought_signature！
+        // Gemini 3 模型在函数调用时会返回 thought_signature (下划线格式)
+        // 必须在后续请求中原样传回，否则会收到 400 错误
+        // 同时检查两种可能的命名格式
+        const signature = part.thought_signature || part.thoughtSignature;
+        if (signature) {
+          toolCall.extra_content = {
+            google: {
+              thought_signature: signature
+            }
+          };
+        }
+        
+        toolCalls.push(toolCall);
       }
     }
 
     const message: {
       role: string;
       content: string | null;
-      tool_calls?: typeof toolCalls;
+      tool_calls?: OpenAIToolCallWithSignature[];
     } = {
       role: 'assistant',
       content
@@ -389,21 +558,12 @@ function mapFinishReason(geminiReason?: string): string {
 
 /**
  * 统一的聊天完成调用接口 - 自动选择 OpenAI 或 Gemini 原生 API
+ * 支持 Gemini 3 的 thoughtSignature 传递
  */
 export async function callChatCompletionsUnified(
   env: Env,
   payload: {
-    messages: Array<{
-      role: string;
-      content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
-      tool_calls?: Array<{
-        id: string;
-        type: string;
-        function: { name: string; arguments: string };
-      }>;
-      tool_call_id?: string;
-      name?: string;
-    }>;
+    messages: OpenAIMessageWithSignature[];
     tools?: Array<{
       type: string;
       function: {
@@ -472,8 +632,25 @@ async function callGeminiNative(
     };
   }
 
+  // 调试日志：打印发送给 Gemini 的请求
+  console.log('[Gemini] Request contents:', JSON.stringify(geminiRequest.contents, null, 2));
+
   const response = await callGeminiGenerateContent(env, geminiRequest, options);
-  const geminiResponse: GeminiResponse = await response.json();
+  
+  // 解析响应并添加错误处理
+  let geminiResponse: GeminiResponse;
+  try {
+    const responseText = await response.text();
+    geminiResponse = JSON.parse(responseText);
+    
+    // 调试日志：检查响应结构
+    if (!geminiResponse?.candidates?.length) {
+      console.warn('[Gemini] Empty or invalid response:', responseText.slice(0, 500));
+    }
+  } catch (parseError) {
+    console.error('[Gemini] Failed to parse response:', parseError);
+    throw new GeminiApiError(500, 'Failed to parse Gemini response');
+  }
 
   // 转换为 OpenAI 兼容格式返回
   const openAIResponse = convertGeminiResponseToOpenAI(geminiResponse, options.model!);
