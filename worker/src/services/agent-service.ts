@@ -8,7 +8,8 @@ import {
 import { signMediaUrlForModel } from '../utils/media-signature';
 import { resolveDayStartTimestamp, formatTimeInZone, DEFAULT_TIMEZONE } from '../utils/date';
 import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
+import { ChatCompletionError } from './openai-service';
+import { callChatCompletionsUnified } from './gemini-service';
 import { searchMemories } from './memory-service';
 import {
   ConversationLogRecord,
@@ -43,12 +44,22 @@ type AgentChatResult = {
   intimacy: number;
 };
 
+/**
+ * Agent 工具调用类型，支持 Gemini 3 的 thoughtSignature
+ * 重要：extra_content 包含 thoughtSignature，必须在后续请求中原样传回
+ */
 type AgentToolCall = {
   id: string;
   type: string;
   function: {
     name: string;
     arguments: string;
+  };
+  // Gemini 3 思路签名 - 必须保留并传回
+  extra_content?: {
+    google?: {
+      thought_signature?: string;
+    };
   };
 };
 
@@ -419,7 +430,7 @@ async function runToolLoop(env: Env, params: {
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     let data: any;
     try {
-      const response = await callChatCompletions(
+      const response = await callChatCompletionsUnified(
         env,
         {
           messages: params.messages,
@@ -443,10 +454,18 @@ async function runToolLoop(env: Env, params: {
     const toolCalls: AgentToolCall[] = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
 
     if (toolCalls.length > 0) {
+      // 重要：保留完整的 tool_calls 结构，包括 extra_content 中的 thoughtSignature
+      // Gemini 3 模型要求在函数调用时必须传回 thoughtSignature，否则会返回 400 错误
       params.messages.push({
         role: 'assistant',
         content: message?.content || null,
-        tool_calls: toolCalls
+        tool_calls: toolCalls.map(tc => ({
+          id: tc.id,
+          type: tc.type,
+          function: tc.function,
+          // 保留 extra_content（包含 thoughtSignature）
+          ...(tc.extra_content ? { extra_content: tc.extra_content } : {})
+        }))
       });
 
       for (const call of toolCalls) {
@@ -454,11 +473,12 @@ async function runToolLoop(env: Env, params: {
         if (result.updatedState) {
           latestState = result.updatedState;
         }
+        // tool response 消息格式保持不变
         params.messages.push({
           role: 'tool',
           tool_call_id: call.id,
           name: call.function?.name,
-          content: result.output
+          content: typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
         });
       }
 

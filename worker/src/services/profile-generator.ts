@@ -1,7 +1,8 @@
 import prompts from '../config/prompts.json';
 import { Env, CHAT_MODEL } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
+import { ChatCompletionError } from './openai-service';
+import { callChatCompletionsUnified } from './gemini-service';
 
 const profilePrompts: any = (prompts as any).profile || {};
 
@@ -48,7 +49,7 @@ export async function generateUserProfile(env: Env, params: {
   const model = resolveProfileModel(env, params.modelKey);
 
   try {
-    const response = await callChatCompletions(
+    const response = await callChatCompletionsUnified(
       env,
       {
         messages: [

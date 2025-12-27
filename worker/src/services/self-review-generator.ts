@@ -1,7 +1,8 @@
 import prompts from '../config/prompts.json';
 import { Env, CHAT_MODEL } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
+import { ChatCompletionError } from './openai-service';
+import { callChatCompletionsUnified } from './gemini-service';
 
 const selfReviewPrompts: any = (prompts as any).selfReview || {};
 
@@ -58,7 +59,7 @@ export async function generateAtriSelfReview(env: Env, params: {
   const model = resolveSelfReviewModel(env, params.modelKey);
 
   try {
-    const response = await callChatCompletions(
+    const response = await callChatCompletionsUnified(
       env,
       {
         messages: [

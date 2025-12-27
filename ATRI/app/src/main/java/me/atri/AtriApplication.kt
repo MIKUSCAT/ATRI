@@ -1,9 +1,15 @@
 package me.atri
 
 import android.app.Application
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import me.atri.di.*
+import me.atri.worker.ProactiveCheckWorker
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -20,6 +26,28 @@ class AtriApplication : Application(), ImageLoaderFactory {
             androidContext(this@AtriApplication)
             modules(appModule, networkModule, repositoryModule, viewModelModule)
         }
+
+        scheduleProactiveCheck()
+    }
+
+    private fun scheduleProactiveCheck() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<ProactiveCheckWorker>(
+            30, TimeUnit.MINUTES,
+            15, TimeUnit.MINUTES
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(this)
+            .enqueueUniquePeriodicWork(
+                "proactive_check",
+                ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
     }
 
     override fun newImageLoader(): ImageLoader {
