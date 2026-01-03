@@ -214,8 +214,8 @@ if errorlevel 1 (
 
 echo.
 echo [5/6] Setting secrets...
-echo Required: OPENAI_API_KEY
-echo Optional: EMBEDDINGS_API_KEY, DIARY_API_KEY, ADMIN_API_KEY, APP_TOKEN, MEDIA_SIGNING_KEY
+echo Required: OPENAI_API_KEY, EMBEDDINGS_API_KEY (SiliconFlow embeddings for vector memory)
+echo Optional: DIARY_API_KEY, ADMIN_API_KEY, APP_TOKEN, MEDIA_SIGNING_KEY
 echo.
 choice /c YN /m "Set/Update secrets now?"
 if errorlevel 2 goto :deploy
@@ -226,8 +226,11 @@ call npx wrangler secret put OPENAI_API_KEY
 if errorlevel 1 goto :pause_fail
 
 echo.
-choice /c YN /m "Set EMBEDDINGS_API_KEY (optional)?"
-if errorlevel 2 goto :secrets_diary
+echo Setting EMBEDDINGS_API_KEY (embeddings/vector memory, input is hidden)...
+echo NOTE: Vector memory defaults to SiliconFlow:
+echo   EMBEDDINGS_API_URL = https://api.siliconflow.cn/v1
+echo   EMBEDDINGS_MODEL   = BAAI/bge-m3
+echo If your chat provider is also SiliconFlow, you can re-enter the same key.
 call npx wrangler secret put EMBEDDINGS_API_KEY
 if errorlevel 1 goto :pause_fail
 

@@ -115,6 +115,7 @@ Recalled in future conversations
    - R2 bucket name (press Enter for default)
    - Vectorize index name (press Enter for default)
    - **OPENAI_API_KEY** (required)
+   - **EMBEDDINGS_API_KEY** (required for vector memory, SiliconFlow recommended)
    - Other optional secrets (can skip)
 3. The script will automatically create resources and deploy
 4. Copy the Worker URL when done
@@ -168,7 +169,7 @@ After successful deployment, you'll see the Worker URL:
 | Secret | Description | Required |
 |--------|-------------|:--------:|
 | `OPENAI_API_KEY` | Chat model API key | ✅ |
-| `EMBEDDINGS_API_KEY` | Embeddings API key (defaults to `OPENAI_API_KEY`) | ❌ |
+| `EMBEDDINGS_API_KEY` | Embeddings API key for vector memory (SiliconFlow recommended) | ✅ |
 | `APP_TOKEN` | Client access token to protect API | Recommended |
 
 ### 2️⃣ Install the Android App
@@ -247,7 +248,7 @@ Any OpenAI-compatible API works:
 1. Edit `OPENAI_API_URL` in `worker/wrangler.toml`
 2. Optional: Configure separate `DIARY_API_URL` / `DIARY_MODEL` (diary generation can use a different model)
 3. Embeddings (vector memory): by default it's `https://api.siliconflow.cn/v1` + `BAAI/bge-m3`
-   - Set `EMBEDDINGS_API_KEY` (or reuse `OPENAI_API_KEY`)
+   - Set `EMBEDDINGS_API_KEY` (SiliconFlow API key)
    - Optional: override `EMBEDDINGS_API_URL` / `EMBEDDINGS_MODEL`
 4. Redeploy: `cd worker && npx wrangler deploy`
 

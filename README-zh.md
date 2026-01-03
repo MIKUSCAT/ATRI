@@ -115,6 +115,7 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
    - R2 存储桶名字（直接回车用默认）
    - Vectorize 索引名字（直接回车用默认）
    - **OPENAI_API_KEY**（必填）
+   - **EMBEDDINGS_API_KEY**（必填：向量/长期记忆用，推荐 SiliconFlow）
    - 其他可选密钥（可跳过）
 3. 脚本会自动创建资源、配置、部署
 4. 完成后复制 Worker 地址
@@ -168,7 +169,7 @@ cd worker && npx wrangler deploy
 | 变量名 | 用途 | 必填 |
 |--------|------|:----:|
 | `OPENAI_API_KEY` | 聊天模型密钥 | ✅ |
-| `EMBEDDINGS_API_KEY` | 向量/嵌入密钥（默认复用 `OPENAI_API_KEY`） | ❌ |
+| `EMBEDDINGS_API_KEY` | 向量/嵌入密钥（长期记忆用，推荐 SiliconFlow） | ✅ |
 | `APP_TOKEN` | 客户端访问令牌，保护 API | 建议 |
 
 ### 2️⃣ 安装 Android 客户端
@@ -247,7 +248,7 @@ cd worker && npx wrangler deploy
 1. 修改 `worker/wrangler.toml` 里的 `OPENAI_API_URL`
 2. 可选：配置独立的 `DIARY_API_URL` / `DIARY_MODEL`（日记生成可以用不同的模型）
 3. 向量/嵌入（长期记忆）：默认用 `https://api.siliconflow.cn/v1` + `BAAI/bge-m3`
-   - 设置 `EMBEDDINGS_API_KEY`（不配就复用 `OPENAI_API_KEY`）
+   - 设置 `EMBEDDINGS_API_KEY`（SiliconFlow 的 API Key）
    - 可选：覆盖 `EMBEDDINGS_API_URL` / `EMBEDDINGS_MODEL`
 4. 重新部署：`cd worker && npx wrangler deploy`
 
