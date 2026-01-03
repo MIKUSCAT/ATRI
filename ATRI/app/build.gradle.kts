@@ -10,20 +10,20 @@ plugins {
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties()
-val hasReleaseKeystore = keystorePropertiesFile.exists()
-
-val isReleaseBuild = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
-if (isReleaseBuild && !hasReleaseKeystore) {
-    throw org.gradle.api.GradleException(
-        "要打 release 包请先创建签名配置：\n" +
-            "1) 复制 keystore.properties.example -> keystore.properties\n" +
-            "2) 生成 keystore/atri-release.jks 并填好密码\n" +
-            "然后再跑 :app:assembleRelease"
-    )
+val hasKeystoreProperties = keystorePropertiesFile.exists()
+if (hasKeystoreProperties) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
-if (hasReleaseKeystore) {
-    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+val releaseStoreFilePath = keystoreProperties.getProperty("storeFile")
+val hasReleaseKeystoreFile = releaseStoreFilePath?.let { rootProject.file(it).exists() } == true
+
+val isReleaseBuild = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+if (isReleaseBuild && !hasReleaseKeystoreFile) {
+    println(
+        "[ATRI] 未检测到 release keystore，将用 debug 签名打 release（包名不带 .debug，可直接安装）。" +
+            "如需上架/长期更新，请配置 keystore.properties + keystore/atri-release.jks。"
+    )
 }
 
 android {
@@ -46,10 +46,10 @@ android {
 
     signingConfigs {
         create("release") {
-            if (hasReleaseKeystore) {
-                val storeFilePath = keystoreProperties.getProperty("storeFile")
+            if (hasReleaseKeystoreFile) {
+                val storeFilePath = releaseStoreFilePath
                     ?: error("keystore.properties 缺少 storeFile")
-                storeFile = file(storeFilePath)
+                storeFile = rootProject.file(storeFilePath)
                 storePassword = keystoreProperties.getProperty("storePassword")
                     ?: error("keystore.properties 缺少 storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
@@ -63,7 +63,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName(if (hasReleaseKeystoreFile) "release" else "debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -159,4 +159,3 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
-
