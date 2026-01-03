@@ -667,7 +667,7 @@ async function runSearchMemory(env: Env, userId: string, args: any) {
     return '请给我 query。';
   }
   try {
-    const mems = await searchMemories(env, userId, query, 6);
+    const mems = await searchMemories(env, userId, query, 20);
     if (!mems.length) {
       return '没有找到相关记忆';
     }
@@ -678,7 +678,7 @@ async function runSearchMemory(env: Env, userId: string, args: any) {
       if (!date && !text) continue;
       lines.push(`- ${date || '未知日期'}：${text || '（无片段）'}`);
     }
-    lines.push('需要更多细节可以用 read_diary(date) 或 read_conversation(date)。');
+    lines.push('如果你要回答“为什么/由来/原话/具体细节”，而上面的片段不够用，请用 read_diary(date) 或 read_conversation(date) 去看原文再答。');
     return lines.join('\n');
   } catch (error) {
     console.warn('[ATRI] search_memory failed', error);
@@ -740,7 +740,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'search_memory',
-      description: '搜索记忆。当我隐约记得聊过某件事、但不确定是哪天，或者细节有点模糊时使用。会返回相关片段和日期。',
+      description: '搜索记忆（向量召回）。用来先找到相关日期和片段；如果用户问的是“为什么/由来/原话/具体细节”，而片段里没有关键信息，就继续用 read_diary(date) 查看那天日记原文再回答，不要靠猜。',
       parameters: {
         type: 'object',
         properties: {
