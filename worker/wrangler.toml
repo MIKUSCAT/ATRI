@@ -7,8 +7,8 @@ account_id = "YOUR_ACCOUNT_ID"
 OPENAI_API_URL = "https://api.openai.com/v1"
 DIARY_API_URL = "https://api.openai.com/v1"
 DIARY_MODEL = "gpt-4o"
-EMBEDDINGS_API_URL = "https://api.openai.com/v1"
-EMBEDDINGS_MODEL = "gpt-4o"
+EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
+EMBEDDINGS_MODEL = "BAAI/bge-m3"
 
 [[vectorize]]
 binding = "VECTORIZE"

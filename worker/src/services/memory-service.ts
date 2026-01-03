@@ -1,13 +1,21 @@
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
 
+function normalizeOpenAiCompatibleBaseUrl(input: string) {
+  const raw = String(input || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+  if (raw.endsWith('/v1')) return raw;
+  return `${raw}/v1`;
+}
+
 export async function embedText(text: string, env: Env): Promise<number[]> {
-  const base = (env.EMBEDDINGS_API_URL || env.OPENAI_API_URL || 'https://api.openai.com/v1').trim();
-  const model = (env.EMBEDDINGS_MODEL || 'gpt-4o').trim();
-  const apiKey = (env.EMBEDDINGS_API_KEY || env.OPENAI_API_KEY || '').trim();
+  const baseRaw = typeof env.EMBEDDINGS_API_URL === 'string' ? env.EMBEDDINGS_API_URL.trim() : '';
+  const base = normalizeOpenAiCompatibleBaseUrl(baseRaw || 'https://api.siliconflow.cn');
+  const apiKey = String(env.EMBEDDINGS_API_KEY || env.OPENAI_API_KEY || '').trim();
   if (!apiKey) {
-    throw new Error('Embeddings API key is missing');
+    throw new Error('Missing embeddings API key: set EMBEDDINGS_API_KEY (or OPENAI_API_KEY)');
   }
+  const model = String(env.EMBEDDINGS_MODEL || 'BAAI/bge-m3').trim();
   const res = await fetch(`${base}/embeddings`, {
     method: 'POST',
     headers: {
@@ -35,12 +43,30 @@ export async function searchMemories(
   topK = 5
 ) {
   const vector = await embedText(queryText, env);
-  const queryK = Math.max(50, topK * 10);
-  const result: any = await (env as any).VECTORIZE.query(vector, { topK: queryK, returnMetadata: 'all' });
+  const queryKs = Array.from(
+    new Set<number>([
+      Math.min(Math.max(200, topK * 50), 500),
+      Math.min(Math.max(100, topK * 10), 200),
+      50
+    ])
+  );
+
+  let result: any;
+  let lastError: unknown;
+  for (const k of queryKs) {
+    try {
+      result = await (env as any).VECTORIZE.query(vector, { topK: k, returnMetadata: 'all' });
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!result) {
+    throw lastError || new Error('VECTORIZE.query failed');
+  }
   const matches = Array.isArray(result?.matches) ? result.matches : [];
 
   const items: any[] = [];
-  const seenDates = new Set<string>();
 
   for (const m of matches) {
     if (m?.metadata?.u !== userId) continue;
@@ -50,10 +76,8 @@ export async function searchMemories(
     const mood = String(m?.metadata?.m || '').trim();
     const matchedHighlight = String(m?.metadata?.text || '').trim();
 
-    // 只保留 highlight 记忆（按日期去重）
+    // 只保留 highlight 记忆（不再按日期去重，避免漏掉同一天的关键片段）
     if (category === 'highlight' && date) {
-      if (seenDates.has(date)) continue;
-      seenDates.add(date);
       items.push({
         id: m.id,
         score: m.score,

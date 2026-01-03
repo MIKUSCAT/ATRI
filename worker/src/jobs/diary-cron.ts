@@ -100,7 +100,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         const previousSelfReview = await getAtriSelfReview(env, user.userId);
         const selfReview = await generateAtriSelfReview(env, {
           transcript,
-          diaryContent: summaryText,
+          diaryContent: '',
           date,
           daysTogether,
           userName: user.userName || '这个人',

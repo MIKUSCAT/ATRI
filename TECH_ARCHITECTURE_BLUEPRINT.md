@@ -1,630 +1,1244 @@
-# ATRI 技术架构蓝图
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/版本-1.0.0-blue?style=for-the-badge)
-![Updated](https://img.shields.io/badge/更新日期-2025--01--15-green?style=for-the-badge)
-![Language](https://img.shields.io/badge/语言-简体中文-red?style=for-the-badge)
+# 🏗️ ATRI 技术架构蓝图
 
-**让任何人 10 分钟内理解架构全貌、核心链路、端口与扩展方式**
+### 设计思路 · 运行原理 · 创新亮点
 
-[English README →](README.md)
+[![Architecture](https://img.shields.io/badge/Architecture-Serverless-blue?style=for-the-badge&logo=cloudflare)](https://developers.cloudflare.com/workers/)
+[![Platform](https://img.shields.io/badge/Platform-Android-green?style=for-the-badge&logo=android)](https://developer.android.com/)
+[![AI](https://img.shields.io/badge/AI-OpenAI%20Compatible-orange?style=for-the-badge&logo=openai)](https://platform.openai.com/)
 
 </div>
 
 ---
 
-## 📑 目录
-
-- [1. 架构总览](#1-架构总览)
-- [2. 核心数据流](#2-核心数据流)
-- [3. 文件结构](#3-文件结构)
-- [4. API 端点](#4-api-端点)
-- [5. 数据模型](#5-数据模型)
-- [6. 配置示例](#6-配置示例)
-- [7. 部署指南](#7-部署指南)
-- [8. 常用命令](#8-常用命令)
-- [9. 故障排查](#9-故障排查)
-- [10. 扩展开发](#10-扩展开发)
-- [11. 性能与限制](#11-性能与限制)
-- [12. 安全清单](#12-安全清单)
-- [13. 路线图](#13-路线图)
+> 📖 **这不是"启动说明"，而是技术蓝图：**
+> - 讲清楚**我为什么这么设计**（取舍/约束/目标）
+> - 讲清楚**系统到底怎么跑**（一次对话怎么走完、PAD/日记/记忆怎么联动）
+> - 讲清楚**后续怎么继续开发**（改哪里、怎么扩展）
+>
+> ⚠️ **说明**：本文按"当前代码现状"写，聊天接口目前是**一次性 JSON 返回**（不是 SSE 流）。为避免隐私泄露，文中不写真实域名/账号/Key，统一用 `<YOUR_WORKER_URL>` 占位。
 
 ---
 
-## 1. 架构总览
+## 📑 目录导航
 
-```
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                               📱 用户交互层                                     ║
-║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
-║  │  Android App (Kotlin + Jetpack Compose)                                 │  ║
-║  │  ├── 🏠 欢迎页  ├── 💬 聊天  ├── 📔 日记  ├── ⚙️ 设置                    │  ║
-║  │  └── Room 本地存储 + DataStore 偏好                                      │  ║
-║  └─────────────────────────────────────────────────────────────────────────┘  ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-                                       │
-                                       ▼ HTTP/JSON
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                          ☁️ 服务层 (Cloudflare Worker)                         ║
-║  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       ║
-║  │ 💬 /api/v1/  │  │ 📝 /conver-  │  │ 📔 /diary    │  │ 🖼️ /media    │       ║
-║  │    chat      │  │   sation     │  │              │  │              │       ║
-║  │  Bio-Agent   │  │  日志管理     │  │  日记查询    │  │  附件上传     │       ║
-║  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       ║
-║         │                 │                 │                 │               ║
-║         └─────────────────┴────────┬────────┴─────────────────┘               ║
-║                                    ▼                                          ║
-║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
-║  │                        🔧 核心服务 (services/)                           │  ║
-║  │  agent-service │ diary-generator │ memory-service │ media-signature    │  ║
-║  └─────────────────────────────────────────────────────────────────────────┘  ║
-║                                    │                                          ║
-║                                    ▼                                          ║
-║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
-║  │                    ⏰ Cron Job (每日 UTC 15:59)                          │  ║
-║  │               diary-cron.ts → 日记生成 + daily learning                  │  ║
-║  └─────────────────────────────────────────────────────────────────────────┘  ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-                                       │
-                                       ▼
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                                💾 存储层                                       ║
-║  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       ║
-║  │  🗄️ D1       │  │ 🧠 Vectorize │  │  📦 R2       │  │ 🤖 OpenAI    │       ║
-║  │  ─────────── │  │  ─────────── │  │  ─────────── │  │  ─────────── │       ║
-║  │  • 会话日志   │  │  • 日记向量   │  │  • 用户附件   │  │  • Chat API  │       ║
-║  │  • 日记条目   │  │  • 记忆检索   │  │  • 图片/文档  │  │  • Embedding │       ║
-║  │  • 每日复盘   │  │              │  │              │  │              │       ║
-║  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘       ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-```
+<table>
+<tr>
+<td width="50%">
 
-### 1.1 系统角色
+**核心设计**
+- [1. 设计目标 & 约束](#1-我想解决什么问题设计目标--约束)
+- [2. 系统总览](#2-系统总览组件与边界)
+- [3. 核心链路](#3-核心链路一次对话到底怎么走完从点发送开始)
 
-| 角色 | 路径 | 技术栈 | 职责 |
-|:-----|:-----|:-------|:-----|
-| 📱 **Android 客户端** | `ATRI/` | Kotlin + Compose + Room + Retrofit + Koin | UI 交互、本地存储、API 调用 |
-| ☁️ **Cloudflare Worker** | `worker/` | TypeScript + itty-router + D1 + R2 + Vectorize | REST API、AI 调用、定时任务 |
-| 📝 **共享提示词** | `shared/` | JSON | 人格/日记/记忆提示词的唯一母本 |
-| 🔄 **同步脚本** | `scripts/` | Python | 把 `shared/prompts.json` 同步到 Worker |
+</td>
+<td width="50%">
+
+**创新亮点**
+- [4. PAD + 亲密度衰减](#4-创新点-1pad--亲密度衰减让情绪有惯性不是一次性表演)
+- [5. 日记向量记忆](#5-创新点-2日记-highlights-向量记忆用提炼过的记忆去做检索)
+- [6. 三档材料系统](#6-创新点-3日记用户档案亚托莉便签分流上游--三个产物三种用途)
+- [7. 工具注册机制](#7-创新点-4工具注册取代全量注入把查证变成模型能力的一部分)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**工程细节**
+- [8. 附件与媒体控制](#8-附件与媒体访问控制给-app-的长链接给模型的稳链接)
+- [9. API 契约](#9-cloudflare-worker-api-契约完整字段级)
+- [10. 数据模型](#10-数据模型完整d1--r2--vectorize--android-本地)
+
+</td>
+<td>
+
+**开发指南**
+- [11. 开发者上手](#11-开发者上手怎么改东西不讲部署)
+- [12. 未来演进](#12-未来演进你计划的方向写在蓝图里方便后续对齐)
+- [附录 A: 自检清单](#附录-a最小自检清单不等于部署)
+
+</td>
+</tr>
+</table>
 
 ---
 
-## 2. 核心数据流
+## 1. 我想解决什么问题（设计目标 & 约束）
 
-### 2.1 聊天流程
+这一套系统的目标不是"能聊天就行"，而是做出一个**长期可用、能记事、情绪有惯性、成本可控**的角色对话系统。
 
-```
-                              👤 用户输入
-                                   │
-                                   ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            📱 Android 客户端                                 │
-│                                                                             │
-│  ┌─────────────────┐          ┌─────────────────┐          ┌─────────────┐ │
-│  │   ChatScreen    │ ──────▶  │  ChatRepository │ ──────▶  │ POST /upload│ │
-│  │  (Compose UI)   │          │   (附件上传)     │          │  (R2 存储)  │ │
-│  └─────────────────┘          └────────┬────────┘          └─────────────┘ │
-│                                        │                                    │
-└────────────────────────────────────────┼────────────────────────────────────┘
-                                         │
-                                         ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          ☁️ Worker: POST /api/v1/chat                        │
-│                                                                             │
-│  ┌───────────────────────────────────┐    ┌───────────────────────────────┐│
-│  │         📋 System Prompt          │    │       🔄 工具循环 (≤3轮)       ││
-│  │  ┌─────────────────────────────┐  │    │                               ││
-│  │  │ • 🎭 人设                    │  │    │   ┌─────────────────────┐     ││
-│  │  │ • ⏰ 设备时间/名字           │  │    │   │  📖 read_diary      │◀────┼┼──┐
-│  │  │ • 😊 PAD 状态               │  │    │   │  😊 update_mood     │─────┼┼──┼─▶ Vectorize
-│  │  │ • 💬 今日对话               │  │    │   └─────────────────────┘     ││  │
-│  │  └─────────────────────────────┘  │    │                               ││  │
-│  └───────────────────────────────────┘    └───────────────────────────────┘│  │
-│                                                                             │  │
-│                                    ┌────────────────────────────────────────┘  │
-│                                    ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐  │
-│  │                          📤 JSON Response                                │  │
-│  │         { reply, mood: {p, a, d}, intimacy, action }                    │  │
-│  └─────────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     📱 Room 写入 + UI 更新                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### 🎯 1.1 设计目标
 
-> **📌 说明**
-> - System Prompt 当前仅注入当日工作记忆（不截断），历史日记/复盘需模型在对话中调用 `read_diary` 工具按需检索
-> - `/api/v1/chat` 返回一次性 JSON（非流式）
+<table>
+<tr>
+<th width="20%">目标</th>
+<th width="80%">描述</th>
+</tr>
+<tr>
+<td>🎭 <strong>角色稳定</strong></td>
+<td>亚托莉不是"万能客服"，她要有持续的情绪（PAD）和关系温度（亲密度）</td>
+</tr>
+<tr>
+<td>🚫 <strong>不乱编</strong></td>
+<td>不确定就承认；需要回忆就去查原文/日记，不靠感觉补全</td>
+</tr>
+<tr>
+<td>🧠 <strong>记忆可控</strong></td>
+<td>既要"记得住"，又要"不会因为全量塞上下文而失控/很贵"</td>
+</tr>
+<tr>
+<td>💰 <strong>成本可控</strong></td>
+<td>聊天上下文不能无限长，记忆检索要按需</td>
+</tr>
+<tr>
+<td>🔧 <strong>工程可扩展</strong></td>
+<td>后面要支持 Gemini/Anthropic 原生格式、主动消息等，今天的结构要留出扩展点</td>
+</tr>
+<tr>
+<td>🔒 <strong>隐私与安全</strong></td>
+<td>所有 API 都要鉴权；附件链接要能控时效/可撤销；Secrets 不进仓库</td>
+</tr>
+</table>
+
+### ⚠️ 1.2 现实约束
+
+| 约束 | 影响 |
+|------|------|
+| 模型上下文有限、费用敏感 | 不可能每次都把"所有聊天记录+所有日记+所有记忆"塞进去 |
+| 模型会丢参数/理解偏 | 尤其是图像 URL 的 query，经常在模型侧被丢掉，导致 401 |
+| 用户可能断网 | 不能因为日志写失败就完全不能聊天；但又要尽量保证后端"有材料可总结" |
 
 ---
 
-### 2.2 日记生成流程 (Cron)
+## 2. 系统总览（组件与边界）
+
+把系统拆成四块（对应仓库四个目录）：
 
 ```
-                              ⏰ UTC 15:59 触发
-                                     │
-                                     ▼
-    ┌─────────────────────────────────────────────────────────────────────┐
-    │  📋 listPendingDiaryUsers()                                         │
-    │  → 找出「今日有对话 且 无 ready 日记」的用户                          │
-    └────────────────────────────┬────────────────────────────────────────┘
-                                 │
-              ┌──────────────────┴──────────────────┐
-              ▼                                     ▼
-    ┌─────────────────────┐               ┌─────────────────────┐
-    │  📝 拼接今日对话     │               │  📅 计算距上次聊天   │
-    │     transcript      │               │    天数 (增强感情)   │
-    └──────────┬──────────┘               └──────────┬──────────┘
-               │                                     │
-               └──────────────────┬──────────────────┘
-                                  ▼
-                     ┌─────────────────────────┐
-                     │    🤖 LLM 生成日记       │
-                     │  { diary, highlights,   │
-                     │    mood }               │
-                     └────────────┬────────────┘
-                                  │
-            ┌─────────────────────┼─────────────────────┐
-            ▼                     ▼                     ▼
-    ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-    │  🗄️ D1 写入     │   │  🧠 Vectorize   │   │  📚 Daily       │
-    │  diary_entries  │   │    upsert       │   │    Learning     │
-    └─────────────────┘   └─────────────────┘   └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     Android App (ATRI/)                         │
+│                    📱 UI + 本地存储 (Room)                        │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ HTTP JSON（加 X-App-Token）
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  Cloudflare Worker (worker/)                    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │     D1      │  │     R2      │  │       Vectorize         │  │
+│  │ 聊天日志    │  │   附件存储   │  │   日记 highlights 向量   │  │
+│  │ 日记/档案   │  │             │  │                         │  │
+│  │ 状态/设置   │  │             │  │                         │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ OpenAI 兼容接口
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              上游模型/Embedding（OpenAI 兼容接口）                 │
+│                   🤖 Chat / Embeddings API                       │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### 📦 2.1 组件职责一览
+
+<table>
+<tr>
+<th>组件</th>
+<th>目录</th>
+<th>职责</th>
+</tr>
+<tr>
+<td>📱 <strong>Android App</strong></td>
+<td><code>ATRI/</code></td>
+<td>
+• UI + 本地保存（Room）<br/>
+• 上传附件到 Worker（Worker 再写入 R2）<br/>
+• 把"用户消息"和"亚托莉回复"都写入 Worker 的 <code>conversation_logs</code>（D1）<br/>
+• 把 Worker 返回的 mood/intimacy 显示成"状态"
+</td>
+</tr>
+<tr>
+<td>☁️ <strong>Cloudflare Worker</strong></td>
+<td><code>worker/</code></td>
+<td>
+• <code>/api/v1/chat</code>：生成回复（一次性 JSON）<br/>
+• <code>/conversation/*</code>：写/删/查对话日志<br/>
+• <code>/diary/*</code>：查日记/列日记/手动重生成<br/>
+• <code>/upload</code> & <code>/media*</code>：附件上传与访问控制<br/>
+• <code>/models</code>：拉取上游模型列表给 App 选<br/>
+• <strong>Cron</strong>：每天自动生成日记/用户档案/亚托莉便签，并写向量记忆
+</td>
+</tr>
+<tr>
+<td>📝 <strong>共享提示词</strong></td>
+<td><code>shared/prompts.json</code></td>
+<td>
+• 人格/日记/档案/便签的"母本"<br/>
+• Worker 真正读取的是 <code>worker/src/config/prompts.json</code>（由脚本同步生成）
+</td>
+</tr>
+<tr>
+<td>🔄 <strong>同步脚本</strong></td>
+<td><code>scripts/sync_shared.py</code></td>
+<td>
+把 <code>shared/prompts.json</code> 同步到 <code>worker/src/config/prompts.json</code>
+</td>
+</tr>
+</table>
 
 ---
 
-## 3. 文件结构
+## 3. 核心链路：一次对话到底怎么走完（从点发送开始）
+
+这一节是整套系统的**主线**。看懂它，你就能理解后面所有设计。
+
+### 🔄 3.1 对话顺序图（现状）
 
 ```
-📁 项目根目录
-│
-├── 📁 ATRI/                              # 📱 Android 客户端
-│   └── app/src/main/
-│       ├── java/me/atri/                 # UI / 数据 / 网络 / Room / DataStore
-│       └── res/                          # 图标、布局等资源
-│   （当前 Android 端不内置 prompts.json，提示词只在后端生效）
-│
-├── 📁 worker/                            # ☁️ Cloudflare Worker 后端
-│   ├── 📄 wrangler.toml                  # 资源绑定 + Cron 配置
-│   ├── 📁 db/
-│   │   └── 📄 schema.sql                 # D1 表结构
-│   └── 📁 src/
-│       ├── 📄 index.ts                   # 路由注册 + scheduled 钩子
-│       ├── 📁 routes/                    # chat / conversation / diary / media / admin / models
-│       ├── 📁 services/                  # 核心业务逻辑
-│       ├── 📄 jobs/diary-cron.ts         # 定时任务
-│       └── 📁 config/
-│           └── 📄 prompts.json           # 由脚本从 shared 同步
-│
-├── 📁 shared/
-│   └── 📄 prompts.json                   # 🎯 人格/日记/记忆提示词母本（唯一真相源）
-│
-└── 📁 scripts/
-    └── 📄 sync_shared.py                 # 🔄 把 shared/prompts.json 同步到 worker
+┌────────┐                    ┌─────────────┐                   ┌────────────┐
+│  用户  │                    │  Android    │                   │   Worker   │
+│        │                    │    App      │                   │            │
+└───┬────┘                    └──────┬──────┘                   └─────┬──────┘
+    │                                │                                 │
+    │  ① 选择附件（可选）              │                                 │
+    │  ② 点击发送                     │                                 │
+    │ ──────────────────────────────>│                                 │
+    │                                │                                 │
+    │                                │  ③ 本地先插入 messages（Room）    │
+    │                                │────────────────────────────────>│
+    │                                │                                 │
+    │                                │  ④ POST /conversation/log      │
+    │                                │    (role=user, 写入 D1)         │
+    │                                │────────────────────────────────>│
+    │                                │                                 │
+    │                                │  ⑤ POST /api/v1/chat           │
+    │                                │    (content + 附件信息)          │
+    │                                │────────────────────────────────>│
+    │                                │                                 │
+    │                                │         ┌──────────────────────┐│
+    │                                │         │ ⑥ 鉴权 X-App-Token   ││
+    │                                │         │ ⑦ 读 D1：今天+昨天日志 ││
+    │                                │         │ ⑧ 读 D1：用户档案     ││
+    │                                │         │ ⑨ 读 D1：亚托莉便签   ││
+    │                                │         │ ⑩ 读/衰减 user_states││
+    │                                │         │ ⑪ 组 system prompt   ││
+    │                                │         │ ⑫ 调大模型（工具循环） ││
+    │                                │         │ ⑬ 保存最新 user_states││
+    │                                │         └──────────────────────┘│
+    │                                │                                 │
+    │                                │  ⑭ 返回 JSON：                  │
+    │                                │     reply + mood + intimacy     │
+    │                                │<────────────────────────────────│
+    │                                │                                 │
+    │                                │  ⑮ 插入回复到 messages（Room）   │
+    │                                │                                 │
+    │                                │  ⑯ POST /conversation/log      │
+    │                                │    (role=atri, 写入 D1)         │
+    │                                │────────────────────────────────>│
+    │                                │                                 │
+    │  ⑰ 显示回复                     │                                 │
+    │<───────────────────────────────│                                 │
+    │                                │                                 │
 ```
+
+### 💡 3.2 "先写日志，再聊天"的核心动机
+
+> **关键设计点**
+
+你会看到 App 在调用 `/api/v1/chat` 之前，先 `POST /conversation/log` 写一条用户消息到 D1。
+
+<table>
+<tr>
+<th width="50%">✅ 好处</th>
+<th width="50%">⚠️ 带来的问题</th>
+</tr>
+<tr>
+<td>
+• Worker 构造上下文时，不用信任客户端"给我最近 N 条消息"，而是直接读 D1 的对话日志<br/>
+• 日记/档案/向量记忆都能以 D1 为材料，链路统一
+</td>
+<td>
+Worker 读"今天聊天记录"时，可能把刚写入的这一条也读到历史里，导致模型看到重复内容
+</td>
+</tr>
+</table>
+
+**解决方案**：App 会把这条用户消息的 id 作为 `logId` 传给 `/api/v1/chat`，Worker 读历史时会剔除它（见 [`worker/src/services/agent-service.ts`](worker/src/services/agent-service.ts) 的 `excludeLogId`）。
+
+> 📌 **一句话总结**：**D1 是"聊天事实源"，logId 是"去重开关"。**
+
+### 🎭 3.3 为什么日志写失败也不阻塞聊天
+
+[`ChatRepository.logConversationSafely(...)`](ATRI/app/src/main/java/me/atri/data/repository/ChatRepository.kt) 是 `runCatching` 包起来的：写日志失败会打印，但不会让 UI 卡死。
+
+| 取舍 | 说明 |
+|------|------|
+| ✅ 用户体验优先 | 断网/超时也要尽量能继续聊（至少能拿到回复） |
+| ⚠️ 代价 | 那一天的 D1 材料可能不完整，会影响日记/记忆质量 |
+
+> 💡 如果你更重视"材料完整性"，可以把它改成强一致：日志写失败就不允许 `/api/v1/chat`。但当前设计更偏"像聊天软件"，而不是"像数据库同步工具"。
 
 ---
 
-## 4. API 端点
+## 4. 创新点 1：PAD + 亲密度衰减（让情绪有惯性，不是一次性表演）
 
-### 4.1 端点列表
+### 🎭 4.1 PAD 是什么
 
-| 方法 | 路径 | 鉴权 | 说明 |
-|:----:|:-----|:----:|:-----|
-| `POST` | `/api/v1/chat` | 🔐 X-App-Token | 主聊天接口，返回 `{reply, mood:{p,a,d}, intimacy, action}` |
-| `POST` | `/conversation/log` | 🔐 X-App-Token | 记录单条对话 |
-| `POST` | `/conversation/delete` | 🔐 X-App-Token | 删除若干日志 |
-| `GET` | `/conversation/last` | 🔐 X-App-Token | 查询上次对话时间 |
-| `GET` | `/diary` | 🔐 X-App-Token | 查询单日日记 |
-| `GET` | `/diary/list` | 🔐 X-App-Token | 日记列表（倒序） |
-| `POST` | `/upload` | 🔐 X-App-Token | 附件上传到 R2 |
-| `GET` | `/media/:key` | 🔐 X-App-Token / 签名 URL / token | 读取附件（App 用 Header，模型用签名 URL） |
-| `GET` | `/media-s/:exp/:sig/:key` | 🔐 X-App-Token / 签名 URL / token | 给模型用的路径签名媒体地址（避免 query 丢失） |
-| `GET` | `/models` | 🔐 X-App-Token | 获取可用模型列表 |
-| `POST` | `/admin/clear-user` | 🔒 Bearer Token | 清理用户数据（需 ADMIN_API_KEY） |
+**PAD 是三维情绪坐标**：
 
-### 4.2 请求/响应示例
+| 维度 | 全称 | 含义 | 范围 |
+|:----:|------|------|:----:|
+| **P** | Pleasure | 愉悦度（开心/不开心） | `-1` ~ `1` |
+| **A** | Arousal | 兴奋度（有精神/没精神） | `-1` ~ `1` |
+| **D** | Dominance | 掌控度（强势/示弱） | `-1` ~ `1` |
+
+### 💕 4.2 亲密度是什么
+
+后端还维护一个 `intimacy`（范围 `-100` ~ `100`），代表"关系温度"。
+
+> ⚠️ 它不是 UI 的装饰，而是会进 prompt，让回复风格随着关系变化。
+
+### 🗃️ 4.3 数据落在哪
+
+在 [`worker/db/schema.sql`](worker/db/schema.sql) 的 **`user_states`** 表：
+
+```sql
+user_id           -- 用户 id
+pad_values        -- JSON 字符串（数组 [p,a,d]）
+intimacy          -- 整数
+last_interaction_at / updated_at  -- 时间戳
+```
+
+### 🔧 4.4 更新机制（模型"申请修改"）
+
+Worker 给模型注册了两个工具（见 [`worker/src/services/agent-service.ts`](worker/src/services/agent-service.ts) 的 `AGENT_TOOLS`）：
+
+```typescript
+update_mood(pleasure_delta, arousal_delta, dominance_delta?, reason)
+update_intimacy(delta, reason)
+```
+
+> 💡 **设计意图**：当模型判断"情绪/关系应该变化"时，先通过工具把变化写进 `user_states`，再回答。
 
 <details>
-<summary><b>📤 POST /api/v1/chat</b></summary>
+<summary>📝 如何让模型更积极地调用这些工具？</summary>
+
+当前 `shared/prompts.json` 里已经把"回忆要查证、不确定别乱编"写得很明确；但对 `update_mood/update_intimacy` 并没有特别"强制写死一条规则"。
+
+如果你发现模型很少调用这两个工具，最有效的做法是：在 `shared/prompts.json` 的 `agent.system` 里补一句明确规则，例如：
+
+```
+当用户的话引起情绪或关系波动时，先调用 update_mood / update_intimacy，再回复。
+```
+
+这比"后端写一堆 if/else 情绪规则"更可扩展：你换人格/换模型/换提示词时，不需要重写规则引擎。
+
+</details>
+
+### 📉 4.5 衰减机制
+
+在 [`worker/src/services/data-service.ts`](worker/src/services/data-service.ts)：
+
+<table>
+<tr>
+<th>衰减类型</th>
+<th>规则</th>
+<th>含义</th>
+</tr>
+<tr>
+<td><strong>PAD 衰减</strong></td>
+<td>
+• 距离上次互动 &lt; 0.5 小时：不衰减<br/>
+• 否则按小时衰减：<code>factor = 0.92 ^ hours</code>（最多按 48 小时算）
+</td>
+<td>💭 时间久了会慢慢冷静下来</td>
+</tr>
+<tr>
+<td><strong>亲密度衰减</strong></td>
+<td>
+每隔 3 天，把亲密度往 0 推 1 点（正数变小，负数变大）
+</td>
+<td>💔 关系不维护会慢慢淡</td>
+</tr>
+<tr>
+<td><strong>额外约束</strong></td>
+<td>
+• <code>update_intimacy</code> 的 delta 被 clamp 到 <code>[-50, 10]</code><br/>
+• 如果当前亲密度 &lt; 0，想升温会打折（<code>*0.6</code>，至少 +1）
+</td>
+<td>💔 "破镜难圆"的工程化表达</td>
+</tr>
+</table>
+
+### 🎯 4.6 它怎么影响回复
+
+[`composeAgentSystemPrompt(...)`](worker/src/services/agent-service.ts) 会把 PAD/亲密度写进 system prompt（来自 `shared/prompts.json` 的 `agent.system` 模板）。
+
+> 📌 所以模型每次回复都带着"我现在是什么状态、和你是什么关系"。
+
+Worker 返回给 App 的 `mood` 和 `intimacy`，只是为了 UI 能展示"状态"；**核心价值在 prompt 侧**。
+
+> ⚠️ **注意**：App 本地还有一套 `intimacy_points`（见 [`StatusRepository`](ATRI/app/src/main/java/me/atri/data/repository/StatusRepository.kt)），用于 UI 的等级/进度条。这和后端 `intimacy` 目前是两套体系（现状如此，后续可以做统一/同步）。
+
+---
+
+## 5. 创新点 2：日记 highlights 向量记忆（用"提炼过的记忆"去做检索）
+
+> 💡 很多 RAG 的坑来自一句话：**把噪声也向量化了**。
+
+我这里刻意不做"每句对话都进向量库"，而是：
+
+```
+① 先每天生成一篇日记（带 highlights）
+           ↓
+② 只把 highlights（4~10 条短句）向量化
+           ↓
+③ 检索时先召回"哪天发生过什么"，再按需读日记/原文
+```
+
+### ✨ 5.1 为什么 highlights 比逐句对话更适合向量化
+
+| 优势 | 说明 |
+|------|------|
+| 🎯 **信息密度高** | highlights 是"事件 + 对象 + 情绪"的短句，不是闲聊口水 |
+| 💰 **成本可控** | 每天最多 10 条向量，而不是上千条 |
+| 🎲 **召回更稳** | 按"天"去重，更像人类回忆路径（先想起那天，再看细节） |
+
+### 📝 5.2 向量写入（Vectorize）
+
+写入逻辑在 [`worker/src/services/memory-service.ts`](worker/src/services/memory-service.ts) 的 `upsertDiaryHighlightsMemory`：
+
+```typescript
+// 向量 ID 规则
+id: `hl:<userId>:<date>:<i>`  // i 从 0 开始，最多 10
+
+// metadata（简写字段，节省空间）
+{
+  u: userId,           // 用户 ID
+  c: 'highlight',      // 类别（固定）
+  d: date,             // 日期 YYYY-MM-DD
+  m: mood,             // 情绪
+  imp: 6,              // 重要度（当前固定 6）
+  ts: timestamp,       // 写入时间戳
+  i: index,            // 序号
+  text: highlightText  // highlight 原文
+}
+```
+
+### 🔍 5.3 向量检索（search_memory 工具）
+
+模型想回忆时，不是后端强行把一堆记忆塞进 prompt，而是让模型自己调用：
+
+```typescript
+search_memory(query)
+```
+
+**实现流程**（[`worker/src/services/memory-service.ts`](worker/src/services/memory-service.ts)）：
+
+```
+① 对 query 做 embedding
+           ↓
+② Vectorize.query(topK = max(50, topK*10))
+           ↓
+③ 过滤：只保留 metadata.u == userId，且 c == highlight
+           ↓
+④ 按日期去重：同一天多条命中只保留一条
+           ↓
+⑤ 返回 topK 天的"片段"
+```
+
+### 🔗 5.4 回忆分两段：先找日期，再读原文
+
+> 🚫 **防乱编的关键设计**
+
+工具链在 [`worker/src/services/agent-service.ts`](worker/src/services/agent-service.ts)：
+
+| 步骤 | 工具 | 作用 |
+|:----:|------|------|
+| 1️⃣ | `search_memory(query)` | 告诉模型"可能相关的是哪几天 + 一句片段" |
+| 2️⃣ | `read_diary(date)` | 读那天日记（第一人称、情绪更浓） |
+| 2️⃣ | `read_conversation(date)` | 读那天原始聊天（带时间戳，适合引用原话） |
+
+> 📌 这就是**"工具注册取代全量注入"**的核心：不把所有历史塞进去，只在需要时取证。
+
+---
+
+## 6. 创新点 3：日记/用户档案/亚托莉便签（分流上游 + 三个产物三种用途）
+
+### 📊 6.1 三个产物分别解决什么
+
+<table>
+<tr>
+<th width="15%">产物</th>
+<th width="20%">存储位置</th>
+<th width="30%">解决什么</th>
+<th width="35%">给模型什么</th>
+</tr>
+<tr>
+<td>📔 <strong>日记</strong></td>
+<td><code>diary_entries</code></td>
+<td>把"今天发生了什么 + 我怎么想"写成可读叙事</td>
+<td>情感连续性 + highlights（用于向量）</td>
+</tr>
+<tr>
+<td>📋 <strong>用户档案</strong></td>
+<td><code>user_profiles</code></td>
+<td>把"事实/喜好/雷区/说话风格/关系进展"做成结构化摘要</td>
+<td>长期稳定、低噪声</td>
+</tr>
+<tr>
+<td>📝 <strong>亚托莉便签</strong></td>
+<td><code>atri_self_reviews</code></td>
+<td>最多 3 条短提醒</td>
+<td>短期提醒、行动导向</td>
+</tr>
+</table>
+
+> 💡 这三个东西都不是"为了好看"，而是给模型下次对话提供**不同层次的材料**。
+
+### 🔄 6.2 生成链路
+
+#### Cron（每天自动跑）
+
+在 [`worker/src/jobs/diary-cron.ts`](worker/src/jobs/diary-cron.ts)：
+
+```
+① 找出"今天有聊天但还没 ready 日记"的用户（listPendingDiaryUsers）
+                    ↓
+② 拉当天 conversation_logs → 拼 transcript
+                    ↓
+③ 生成日记（generateDiaryFromConversation）
+                    ↓
+④ 保存日记到 diary_entries（status=ready）
+                    ↓
+⑤ highlights 向量化写入 Vectorize
+                    ↓
+⑥ 刷新 user_profiles（结构化档案）
+                    ↓
+⑦ 刷新 atri_self_reviews（便签）
+```
+
+#### 手动重生成
+
+`POST /diary/regenerate` 会重新生成当天日记，并且**强制刷新档案/便签**（保证三者一致）。
+
+### 🔀 6.3 分流上游
+
+> ⚠️ **重要：聊天别被日记拖死**
+
+| 用途 | 配置变量 | 说明 |
+|------|----------|------|
+| 💬 Chat | `OPENAI_API_URL` / `OPENAI_API_KEY` | 聊天走这个 |
+| 📔 日记/档案/便签 | `DIARY_API_URL` / `DIARY_API_KEY` / `DIARY_MODEL` | 允许走独立上游 |
+
+**隔离的意义**：
+- 聊天要快、稳定
+- 日记允许慢一点、质量高一点、甚至用另一家服务
+- 日记上游挂了，不影响聊天（最多当天日记生成失败）
+
+**实现位置**：
+| 功能 | 文件 |
+|------|------|
+| 日记 | [`worker/src/services/diary-generator.ts`](worker/src/services/diary-generator.ts) |
+| 档案 | [`worker/src/services/profile-generator.ts`](worker/src/services/profile-generator.ts) |
+| 便签 | [`worker/src/services/self-review-generator.ts`](worker/src/services/self-review-generator.ts) |
+| 统一请求封装 | [`worker/src/services/openai-service.ts`](worker/src/services/openai-service.ts)（支持传入 apiUrl/apiKey 覆盖） |
+
+### 🤖 6.4 模型选择策略（现状）
+
+```
+聊天：优先用客户端传来的 modelKey，否则用默认 CHAT_MODEL
+          ↓
+后端会把 modelKey 记到 user_settings.model_key
+          ↓
+Cron 会复用它作为日记/档案/便签的 modelKey
+```
+
+> 📌 也就是说：**用户选什么模型，日记/档案/便签也会尽量用同一个模型**（除非你在环境里强制配置别的策略）。
+
+---
+
+## 7. 创新点 4：工具注册取代全量注入（把"查证"变成模型能力的一部分）
+
+> 🚫 很多系统的做法是：把所有历史、所有记忆、所有档案拼成一个巨大 prompt。
+
+**这样做的问题**：
+- 💰 费用高、速度慢
+- 🔊 噪声大、模型更容易"顺着噪声编"
+- 🔧 记忆更新/删除很难控
+
+**我这里的做法**：
+
+```
+① system prompt 只放"当前状态 + 使用规则 + 档案/便签的摘要"
+                    ↓
+② 把"回忆/查证/更新情绪"做成工具
+                    ↓
+③ 明确告诉模型：什么时候该用什么工具（写在 prompts 里）
+```
+
+### 🔧 7.1 当前已注册的工具
+
+在 [`worker/src/services/agent-service.ts`](worker/src/services/agent-service.ts)：
+
+| 工具 | 参数 | 作用 |
+|------|------|------|
+| `search_memory` | `query` | 找可能相关的日期/片段（来自 highlights 向量） |
+| `read_diary` | `date` | 读那天日记（第一人称） |
+| `read_conversation` | `date` | 读那天原文聊天（带时间戳） |
+| `update_mood` | `pleasure_delta`, `arousal_delta`, `dominance_delta?`, `reason` | 更新 PAD |
+| `update_intimacy` | `delta`, `reason` | 更新关系温度 |
+
+### 🔄 7.2 工具循环怎么跑（最多 5 轮）
+
+`runToolLoop(...)` 做的事：
+
+```
+① 调上游 /chat/completions（带 tools + tool_choice=auto）
+                    ↓
+② 如果模型返回 tool_calls：逐个执行，结果作为 role=tool 塞回 messages
+                    ↓
+③ 【关键】执行完工具后，会用最新状态重建 system prompt
+                    ↓
+④ 继续下一轮，直到模型不再调用工具，给出最终回复
+```
+
+> 📌 这保证：模型"先更新情绪/亲密度"，下一句回复就能体现变化，不会延迟一轮。
+
+---
+
+## 8. 附件与媒体访问控制（给 App 的长链接，给模型的稳链接）
+
+### 📤 8.1 上传（`POST /upload`）
+
+Worker 里 [`worker/src/routes/media.ts`](worker/src/routes/media.ts)：
+
+```typescript
+// App 上传时的 Header
+X-File-Name / X-File-Type / X-File-Size / X-User-Id
+
+// body 是文件字节流
+
+// Worker 存到 R2，key 形如：
+`u/<safeUserId>/<timestamp>-<safeFileName>`
+```
+
+**返回值**：
+
+| 字段 | 说明 |
+|------|------|
+| `key` | R2 object key |
+| `rawUrl` | 不签名的 `/media/<key>` |
+| `url` | 给 App 的长签名 URL（默认 1 年） |
+| `signedUrl` | 给模型的短签名 URL（默认 10 分钟，且是路径签名） |
+
+### 🔐 8.2 为什么要"路径签名"
+
+> ⚠️ **这是为了对抗模型丢 query**
+
+模型侧经常出现这种情况：
+
+```
+你给了：https://.../media/xxx?exp=...&sig=...
+模型请求时把 ?exp&sig 丢了 → 401
+```
+
+所以我专门给模型做了一种形式：
+
+```
+/media-s/<exp>/<sig>/<key>
+```
+
+这个签名在路径里，不依赖 query，模型更不容易丢。
+
+**实现见**：
+- [`worker/src/utils/media-signature.ts`](worker/src/utils/media-signature.ts) 的 `signMediaUrlForModel`
+- [`worker/src/routes/media.ts`](worker/src/routes/media.ts) 的 `/media-s/...` 路由
+
+### 🔒 8.3 访问控制优先级（现状）
+
+**读取 `/media/:key+`**（给 App）：
+
+```
+① query 签名 exp/sig 校验通过
+          ↓（失败则继续）
+② Header X-App-Token 校验通过
+          ↓（失败则继续）
+③ query ?token=<APP_TOKEN> 校验通过（兼容兜底，不推荐）
+```
+
+**读取 `/media-s/...`**（给模型）：
+
+```
+① 优先校验路径签名
+          ↓（不通过）
+② 走 Header/query token 兜底
+```
+
+**签名算法**：`HMAC-SHA256(key + "\n" + exp)`，secret 优先用 `MEDIA_SIGNING_KEY`，否则回退 `APP_TOKEN`。
+
+---
+
+## 9. Cloudflare Worker API 契约（完整｜字段级）
+
+> 📌 **统一规则**：除 `OPTIONS *` 外，所有业务接口都需要 `X-App-Token`；返回 JSON。
+> CORS：`Access-Control-Allow-Origin: *`（见 [`worker/src/utils/json-response.ts`](worker/src/utils/json-response.ts)）。
+
+下面写的是"现状协议"，继续开发请以此为基准。
+
+---
+
+### 9.1 `OPTIONS *`
+
+用于浏览器预检，返回：
+```http
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-Name, X-File-Type, X-File-Size, X-User-Id
+```
+
+---
+
+### 9.2 `POST /api/v1/chat`（生成回复）
+
+<details>
+<summary>📋 点击展开详情</summary>
+
+**Header**
+```http
+Content-Type: application/json
+X-App-Token: <token>
+```
+
+**Request Body（推荐字段名）**
+```json
+{
+  "userId": "uuid",
+  "content": "文本，可为空（只发图时）",
+  "logId": "这条用户消息在 D1 的 id（用于去重，可选）",
+  "platform": "android（可选）",
+  "userName": "可选",
+  "clientTimeIso": "2026-01-02T22:33:44+08:00（可选）",
+  "modelKey": "上游模型 id（可选）",
+  "imageUrl": "data:... 或 https://...（可选）",
+  "attachments": [
+    { "type": "image|document", "url": "https://.../media/...", "mime": "image/png", "name": "a.png", "sizeBytes": 123 }
+  ]
+}
+```
+
+**兼容字段名**（Worker 会识别）：
+- `user_id`、`log_id`、`messageId/message_id`
+- `message`（代替 content）
+- `client_time`（代替 clientTimeIso）
+- `model`（代替 modelKey）
+- `client`（代替 platform）
+
+**Response（成功）**
+```json
+{
+  "reply": "亚托莉的回复",
+  "mood": { "p": 0.2, "a": 0.1, "d": 0.0 },
+  "action": null,
+  "intimacy": 12
+}
+```
+
+**常见错误**
+| 状态码 | 响应 | 原因 |
+|:------:|------|------|
+| 503 | `{"error":"app_token_missing"}` | Worker 没配置 `APP_TOKEN` |
+| 401 | `{"error":"unauthorized"}` | Token 不匹配 |
+| 400 | `{"error":"invalid_request","message":"..."}` | 缺 userId 或完全空消息 |
+| 500 | `{"error":"bio_chat_failed","details":"..."}` | 上游模型失败等 |
+
+</details>
+
+---
+
+### 9.3 `POST /conversation/log`（写入日志）
+
+<details>
+<summary>📋 点击展开详情</summary>
+
+**Header**
+```http
+Content-Type: application/json
+X-App-Token: <token>
+```
+
+**Request Body**
+```json
+{
+  "logId": "可选（作为 id 写入 D1）",
+  "userId": "uuid",
+  "role": "user|atri",
+  "content": "文本，不能为空",
+  "timestamp": 1730000000000,
+  "attachments": [
+    { "type": "image|document", "url": "https://.../media/...", "mime": "image/png", "name": "a.png", "sizeBytes": 123 }
+  ],
+  "mood": "{\"p\":0.2,\"a\":0.1,\"d\":0.0}",
+  "userName": "可选（用户侧昵称）",
+  "timeZone": "Asia/Shanghai（可选）",
+  "date": "2026-01-02（可选）"
+}
+```
+
+**Response（成功）**
+```json
+{ "ok": true, "id": "最终写入的id", "date": "YYYY-MM-DD" }
+```
+
+**错误**
+| 状态码 | 响应 | 原因 |
+|:------:|------|------|
+| 400 | `{"error":"invalid_params"}` | 缺 userId 或 role 不合法 |
+| 400 | `{"error":"empty_content"}` | content 为空 |
+| 500 | `{"error":"log_failed"}` | 写入失败 |
+
+</details>
+
+---
+
+### 9.4 `POST /conversation/delete`（按 id 批量删除日志）
 
 **Request**
 ```json
-{
-  "userId": "uuid-xxx",
-  "content": "今天好累啊",
-  "logId": "log-uuid",
-  "userName": "小明",
-  "clientTimeIso": "2025-01-15T22:30:00+08:00",
-  "modelKey": "gpt-4o",
-  "attachments": []
-}
+{ "userId": "uuid", "ids": ["id1","id2"] }
 ```
 
 **Response**
 ```json
+{ "ok": true, "deleted": 2 }
+```
+
+---
+
+### 9.5 `GET /conversation/last`（查询上次聊天日期）
+
+| Query 参数 | 必填 | 默认值 |
+|------------|:----:|--------|
+| `userId` | ✅ | - |
+| `timeZone` | ❌ | `Asia/Shanghai` |
+| `date` | ❌ | 按 timeZone 取今天 |
+
+**Response**
+```json
+// 没有记录
+{ "status": "missing" }
+
+// 有记录
+{ "status": "ok", "date": "YYYY-MM-DD", "daysSince": 3 }
+```
+
+---
+
+### 9.6 `GET /diary`（查某天日记）
+
+| Query 参数 | 必填 |
+|------------|:----:|
+| `userId` | ✅ |
+| `date` | ✅ (YYYY-MM-DD) |
+
+**Response**
+```json
+// 不存在
+{ "status": "missing" }
+
+// 存在
+{ "status": "ready|pending|error", "entry": { ... } }
+```
+
+---
+
+### 9.7 `GET /diary/list`（列日记）
+
+| Query 参数 | 必填 | 默认值 |
+|------------|:----:|--------|
+| `userId` | ✅ | - |
+| `limit` | ❌ | 7（最大 30） |
+
+**Response**
+```json
 {
-  "reply": "辛苦了呢，要不要跟我说说今天发生了什么？",
-  "mood": { "p": 0.62, "a": 0.35, "d": 0.48 },
-  "intimacy": 12,
-  "action": null
+  "entries": [
+    {
+      "id": "diary:...",
+      "date": "YYYY-MM-DD",
+      "summary": "...",
+      "content": "...",
+      "mood": "...",
+      "status": "ready",
+      "createdAt": 0,
+      "updatedAt": 0
+    }
+  ]
 }
 ```
-</details>
 
-<details>
-<summary><b>📤 POST /conversation/log</b></summary>
+---
+
+### 9.8 `POST /diary/regenerate`（重生成某天日记）
 
 **Request**
 ```json
+{ "userId": "uuid", "date": "YYYY-MM-DD" }
+```
+
+**Response（成功）**
+```json
+{ "status": "ready", "entry": { ... } }
+```
+
+**常见错误**
+| 状态码 | 响应 | 原因 |
+|:------:|------|------|
+| 404 | `{"error":"no_conversation_logs"}` | 当天没有对话日志 |
+| 500 | `{"status":"error","error":"..."}` | 生成失败 |
+
+---
+
+### 9.9 `POST /upload`（上传附件）
+
+**Header**
+```http
+X-App-Token: <token>
+X-File-Name: filename.png
+X-File-Type: image/png
+X-File-Size: 12345
+X-User-Id: uuid
+```
+
+**Body**：文件二进制
+
+**Response**
+```json
 {
-  "userId": "uuid-xxx",
-  "role": "user",
-  "content": "今天好累啊",
-  "timestamp": 1705329000000,
-  "timeZone": "Asia/Shanghai"
+  "key": "u/xxx/173...-a.png",
+  "url": "给App用的长签名URL（可能带 exp/sig）",
+  "signedUrl": "给模型用的路径签名URL（/media-s/...）",
+  "rawUrl": "不签名的URL",
+  "mime": "image/png",
+  "size": 123
 }
+```
+
+---
+
+### 9.10 `GET/HEAD /media/:key+`（读取附件）
+
+允许三种方式放行（见第 8 节）。成功会返回对象内容，并带：
+```http
+Cache-Control: public, max-age=31536000
+```
+
+---
+
+### 9.11 `GET/HEAD /media-s/:exp/:sig/:key+`（路径签名读取附件）
+
+给模型用的稳定形式，见第 8 节。
+
+---
+
+### 9.12 `GET /models`（模型列表）
+
+Worker 会代理请求 `OPENAI_API_URL + /models`，并把上游 `data[]` 归一成：
+```json
+{
+  "models": [
+    { "id": "...", "label": "...", "provider": "...", "note": "..." }
+  ]
+}
+```
+
+---
+
+### 9.13 `POST /admin/clear-user`（清理用户数据）
+
+<details>
+<summary>📋 点击展开详情</summary>
+
+**Header**
+```http
+Authorization: Bearer <ADMIN_API_KEY>
+```
+
+**Request**
+```json
+{ "userId": "uuid" }
 ```
 
 **Response**
 ```json
 {
   "ok": true,
-  "id": "log-uuid",
-  "date": "2025-01-15"
+  "userId": "uuid",
+  "stats": {
+    "diaries": 10,
+    "diaryVectors": 100,
+    "conversationLogs": 200,
+    "mediaObjects": 5,
+    "userSettings": 1
+  }
 }
 ```
+
+> ⚠️ **现状提醒**：这个接口当前主要清理 diary/log/vector/media/user_settings；`user_profiles` / `user_states` / `atri_self_reviews` 是否清理，要以代码实现为准（你后续可以补齐）。
+
 </details>
 
 ---
 
-## 5. 数据模型
+## 10. 数据模型（完整｜D1 / R2 / Vectorize / Android 本地）
 
-### 5.1 D1 表结构
+### 🗄️ 10.1 D1（[`worker/db/schema.sql`](worker/db/schema.sql)）
 
-<details>
-<summary><b>📋 conversation_logs</b></summary>
+<table>
+<tr>
+<th colspan="2">conversation_logs（对话日志）</th>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>主键（客户端可传 logId，否则后端生成 UUID）</td>
+</tr>
+<tr>
+<td><code>user_id</code></td>
+<td>用户 id</td>
+</tr>
+<tr>
+<td><code>date</code></td>
+<td>YYYY-MM-DD（优先用客户端传入 date，否则按 timestamp+timeZone 计算）</td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td><code>user|atri</code></td>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>清洗后的文本</td>
+</tr>
+<tr>
+<td><code>attachments</code></td>
+<td>JSON 字符串（数组）</td>
+</tr>
+<tr>
+<td><code>mood</code></td>
+<td>可选（App 侧存 JSON 字符串）</td>
+</tr>
+<tr>
+<td><code>timestamp</code></td>
+<td>毫秒</td>
+</tr>
+<tr>
+<td><code>user_name</code></td>
+<td>可选</td>
+</tr>
+<tr>
+<td><code>time_zone</code></td>
+<td>可选</td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td>写入时间</td>
+</tr>
+</table>
 
-| 字段 | 类型 | 说明 |
-|:-----|:----:|:-----|
-| `id` | TEXT PK | UUID |
-| `user_id` | TEXT | 用户标识 |
-| `date` | TEXT | yyyy-MM-dd（按时区计算） |
-| `role` | TEXT | `user` / `atri` |
-| `content` | TEXT | 消息内容 |
-| `attachments` | TEXT | JSON 数组 |
-| `timestamp` | INTEGER | 毫秒时间戳 |
-| `created_at` | INTEGER | 写入时间 |</details>
+<table>
+<tr>
+<th colspan="2">user_states（用户状态）</th>
+</tr>
+<tr>
+<td><code>pad_values</code></td>
+<td>JSON 数组字符串 <code>[p, a, d]</code></td>
+</tr>
+<tr>
+<td><code>intimacy</code></td>
+<td>关系温度</td>
+</tr>
+<tr>
+<td><code>last_interaction_at</code> / <code>updated_at</code></td>
+<td>用于衰减与更新</td>
+</tr>
+</table>
 
-<details>
-<summary><b>📔 diary_entries</b></summary>
+<table>
+<tr>
+<th colspan="2">diary_entries（日记）</th>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td><code>diary:&lt;userId&gt;:&lt;date&gt;</code></td>
+</tr>
+<tr>
+<td><code>summary</code></td>
+<td>highlights 拼接或正文摘要</td>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>日记正文</td>
+</tr>
+<tr>
+<td><code>mood</code></td>
+<td>一个词</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>pending|ready|error</code></td>
+</tr>
+</table>
 
-| 字段 | 类型 | 说明 |
-|:-----|:----:|:-----|
-| `id` | TEXT PK | `diary:<userId>:<date>` |
-| `user_id` | TEXT | 用户标识 |
-| `date` | TEXT | yyyy-MM-dd |
-| `summary` | TEXT | 列表摘要 |
-| `content` | TEXT | 日记正文 |
-| `mood` | TEXT | 心情标签 |
-| `status` | TEXT | `ready` / `pending` / `error` |
-</details>
+<table>
+<tr>
+<th colspan="2">user_settings（用户设置）</th>
+</tr>
+<tr>
+<td><code>model_key</code></td>
+<td>用户偏好模型</td>
+</tr>
+</table>
 
-<details>
-<summary><b>📚 daily_learning</b></summary>
+<table>
+<tr>
+<th colspan="2">user_profiles（用户档案）</th>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>JSON 字符串（事实/喜好/雷区/说话风格/关系进展）</td>
+</tr>
+</table>
 
-| 字段 | 类型 | 说明 |
-|:-----|:----:|:-----|
-| `id` | TEXT PK | `learn:<userId>:<date>` |
-| `user_id` | TEXT | 用户标识 |
-| `date` | TEXT | yyyy-MM-dd |
-| `summary` | TEXT | 亮点/问题概要 |
-| `payload` | TEXT | 完整 JSON |
-</details>
+<table>
+<tr>
+<th colspan="2">atri_self_reviews（亚托莉便签）</th>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>JSON 字符串（日期/认识天数/便签[]）</td>
+</tr>
+</table>
 
-### 5.2 Vectorize 元数据
+### 🔢 10.2 Vectorize（highlights 向量）
 
-| 字段 | 说明 |
-|:-----|:-----|
-| `id` | `diary:<userId>:<date>` |
-| `metadata.u` | userId |
-| `metadata.c` | 类型（固定 `diary`） |
-| `metadata.d` | 日期 |
-| `metadata.m` | 心情 |
+```
+id: hl:<userId>:<date>:<i>  (i=0..9)
+metadata: 见第 5 节
+```
+
+### 📦 10.3 R2（附件对象）
+
+```
+key: u/<safeUser>/<timestamp>-<safeName>
+httpMetadata: contentType / contentDisposition（用于浏览器/客户端正确识别）
+```
+
+### 📱 10.4 Android 本地（Room + DataStore）
+
+**Room**：[`ATRI/app/src/main/java/me/atri/data/db/AtriDatabase.kt`](ATRI/app/src/main/java/me/atri/data/db/AtriDatabase.kt)
+
+| 表 | 说明 |
+|---|---|
+| `messages` | 消息（带 isDeleted/isImportant/version/mood） |
+| `message_versions` | 消息版本（用于编辑/重答） |
+| `diary` | 本地缓存日记（当前主要用于展示） |
+| `memories` | 本地记忆表（更多用于统计/预留） |
+
+**DataStore**：[`PreferencesStore.kt`](ATRI/app/src/main/java/me/atri/data/datastore/PreferencesStore.kt)
+
+| Key | 说明 |
+|-----|------|
+| `api_url` | Worker URL |
+| `app_token` | 鉴权 token |
+| `model_name` | 模型 id |
+| `user_id` / `user_name` | 用户信息 |
+| `last_chat_date` | 离线兜底 |
 
 ---
 
-## 6. 配置示例
+## 11. 开发者上手（怎么改东西，不讲部署）
 
-### 6.1 wrangler.toml
+### 🔧 11.1 你最常改的东西 → 改哪儿
 
-```toml
-name = "atri-worker"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-account_id = "your-account-id"
+| 你想改什么 | 改哪些文件 |
+|------------|------------|
+| 🎭 改人格/口吻/工具使用规则 | [`shared/prompts.json`](shared/prompts.json) 的 `agent` |
+| 📔 改日记写法 | [`shared/prompts.json`](shared/prompts.json) 的 `diary` |
+| 📋 改用户档案结构 | [`shared/prompts.json`](shared/prompts.json) 的 `profile` + [`worker/src/services/profile-generator.ts`](worker/src/services/profile-generator.ts) |
+| 📝 改便签规则 | [`shared/prompts.json`](shared/prompts.json) 的 `stickyNote` + [`worker/src/services/self-review-generator.ts`](worker/src/services/self-review-generator.ts) |
+| 🔧 加一个新工具 | [`worker/src/services/agent-service.ts`](worker/src/services/agent-service.ts)（AGENT_TOOLS + executeAgentTool） |
+| 🧠 改向量记忆策略 | [`worker/src/services/memory-service.ts`](worker/src/services/memory-service.ts) |
+| 🔐 改附件安全/签名 | [`worker/src/utils/media-signature.ts`](worker/src/utils/media-signature.ts) + [`worker/src/routes/media.ts`](worker/src/routes/media.ts) |
+| 📱 App 增加/调用新接口 | [`ATRI/.../AtriApiService.kt`](ATRI/app/src/main/java/me/atri/data/api/AtriApiService.kt) + Repository + ViewModel + UI |
 
-[vars]
-OPENAI_API_URL = "https://api.openai.com/v1"
-DIARY_API_URL = "https://api.openai.com/v1"          # 可选：日记专用上游
-DIARY_MODEL = "gpt-4o"
-EMBEDDINGS_API_URL = "https://api.openai.com/v1"        # 可选：向量/嵌入上游（OpenAI 兼容）
-EMBEDDINGS_API_KEY = "your-embeddings-key"              # 可选：覆盖默认（也可用 wrangler secret）
-EMBEDDINGS_MODEL = "gpt-4o"
+### 🚀 11.2 "工具注册"扩展的标准姿势
 
-[[vectorize]]
-binding = "VECTORIZE"
-index_name = "atri-memories"
+> 推荐流程
 
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "atri-media"
-preview_bucket_name = "atri-media"
-
-[[d1_databases]]
-binding = "ATRI_DB"
-database_name = "atri_diary"
-database_id = "your-d1-id"
-
-[triggers]
-crons = ["59 15 * * *"]  # UTC 15:59 = 北京时间 23:59
 ```
-
-### 6.2 prompts.json 结构
-
-```json
-{
-  "chat": {
-    "identity": "...",
-    "soul": "...",
-    "memoryWhispers": "...",
-    "voice": "...",
-    "innerProcess": "...",
-    "naturalness": "..."
-  },
-  "diary": {
-    "system": "...",
-    "userTemplate": "..."
-  },
-  "profile": {
-    "system": "...",
-    "userTemplate": "..."
-  },
-  "summary": { "prompt": "..." },
-  "memory": { "extractTemplate": "..." },
-  "agent": { "system": "..." }
-}
-```
-
----
-
-## 7. 部署指南
-
-### 7.1 环境准备
-
-```bash
-# 1️⃣ 克隆项目
-git clone <repo> && cd ATRI
-
-# 2️⃣ 安装 Worker 依赖
-cd worker && npm install
-
-# 3️⃣ 登录 Cloudflare
-npx wrangler login
-
-# 4️⃣ 创建 D1 数据库
-npx wrangler d1 create atri_diary
-npx wrangler d1 execute atri_diary --file=db/schema.sql
-
-# 5️⃣ 创建 R2 存储桶
-npx wrangler r2 bucket create atri-media
-
-# 6️⃣ 创建 Vectorize 索引
-npx wrangler vectorize create atri-memories --dimensions=1024 --metric=cosine
-
-# 7️⃣ 配置 Secrets
-npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put EMBEDDINGS_API_KEY  # 可选：覆盖默认 embeddings key
-npx wrangler secret put APP_TOKEN
-npx wrangler secret put MEDIA_SIGNING_KEY   # 可选：媒体签名密钥（不配则回退 APP_TOKEN）
-npx wrangler secret put ADMIN_API_KEY  # 可选
-```
-
-### 7.2 部署
-
-```bash
-# 🔄 同步提示词
-python3 scripts/sync_shared.py
-
-# ☁️ 部署 Worker
-cd worker && npm run deploy
-
-# 📱 构建 Android
-cd ATRI && ./gradlew assembleRelease
-```
-
-### 7.3 环境矩阵
-
-| 场景 | Android 入口 | Worker | 说明 |
-|:-----|:-------------|:-------|:-----|
-| 🔧 本地开发 | `http://10.0.2.2:8787` | `npm run dev` | 模拟器使用 |
-| 📱 真机调试 | `http://<局域网IP>:8787` | `npm run dev` | 同一 WiFi |
-| 🚀 生产环境 | `https://your.workers.dev` | `npm run deploy` | 需配置 Secrets |
-
----
-
-## 8. 常用命令
-
-| 场景 | 命令 |
-|:-----|:-----|
-| 🔄 同步提示词 | `python3 scripts/sync_shared.py` |
-| 🔧 Worker 本地开发 | `cd worker && npm run dev` |
-| 🌐 Worker 远程调试 | `cd worker && npm run dev -- --remote` |
-| 🚀 Worker 部署 | `cd worker && npm run deploy` |
-| 📋 查看实时日志 | `cd worker && npx wrangler tail --format pretty` |
-| 🗄️ D1 查询 | `npx wrangler d1 execute atri_diary --command "SELECT ..."` |
-| 🧠 Vectorize 状态 | `npx wrangler vectorize info atri-memories` |
-| 📱 Android 安装 | `cd ATRI && ./gradlew installDebug` |
-| 🧹 Android 清理 | `cd ATRI && ./gradlew clean` |
-
----
-
-## 9. 故障排查
-
-### 9.1 常见问题
-
-| 症状 | 可能原因 | 排查步骤 |
-|:-----|:---------|:---------|
-| ❌ 聊天无响应 | API Key 无效 | 检查 `wrangler secret list`，确认 `OPENAI_API_KEY` 已设置 |
-| ⏱️ 聊天超时 | 模型响应慢 | 查看 `wrangler tail`，考虑降低 `max_tokens` 或换模型 |
-| 📔 日记未生成 | Cron 未触发 | 检查 `wrangler cron triggers`，确认时区配置 |
-| ⚠️ 日记生成失败 | D1/Vectorize 错误 | 查看 `diary_entries.status = 'error'` 的记录 |
-| 📤 附件上传失败 | R2 未绑定 | 确认 `wrangler.toml` 中 `MEDIA_BUCKET` 配置正确 |
-| 🔍 向量检索无结果 | Embedding 失败 | 检查 `EMBEDDINGS_API_KEY`，查看 Vectorize 条数 |
-| 📱 Android 连不上 | URL 错误 | 模拟器用 `10.0.2.2`，真机用局域网 IP |
-| 📝 提示词不一致 | 未同步 | 运行 `sync_shared.py` 后重新部署 |
-
-### 9.2 日志查看
-
-```bash
-# 📋 实时日志
-npx wrangler tail --format pretty
-
-# ⚠️ 过滤错误
-npx wrangler tail --format pretty | grep -i error
-
-# 🗄️ D1 检查失败日记
-npx wrangler d1 execute atri_diary --command \
-  "SELECT * FROM diary_entries WHERE status = 'error' ORDER BY date DESC LIMIT 5"
-```
-
-### 9.3 手动触发 Cron
-
-```typescript
-// 在 Worker 中临时添加测试路由
-router.get('/debug/cron', async (req, env) => {
-  await runDiaryCron(env, '2025-01-15');  // 指定日期
-  return new Response('Done');
-});
+① 先想清楚：这个能力是"读事实"（适合工具），还是"生成文本"（适合模型直接回答）
+                    ↓
+② 加工具 schema（让模型知道参数是什么）
+                    ↓
+③ 实现工具执行（必须返回可读的、可信的内容）
+                    ↓
+④ 在 prompts 里写清楚"什么时候该用它"（否则模型不会用/乱用）
 ```
 
 ---
 
-## 10. 扩展开发
+## 12. 未来演进（你计划的方向，写在蓝图里方便后续对齐）
 
-### 10.1 修改人格/提示词
+> 📌 这一节只讲"计划怎么扩"，不影响现状实现。
 
-1. ✏️ 编辑 `shared/prompts.json`
-2. 🔄 运行 `python3 scripts/sync_shared.py`
-3. 🚀 重新部署 Worker + 重启 Android
+### 🔄 12.1 支持 Gemini / Anthropic 原生格式传输
 
-### 10.2 添加新记忆类型
+**现状**：所有上游都按 OpenAI 兼容接口调用（`/chat/completions`、`/models`、`/embeddings`）。
 
-```typescript
-// 1️⃣ 定义新的 metadata 类型
-interface UserPreferenceMetadata {
-  u: string;       // userId
-  c: 'preference'; // 类型标识
-  k: string;       // 偏好键名
-  ts: number;
-}
+**推荐的演进路线**：
 
-// 2️⃣ 写入向量
-await env.VECTORIZE.upsert([{
-  id: `pref:${userId}:${key}`,
-  values: embedding,
-  metadata: { u: userId, c: 'preference', k: key, ts: Date.now() }
-}]);
-
-// 3️⃣ 在 composeSystemPrompt 中检索并注入
+```
+① 抽一层 Provider Adapter（把 messages/tools 映射到各家格式）
+                    ↓
+② 保持 Worker 内部的"工具 schema + 工具执行"不变
+                    ↓
+③ 让 /models 返回"统一的 model id + provider 信息"，App 只选一个 id
 ```
 
-### 10.3 添加新 API 端点
+### 💬 12.2 主动消息（ATRI 先开口）
 
-```typescript
-// 1️⃣ worker/src/routes/new-feature.ts
-import { Router } from 'itty-router';
-export const newFeatureRouter = Router({ base: '/new-feature' });
+**现状**：严格的 request/response：用户发一句才有一句回。
 
-newFeatureRouter.get('/', async (req, env) => {
-  return Response.json({ hello: 'world' });
-});
-
-// 2️⃣ worker/src/index.ts
-import { newFeatureRouter } from './routes/new-feature';
-router.all('/new-feature/*', newFeatureRouter.handle);
-
-// 3️⃣ Android: AtriApiService.kt
-@GET("new-feature")
-suspend fun getNewFeature(): Response<NewFeatureResponse>
-```
+**要做主动消息，一般需要**：
+- 后端定时/事件触发生成一条 `role=atri` 的日志（写入 `conversation_logs`）
+- App 侧增加"拉取未读消息"的接口与本地落库策略（避免重复、保证顺序）
+- 可能需要通知（推送）或轮询策略
 
 ---
 
-## 11. 性能与限制
+## 附录 A：最小"自检清单"（不等于部署）
 
-| 资源 | 免费层限制 | 建议 |
-|:-----|:-----------|:-----|
-| 🗄️ D1 读取 | 5M 次/天 | 适合 10K DAU |
-| ✏️ D1 写入 | 100K 次/天 | 合并批量写入 |
-| 🧠 Vectorize | 100K 向量 | 定期清理旧日记 |
-| 📦 R2 存储 | 10GB | 客户端压缩图片 |
-| ☁️ Worker 请求 | 100K 次/天 | 加缓存减少重复调用 |
-| ⏱️ 单次请求 | 30s CPU / 128MB | OpenAI 超时设 120s |
+> ✅ 你要验证系统"设计链路"是否通，最少看这三件事：
 
-### 💾 Working Memory 策略
-
-**当前实现**：当日对话全量注入（不截断），按客户端时区排序。
-
-**如需控量可按需改造**：
-- 保留前 20 条（开场上下文）
-- 保留后 50 条（最近对话）
-- 中间插入 `[... 省略 N 条对话 ...]`
-
----
-
-## 12. 安全清单
-
-- [ ] 🔐 所有 Secrets 通过 `wrangler secret put` 设置，不提交 `.dev.vars`
-- [ ] 🔑 `/api/v1/chat` 等接口启用 `X-App-Token` 验证
-- [ ] 🛡️ `/admin/*` 接口启用 `ADMIN_API_KEY` 保护
-- [ ] 📏 `/upload` 添加文件大小限制（建议 10MB）
-- [ ] 🔒 生产环境启用 Cloudflare Access 或 JWT
-- [ ] 🔍 定期审计 D1 中的敏感内容
-
----
-
-## 13. 路线图
-
-| 状态 | 任务 |
-|:----:|:-----|
-| ⬜ | 补全更多关系进展提示词（亲密度/相处阶段） |
-| ⬜ | 恢复长期记忆写入（用户偏好、禁忌） |
-| ⬜ | 客户端展示 daily learning |
-| ⬜ | 多端消息同步（新增 `/conversation/list`） |
-| ⬜ | 附件压缩 + 大小限制 |
-| ⬜ | CI 流水线（lint + dry-run deploy） |
-
----
-
-## 📋 变更记录
-
-| 版本 | 日期 | 变更内容 |
-|:----:|:----:|:---------|
-| 1.0.0 | 2025-12-11 | 🎉 初始版本，包含完整架构说明 |
+| # | 检查项 | 如何验证 |
+|:-:|--------|----------|
+| 1️⃣ | `/api/v1/chat` 能返回 `reply/mood/intimacy` | 发一条消息，检查响应格式 |
+| 2️⃣ | `/conversation/log` 写入后，`/conversation/last` 能查到日期 | 写入日志，查询确认 |
+| 3️⃣ | `/diary/regenerate` 在当天有日志时能生成 `ready` 日记，并且后续 `search_memory` 能召回到那天 | 重生成日记，测试记忆检索 |
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for ATRI**
+---
 
-[⬆️ 返回顶部](#atri-技术架构蓝图)
+**📖 相关文档**
+
+[`README.md`](README.md) · [`shared/prompts.json`](shared/prompts.json) · [`worker/db/schema.sql`](worker/db/schema.sql)
+
+---
+
+<sub>Built with ❤️ for those who believe AI can be more than just a tool</sub>
 
 </div>

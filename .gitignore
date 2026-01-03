@@ -19,6 +19,8 @@ worker/.dev.vars
 ATRI/.gradle/
 ATRI/.idea/
 ATRI/local.properties
+ATRI/keystore.properties
+ATRI/keystore/
 ATRI/app/build/
 ATRI/app/release/
 ATRI/build/

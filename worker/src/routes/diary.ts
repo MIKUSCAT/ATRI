@@ -157,7 +157,7 @@ export function registerDiaryRoutes(router: any) {
         const previousSelfReview = await getAtriSelfReview(env, userId);
         const selfReview = await generateAtriSelfReview(env, {
           transcript,
-          diaryContent: summaryText,
+          diaryContent: '',
           date,
           daysTogether,
           userName: detectedUserName || '这个人',
