@@ -19,7 +19,6 @@ data class MessageEntity(
     val currentVersionIndex: Int = 0,
     val totalVersions: Int = 1,
 
-    val thinkingContent: String? = null,
-    val thinkingStartTime: Long? = null,
-    val thinkingEndTime: Long? = null
+    // 当 isFromAtri=true 时，存储当时的 PAD 状态（JSON格式: {"p":0.5,"a":0.1,"d":0.1}）
+    val mood: String? = null
 )

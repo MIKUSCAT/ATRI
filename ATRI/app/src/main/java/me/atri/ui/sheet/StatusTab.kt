@@ -59,7 +59,7 @@ fun StatusTab(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(
-                    progress = info.progress,
+                    progress = { info.progress },
                     modifier = Modifier
                         .fillMaxWidth(0.8f)
                         .height(8.dp)

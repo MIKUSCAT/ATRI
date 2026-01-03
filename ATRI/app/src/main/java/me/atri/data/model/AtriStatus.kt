@@ -1,23 +1,39 @@
 package me.atri.data.model
 
-sealed class AtriStatus(val text: String) {
-    object Online : AtriStatus("在线 | 正打起精神")
-    object Waiting : AtriStatus("在线 | 等你开口")
-    object Missing : AtriStatus("在线 | 有点想你了")
-    object Thinking : AtriStatus("在线 | 正在思考...")
-    object Sleeping : AtriStatus("小憩中 | 我先眯会儿")
+sealed class AtriStatus(open val text: String) {
+    data class MoodStatus(
+        val p: Double,
+        val a: Double,
+        val d: Double,
+        override val text: String
+    ) : AtriStatus(text)
+
+    object Thinking : AtriStatus("我整理一下")
 
     companion object {
-        fun calculate(
-            isGenerating: Boolean,
-            hoursSinceLastChat: Int,
-            currentHour: Int
-        ): AtriStatus = when {
-            isGenerating -> Thinking
-            currentHour in 22..23 || currentHour in 0..6 -> Sleeping
-            hoursSinceLastChat > 12 -> Missing
-            hoursSinceLastChat > 6 -> Waiting
-            else -> Online
+        fun fromMood(
+            mood: me.atri.data.api.response.BioChatResponse.Mood?,
+            intimacy: Int = 0
+        ): AtriStatus {
+            val p = mood?.p ?: 0.0
+            val a = mood?.a ?: 0.0
+            val d = mood?.d ?: 0.0
+
+            val moodText = buildMoodText(p, a, d)
+            return MoodStatus(p, a, d, moodText)
         }
+
+        private fun buildMoodText(p: Double, a: Double, d: Double): String {
+            return when {
+                p > 0.3 && a > 0.3 -> "想聊天！"
+                p > 0.3 && a <= 0.3 -> "心情好~"
+                p < -0.3 && a > 0.3 -> "有点炸"
+                p < -0.3 && a <= -0.2 -> "有点丧"
+                p <= 0.3 && p >= -0.3 && a < -0.2 -> "放松~"
+                else -> "陪着你"
+            }
+        }
+
+        fun idle(): AtriStatus = MoodStatus(0.0, 0.0, 0.0, "等你~")
     }
 }

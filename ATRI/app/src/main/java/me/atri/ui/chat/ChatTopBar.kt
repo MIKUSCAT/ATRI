@@ -1,5 +1,10 @@
 package me.atri.ui.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.atri.data.model.AtriStatus
 import me.atri.ui.components.DiaryIcon
@@ -79,13 +86,20 @@ fun ChatTopBar(
 @Composable
 private fun StatusPill(status: AtriStatus) {
     val colorScheme = MaterialTheme.colorScheme
-    val indicatorColor = when (status) {
-        AtriStatus.Online -> colorScheme.primary
-        AtriStatus.Waiting -> colorScheme.secondary
-        AtriStatus.Missing -> colorScheme.tertiary
-        AtriStatus.Thinking -> colorScheme.primary
-        AtriStatus.Sleeping -> colorScheme.outline
+
+    val (indicatorColor, saturation) = when (status) {
+        is AtriStatus.MoodStatus -> {
+            val baseColor = when {
+                status.p > 0.3 -> colorScheme.primary
+                status.p < -0.3 -> colorScheme.error
+                else -> colorScheme.outline
+            }
+            val sat = (0.5f + kotlin.math.abs(status.a.toFloat()) * 0.5f).coerceIn(0.5f, 1f)
+            baseColor to sat
+        }
+        AtriStatus.Thinking -> colorScheme.primary to 0.8f
     }
+
     Surface(
         shape = RoundedCornerShape(50),
         color = colorScheme.surfaceVariant.copy(alpha = 0.7f),
@@ -94,22 +108,34 @@ private fun StatusPill(status: AtriStatus) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            modifier = Modifier
+                .widthIn(max = 200.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Surface(
                 modifier = Modifier
                     .height(8.dp)
                     .width(8.dp),
                 shape = CircleShape,
-                color = indicatorColor,
+                color = indicatorColor.copy(alpha = saturation),
                 tonalElevation = 0.dp
             ) {}
-            Text(
-                text = status.text,
-                style = MaterialTheme.typography.labelMedium,
-                color = colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
+            AnimatedContent(
+                targetState = status.text,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(200)) togetherWith
+                        fadeOut(animationSpec = tween(150))
+                },
+                label = "statusText"
+            ) { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

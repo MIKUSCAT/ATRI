@@ -6,24 +6,15 @@ import kotlinx.serialization.Serializable
 data class ChatRequest(
     val userId: String,
     val content: String,
+    // 当前这条“用户消息”的日志 id（用于服务端从 D1 拉取当天历史时去重）
+    val logId: String? = null,
     val imageUrl: String? = null,
     val attachments: List<AttachmentPayload> = emptyList(),
-    val recentMessages: List<MessageContext>,
-    val currentStage: Int,
     // 新增：默认注入用户名称与客户端本地时间（到秒，含时区）
     val userName: String? = null,
     val clientTimeIso: String? = null,
     val modelKey: String? = null
 ) {
-    @Serializable
-    data class MessageContext(
-        val content: String,
-        val isFromAtri: Boolean,
-        // 新增：消息时间戳（毫秒），便于服务端在提示中追加确切时间
-        val timestampMs: Long? = null,
-        val attachments: List<AttachmentPayload> = emptyList()
-    )
-
     @Serializable
     data class AttachmentPayload(
         val type: String,

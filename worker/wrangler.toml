@@ -4,7 +4,11 @@ compatibility_date = "2024-01-01"
 account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
 
 [vars]
-OPENAI_API_URL = "https://aigate.binklac.com/v1"
+OPENAI_API_URL = "https://mikuscat.zeabur.app/antigravity/v1"
+
+DIARY_API_URL = "https://mikuscat.zeabur.app/antigravity/v1"
+
+DIARY_MODEL = "claude-opus-4-5"  
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
 EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
@@ -20,7 +24,7 @@ preview_bucket_name = "atri-media"
 [[d1_databases]]
 binding = "ATRI_DB"
 database_name = "atri_diary"
-database_id = "f4f017b6-af87-4db7-9fc9-fd1eaddd455c"
+database_id = "05def668-b70d-40fc-84a4-b5ba21219217"
 
 [triggers]
 crons = ["59 15 * * *"]

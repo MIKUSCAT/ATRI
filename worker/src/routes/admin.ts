@@ -4,7 +4,8 @@ import { jsonResponse } from '../utils/json-response';
 import {
   deleteConversationLogsByUser,
   deleteDiaryEntriesByUser,
-  listDiaryIdsByUser
+  deleteUserSettingsByUser,
+  listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors } from '../services/memory-service';
 import { sanitizeFileName } from '../utils/file';
@@ -37,11 +38,13 @@ export function registerAdminRoutes(router: Router) {
     }
 
     try {
-      const diaryIds = await listDiaryIdsByUser(env, userId);
+      const diaryDates = await listDiaryDatesByUser(env, userId);
       const diaryDeleted = await deleteDiaryEntriesByUser(env, userId);
       const logDeleted = await deleteConversationLogsByUser(env, userId);
-      const vectorDeleted = diaryIds.length ? await deleteDiaryVectors(env, diaryIds) : 0;
+      const vectorIds = buildUserMemoryVectorIds(userId, diaryDates);
+      const vectorDeleted = vectorIds.length ? await deleteDiaryVectors(env, vectorIds) : 0;
       const mediaDeleted = await deleteUserMediaObjects(env, userId);
+      const settingsDeleted = await deleteUserSettingsByUser(env, userId);
 
       return jsonResponse({
         ok: true,
@@ -50,7 +53,8 @@ export function registerAdminRoutes(router: Router) {
           diaries: diaryDeleted,
           diaryVectors: vectorDeleted,
           conversationLogs: logDeleted,
-          mediaObjects: mediaDeleted
+          mediaObjects: mediaDeleted,
+          userSettings: settingsDeleted
         }
       });
     } catch (error: any) {
@@ -58,6 +62,25 @@ export function registerAdminRoutes(router: Router) {
       return jsonResponse({ error: 'clear_failed', details: String(error?.message || error) }, 500);
     }
   });
+}
+
+function buildUserMemoryVectorIds(userId: string, dates: string[]) {
+  const safeUserId = String(userId || '').trim();
+  const safeDates = Array.isArray(dates) ? dates : [];
+  const MAX_HIGHLIGHTS_PER_DAY = 10;
+  const ids: string[] = [];
+
+  for (const date of safeDates) {
+    const d = String(date || '').trim();
+    if (!d) continue;
+
+    // 新实现：highlight 向量（按固定上限枚举）
+    for (let i = 0; i < MAX_HIGHLIGHTS_PER_DAY; i++) {
+      ids.push(`hl:${safeUserId}:${d}:${i}`);
+    }
+  }
+
+  return ids;
 }
 
 async function deleteUserMediaObjects(env: Env, userId: string) {

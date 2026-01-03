@@ -1,13 +1,7 @@
 package me.atri.ui.chat
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,18 +11,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,24 +30,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import me.atri.ui.components.AtriAvatar
+import me.atri.ui.components.CircleRevealOverlay
+import me.atri.ui.components.TypewriterText
+import me.atri.ui.components.rememberCircleRevealState
 
 @Composable
 fun DailyWelcome(
@@ -66,45 +56,18 @@ fun DailyWelcome(
     onSelectSession: (ChatDateSection) -> Unit
 ) {
     var startTypewriter by remember { mutableStateOf(false) }
-    var displayedGreeting by remember { mutableStateOf("") }
-    var isPressed by remember { mutableStateOf(false) }
-    var showReveal by remember { mutableStateOf(false) }
-    var buttonCenter by remember { mutableStateOf(Offset.Zero) }
+    val scope = rememberCoroutineScope()
+    val revealState = rememberCircleRevealState()
 
-    val greeting = if (state.greeting.isNotBlank()) state.greeting else "你好，我一直在等你出现。"
-
-    LaunchedEffect(startTypewriter, greeting) {
-        if (startTypewriter && greeting.isNotEmpty()) {
-            displayedGreeting = ""
-            greeting.forEachIndexed { index, _ ->
-                delay(50)
-                displayedGreeting = greeting.take(index + 1)
-            }
-        }
-    }
+    // 只在 isLoading 变为 false 时捕获 greeting，避免中途变化导致跳动
+    var capturedGreeting by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.isLoading) {
         if (!state.isLoading) {
-            delay(200)
+            // 捕获最终的 greeting
+            capturedGreeting = state.greeting.ifBlank { "你好，我一直在等你出现。" }
+            delay(100)
             startTypewriter = true
-        }
-    }
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = 0.6f),
-        label = "buttonScale"
-    )
-
-    val revealRadius = remember { Animatable(0f) }
-
-    LaunchedEffect(showReveal) {
-        if (showReveal) {
-            revealRadius.animateTo(
-                targetValue = 3000f,
-                animationSpec = tween(450, easing = FastOutSlowInEasing)
-            )
-            onStartChat()
         }
     }
 
@@ -120,49 +83,57 @@ fun DailyWelcome(
             ) {
                 Spacer(modifier = Modifier.height(32.dp))
 
-                AtriHeroAvatar(avatarPath = avatarPath)
+                AtriAvatar(
+                    avatarPath = avatarPath,
+                    size = 180.dp,
+                    showGlow = true
+                )
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                Text(
-                    text = displayedGreeting,
-                    style = MaterialTheme.typography.headlineMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
+                // 加载时显示加载指示，加载完成后显示问候语
+                if (capturedGreeting == null) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(vertical = 16.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    TypewriterText(
+                        text = capturedGreeting!!,
+                        enabled = startTypewriter
+                    ) { displayedText ->
+                        Text(
+                            text = displayedText,
+                            style = MaterialTheme.typography.headlineMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(56.dp))
 
                 Box(
-                    modifier = Modifier
-                        .onGloballyPositioned { coordinates ->
-                            val position = coordinates.positionInRoot()
-                            val size = coordinates.size
-                            buttonCenter = Offset(
-                                position.x + size.width / 2f,
-                                position.y + size.height / 2f
-                            )
-                        }
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        val position = coordinates.positionInRoot()
+                        val size = coordinates.size
+                        revealState.centerOffset = Offset(
+                            position.x + size.width / 2f,
+                            position.y + size.height / 2f
+                        )
+                    }
                 ) {
                     Button(
                         onClick = {
-                            isPressed = true
-                            showReveal = true
+                            scope.launch {
+                                revealState.reveal { onStartChat() }
+                            }
                         },
                         modifier = Modifier
                             .width(220.dp)
-                            .height(52.dp)
-                            .scale(scale)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onPress = {
-                                        isPressed = true
-                                        tryAwaitRelease()
-                                        isPressed = false
-                                    }
-                                )
-                            },
-                        shape = MaterialTheme.shapes.extraLarge
+                            .height(52.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        enabled = capturedGreeting != null
                     ) {
                         Text("开始今天的对话")
                     }
@@ -172,40 +143,7 @@ fun DailyWelcome(
             }
         }
 
-        if (showReveal && revealRadius.value > 0f) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                drawCircle(
-                    color = Color(0xFF64B5F6),
-                    radius = revealRadius.value,
-                    center = buttonCenter
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun DailyWelcomeLoading() {
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                CircularProgressIndicator()
-                Text(
-                    text = "正在准备欢迎语...",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
+        CircleRevealOverlay(state = revealState)
     }
 }
 
@@ -255,7 +193,7 @@ private fun DiaryNotebook(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Divider()
+            HorizontalDivider()
             SessionList(
                 sessions = sessions,
                 onSelectSession = onSelectSession,
@@ -353,66 +291,6 @@ private fun SessionCard(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
-        }
-    }
-}
-
-@Composable
-private fun AtriHeroAvatar(avatarPath: String) {
-    val context = LocalContext.current
-    val avatarRequest = remember(avatarPath, context) {
-        ImageRequest.Builder(context)
-            .data(avatarPath.takeIf { it.isNotBlank() })
-            .setParameter("refresh", System.currentTimeMillis(), memoryCacheKey = null)
-            .crossfade(true)
-            .build()
-    }
-
-    Box(
-        modifier = Modifier.size(200.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(220.dp)
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = CircleShape
-                )
-        )
-
-        if (avatarPath.isNotBlank()) {
-            AsyncImage(
-                model = avatarRequest,
-                contentDescription = "ATRI 头像",
-                modifier = Modifier
-                    .size(180.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(180.dp)
-                    .clip(CircleShape)
-                    .background(
-                        brush = Brush.linearGradient(
-                            colors = listOf(Color(0xFF99CCF2), Color(0xFFFCE4EC))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "ATRI",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White
-                )
-            }
         }
     }
 }

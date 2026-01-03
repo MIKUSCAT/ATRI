@@ -5,12 +5,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = ROOT / 'shared'
 PROMPTS_SRC = SHARED / 'prompts.json'
-ANDROID_ASSETS = ROOT / 'ATRI' / 'app' / 'src' / 'main' / 'assets'
 WORKER_CONFIG = ROOT / 'worker' / 'src' / 'config'
 
 
 TARGETS = [
-    (PROMPTS_SRC, ANDROID_ASSETS / 'prompts.json'),
     (PROMPTS_SRC, WORKER_CONFIG / 'prompts.json'),
 ]
 

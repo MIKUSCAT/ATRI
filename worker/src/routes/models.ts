@@ -1,6 +1,7 @@
 import type { Router } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
+import { requireAppToken } from '../utils/auth';
 
 type ProviderModel = {
   id?: string;
@@ -11,8 +12,11 @@ type ProviderModel = {
 };
 
 export function registerModelRoutes(router: Router) {
-  router.get('/models', async (_request: Request, env: Env) => {
+  router.get('/models', async (request: Request, env: Env) => {
     try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
       const response = await fetch(`${env.OPENAI_API_URL}/models`, {
         headers: {
           'Authorization': `Bearer ${env.OPENAI_API_KEY}`,

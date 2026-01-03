@@ -6,13 +6,11 @@ import me.atri.data.datastore.PreferencesStore
 import me.atri.data.db.dao.MessageDao
 import me.atri.data.db.dao.MemoryDao
 import me.atri.data.model.IntimacyInfo
-import me.atri.data.prompt.PromptProvider
 
 class StatusRepository(
     private val preferencesStore: PreferencesStore,
     private val messageDao: MessageDao,
-    private val memoryDao: MemoryDao,
-    private val promptProvider: PromptProvider
+    private val memoryDao: MemoryDao
 ) {
     fun observeIntimacyInfo(): Flow<IntimacyInfo> = preferencesStore.intimacyPoints
         .map { buildIntimacyInfo(it) }
@@ -41,7 +39,7 @@ class StatusRepository(
             points < 1000 -> 4
             else -> 5
         }
-        val levelName = promptProvider.chatStageDisplayName(level) ?: DEFAULT_LEVEL_NAMES[level] ?: "挚爱"
+        val levelName = DEFAULT_LEVEL_NAMES[level] ?: "挚爱"
         val nextPoints = when (level) {
             1 -> 100
             2 -> 300

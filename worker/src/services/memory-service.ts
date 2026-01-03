@@ -1,6 +1,5 @@
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { MemoryCategory } from './data-service';
 
 export async function embedText(text: string, env: Env): Promise<number[]> {
   const base = env.EMBEDDINGS_API_URL || 'https://api.siliconflow.cn/v1';
@@ -29,68 +28,91 @@ export async function searchMemories(
   env: Env,
   userId: string,
   queryText: string,
-  topK = 3
+  topK = 5
 ) {
   const vector = await embedText(queryText, env);
-  const result: any = await (env as any).VECTORIZE.query(vector, { topK, returnMetadata: 'all' });
+  const queryK = Math.max(50, topK * 10);
+  const result: any = await (env as any).VECTORIZE.query(vector, { topK: queryK, returnMetadata: 'all' });
   const matches = Array.isArray(result?.matches) ? result.matches : [];
-  const items = matches
-    .filter((m: any) => m?.metadata?.u === userId)
-    .map((m: any) => ({
-      id: m.id,
-      score: m.score,
-      category: m?.metadata?.c || 'general',
-      key: m?.metadata?.c === 'diary' ? '' : (m?.metadata?.k || ''),
-      value: m?.metadata?.c === 'diary' ? '' : (m?.metadata?.t || m?.metadata?.k || ''),
-      importance: m?.metadata?.imp ?? 5,
-      timestamp: m?.metadata?.ts ?? 0,
-      diaryId: m?.metadata?.d || null,
-      date: m?.metadata?.d || null,
-      mood: m?.metadata?.m || ''
-    }));
-  return items.slice(0, topK);
+
+  const items: any[] = [];
+  const seenDates = new Set<string>();
+
+  for (const m of matches) {
+    if (m?.metadata?.u !== userId) continue;
+
+    const category = m?.metadata?.c || 'general';
+    const date = String(m?.metadata?.d || '').trim();
+    const mood = String(m?.metadata?.m || '').trim();
+    const matchedHighlight = String(m?.metadata?.text || '').trim();
+
+    // 只保留 highlight 记忆（按日期去重）
+    if (category === 'highlight' && date) {
+      if (seenDates.has(date)) continue;
+      seenDates.add(date);
+      items.push({
+        id: m.id,
+        score: m.score,
+        category,
+        date,
+        matchedHighlight,
+        mood,
+        importance: m?.metadata?.imp ?? 6,
+        timestamp: m?.metadata?.ts ?? 0
+      });
+      if (items.length >= topK) break;
+      continue;
+    }
+  }
+
+  return items;
 }
 
-export async function upsertDiaryMemory(
+export async function upsertDiaryHighlightsMemory(
   env: Env,
   params: {
-    entryId?: string;
     userId: string;
-    content: string;
-    date?: string;
+    date: string;
+    highlights: string[];
     mood?: string;
     timestamp?: number;
   }
 ) {
-  const text = sanitizeText(String(params.content || ''));
-  if (!text) {
-    throw new Error('Diary content is empty');
+  const date = String(params.date || '').trim();
+  if (!date) throw new Error('Diary date is missing');
+
+  const rawHighlights = Array.isArray(params.highlights) ? params.highlights : [];
+  const highlights = rawHighlights
+    .map((h) => sanitizeText(String(h || '')).trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .slice(0, 10);
+
+  if (!highlights.length) {
+    throw new Error('Diary highlights are empty');
   }
-  const date = params.date || '';
-  if (!date) {
-    throw new Error('Diary date is missing');
-  }
-  const summary = text.slice(0, 200);
-  const values = await embedText(summary, env);
-  const entryId = params.entryId || `diary:${params.userId}:${date}`;
-  const metadata = {
+
+  const metadataBase = {
     u: params.userId,
-    c: 'diary',
+    c: 'highlight',
     d: date,
     m: params.mood || '',
     imp: 6,
     ts: params.timestamp ?? Date.now()
   };
-  await (env as any).VECTORIZE.upsert([{ id: entryId, values, metadata }]);
-  return {
-    id: entryId,
-    category: metadata.c,
-    importance: metadata.imp,
-    timestamp: metadata.ts,
-    userId: metadata.u,
-    diaryId: metadata.d,
-    date: metadata.d
-  };
+
+  const records: Array<{ id: string; values: number[]; metadata: any }> = [];
+  for (let i = 0; i < highlights.length; i++) {
+    const text = highlights[i];
+    const values = await embedText(text, env);
+    records.push({
+      id: `hl:${params.userId}:${date}:${i}`,
+      values,
+      metadata: { ...metadataBase, i, text }
+    });
+  }
+
+  await (env as any).VECTORIZE.upsert(records);
+  return { count: records.length };
 }
 
 export async function deleteDiaryVectors(env: Env, ids: string[]) {
@@ -111,83 +133,4 @@ export async function deleteDiaryVectors(env: Env, ids: string[]) {
     }
   }
   return removed;
-}
-
-export async function upsertStructuredMemory(
-  env: Env,
-  params: {
-    userId: string;
-    category: MemoryCategory;
-    key: string;
-    value: string;
-    importance?: number;
-    sourceDate?: string;
-  }
-) {
-  const text = `${params.key}: ${params.value}`;
-  const sanitized = sanitizeText(text).slice(0, 500);
-  if (!sanitized) {
-    return null;
-  }
-
-  const values = await embedText(sanitized, env);
-  const entryId = `mem:${params.userId}:${params.category}:${simpleHash(params.key)}`;
-  const metadata = {
-    u: params.userId,
-    c: params.category,
-    k: params.key,
-    t: params.value.slice(0, 200),
-    imp: params.importance ?? 5,
-    ts: Date.now(),
-    sd: params.sourceDate || ''
-  };
-
-  await (env as any).VECTORIZE.upsert([{ id: entryId, values, metadata }]);
-  return {
-    id: entryId,
-    category: params.category,
-    key: params.key
-  };
-}
-
-export async function upsertStructuredMemories(
-  env: Env,
-  userId: string,
-  memories: Array<{
-    category: MemoryCategory;
-    key: string;
-    value: string;
-    importance?: number;
-  }>,
-  sourceDate?: string
-) {
-  const results = [];
-  for (const mem of memories) {
-    try {
-      const result = await upsertStructuredMemory(env, {
-        userId,
-        category: mem.category,
-        key: mem.key,
-        value: mem.value,
-        importance: mem.importance,
-        sourceDate
-      });
-      if (result) {
-        results.push(result);
-      }
-    } catch (error) {
-      console.warn('[ATRI] Failed to upsert structured memory:', mem.key, error);
-    }
-  }
-  return results;
-}
-
-function simpleHash(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
 }

@@ -21,7 +21,6 @@ import me.atri.data.db.entity.MessageEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.Calendar
 
 sealed interface ChatItem {
     data class MessageItem(val message: MessageEntity, val showTimestamp: Boolean) : ChatItem
@@ -37,12 +36,11 @@ data class ChatDateSection(
 
 data class ChatUiState(
     val historyMessages: List<MessageEntity> = emptyList(),
-    val generatingMessage: MessageEntity? = null,
     val displayItems: List<ChatItem> = emptyList(),
     val dateSections: List<ChatDateSection> = emptyList(),
     val currentDateLabel: String = "",
     val isLoading: Boolean = false,
-    val currentStatus: AtriStatus = AtriStatus.Online,
+    val currentStatus: AtriStatus = AtriStatus.idle(),
     val error: String? = null,
     val showRegeneratePrompt: Boolean = false,
     val editedMessageId: String? = null,
@@ -70,62 +68,36 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
     private var currentSendJob: Job? = null
     private var pendingUserMessageId: String? = null
+
     data class WelcomeUiState(
         val greeting: String = "",
         val subline: String = "",
         val daysSinceLastChat: Int? = null,
         val isLoading: Boolean = true
     )
+
     private val _welcomeUiState = MutableStateFlow(WelcomeUiState())
     val welcomeUiState: StateFlow<WelcomeUiState> = _welcomeUiState.asStateFlow()
+
     val atriAvatarPath: StateFlow<String> = preferencesStore.atriAvatarPath.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
         initialValue = ""
     )
+
     private val zoneId: ZoneId = ZoneId.systemDefault()
 
-    private data class DisplayPayload(
-        val items: List<ChatItem>,
-        val sections: List<ChatDateSection>,
-        val currentDateLabel: String
-    )
-
-    private fun combineMessages(
-        history: List<MessageEntity>,
-        generating: MessageEntity?
-    ): List<MessageEntity> {
-        generating ?: return history
-        val existingIndex = history.indexOfFirst { it.id == generating.id }
-        return if (existingIndex >= 0) {
-            history.toMutableList().also { it[existingIndex] = generating }
-        } else {
-            history + generating
-        }
-    }
-
-    private fun buildDisplayPayload(
-        historyMessages: List<MessageEntity>,
-        generatingMessage: MessageEntity?
-    ): DisplayPayload {
-        val combined = combineMessages(historyMessages, generatingMessage)
+    private fun buildDisplayPayload(messages: List<MessageEntity>): Triple<List<ChatItem>, List<ChatDateSection>, String> {
         val items = mutableListOf<ChatItem>()
         val sections = mutableListOf<ChatDateSection>()
         var lastDate: LocalDate? = null
         var lastMessage: MessageEntity? = null
 
-        combined.forEach { message ->
+        messages.forEach { message ->
             val date = Instant.ofEpochMilli(message.timestamp).atZone(zoneId).toLocalDate()
             if (date != lastDate) {
                 val label = buildDateDisplayLabel(date, zoneId)
-                sections.add(
-                    ChatDateSection(
-                        date = date,
-                        label = label,
-                        firstIndex = items.size,
-                        count = 0
-                    )
-                )
+                sections.add(ChatDateSection(date = date, label = label, firstIndex = items.size, count = 0))
                 items.add(ChatItem.DateHeaderItem(label = label, date = date))
                 lastDate = date
                 lastMessage = null
@@ -139,128 +111,83 @@ class ChatViewModel(
             lastMessage = message
         }
 
-        val currentLabel = combined.lastOrNull()?.let { latest ->
+        val currentLabel = messages.lastOrNull()?.let { latest ->
             val date = Instant.ofEpochMilli(latest.timestamp).atZone(zoneId).toLocalDate()
             buildDateDisplayLabel(date, zoneId)
         } ?: buildDateDisplayLabel(LocalDate.now(zoneId), zoneId)
 
-        return DisplayPayload(
-            items = items,
-            sections = sections,
-            currentDateLabel = currentLabel
-        )
-    }
-
-    private fun ChatUiState.applyDisplayPayload(): ChatUiState {
-        val payload = buildDisplayPayload(historyMessages, generatingMessage)
-        return copy(
-            displayItems = payload.items,
-            dateSections = payload.sections,
-            currentDateLabel = payload.currentDateLabel
-        )
+        return Triple(items, sections, currentLabel)
     }
 
     private fun updateState(transform: (ChatUiState) -> ChatUiState) {
         _uiState.update { current ->
             val updated = transform(current)
-            updated.applyDisplayPayload()
+            val (items, sections, label) = buildDisplayPayload(updated.historyMessages)
+            updated.copy(displayItems = items, dateSections = sections, currentDateLabel = label)
         }
     }
 
     init {
-        observeMessagesAndUpdateStatus()
+        observeMessages()
         refreshWelcomeState()
         updateState { it }
     }
 
-    private fun observeMessagesAndUpdateStatus() {
+    private fun observeMessages() {
         viewModelScope.launch {
             chatRepository.observeMessages().collect { messages ->
-                val lastMessageTime = messages.lastOrNull()?.timestamp ?: 0
-                val hoursSince = ((System.currentTimeMillis() - lastMessageTime) / (1000 * 60 * 60)).toInt()
-                val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-
-                val status = AtriStatus.calculate(
-                    isGenerating = _uiState.value.isLoading,
-                    hoursSinceLastChat = hoursSince,
-                    currentHour = currentHour
-                )
-                updateState { it.copy(historyMessages = messages, currentStatus = status) }
+                updateState { it.copy(historyMessages = messages) }
             }
         }
     }
 
     fun sendMessage(content: String, attachments: List<PendingAttachment> = emptyList()) {
-        if (content.isBlank() && attachments.isEmpty()) return
+        val hasSelectedReference = _uiState.value.referencedMessage?.attachments?.any { it.selected } == true
+        if (content.isBlank() && attachments.isEmpty() && !hasSelectedReference) return
         if (currentSendJob?.isActive == true) return
 
         currentSendJob = viewModelScope.launch {
             val referenceSnapshot = _uiState.value.referencedMessage
             val selectedReferenceAttachments = referenceSnapshot
-                ?.attachments
-                ?.filter { it.selected }
-                ?.map { it.attachment }
-                .orEmpty()
+                ?.attachments?.filter { it.selected }?.map { it.attachment }.orEmpty()
 
             updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
-
-            var generating: MessageEntity? = null
-            var atriTimestamp: Long? = null
 
             try {
                 val result = chatRepository.sendMessage(
                     content = content,
                     attachments = attachments,
                     reusedAttachments = selectedReferenceAttachments,
-                    onUserMessagePrepared = { message ->
-                        pendingUserMessageId = message.id
-                    }
-                ) { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                    if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@sendMessage
-                    val resolvedTimestamp = atriTimestamp ?: run {
-                        val now = System.currentTimeMillis()
-                        val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
-                        val adjusted = latestUser?.let { maxOf(now, it + 1) } ?: now
-                        atriTimestamp = adjusted
-                        adjusted
-                    }
-                    val base = generating ?: MessageEntity(
-                        content = streamedText,
-                        isFromAtri = true,
-                        timestamp = resolvedTimestamp,
-                        thinkingContent = thinkingText,
-                        thinkingStartTime = thinkingStart,
-                        thinkingEndTime = thinkingEnd
-                    )
-                    val updated = base.copy(
-                        content = streamedText,
-                        thinkingContent = thinkingText,
-                        thinkingStartTime = thinkingStart,
-                        thinkingEndTime = thinkingEnd
-                    )
-                    generating = updated
-                    updateState { state -> state.copy(generatingMessage = updated) }
-                }
+                    onUserMessagePrepared = { message -> pendingUserMessageId = message.id }
+                )
 
                 if (result.isSuccess) {
-                    generating?.let { chatRepository.persistAtriMessage(it) }
+                    val chatResult = result.getOrThrow()
+                    val timestamp = System.currentTimeMillis()
+                    val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
+                    val adjustedTimestamp = latestUser?.let { maxOf(timestamp, it + 1) } ?: timestamp
+
+                    val atriMessage = MessageEntity(
+                        content = chatResult.reply,
+                        isFromAtri = true,
+                        timestamp = adjustedTimestamp
+                    )
+                    chatRepository.persistAtriMessage(atriMessage)
                     statusRepository.incrementIntimacy(1)
-                    if (referenceSnapshot != null) {
-                        clearReferencedAttachments()
-                    }
+                    updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+
+                    if (referenceSnapshot != null) clearReferencedAttachments()
                 } else {
                     val errorHint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
-                    updateState { it.copy(error = "发送失败: $errorHint") }
+                    updateState { it.copy(error = "发送失败: $errorHint", currentStatus = AtriStatus.idle()) }
                 }
             } catch (cancel: CancellationException) {
                 cleanupCancelledSend()
                 throw cancel
             } finally {
                 pendingUserMessageId = null
-                updateState { it.copy(isLoading = false, generatingMessage = null) }
-                if (isActive) {
-                    refreshWelcomeState()
-                }
+                updateState { it.copy(isLoading = false) }
+                if (isActive) refreshWelcomeState()
                 currentSendJob = null
             }
         }
@@ -273,13 +200,9 @@ class ChatViewModel(
     private suspend fun cleanupCancelledSend() = withContext(NonCancellable) {
         val logId = pendingUserMessageId ?: return@withContext
         pendingUserMessageId = null
-        runCatching {
-            chatRepository.deleteMessage(logId, syncRemote = false)
-        }
-        runCatching {
-            chatRepository.deleteConversationLogs(listOf(logId))
-        }
-        updateState { it.copy(generatingMessage = null, isLoading = false, currentStatus = AtriStatus.Online) }
+        runCatching { chatRepository.deleteMessage(logId, syncRemote = false) }
+        runCatching { chatRepository.deleteConversationLogs(listOf(logId)) }
+        updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
     }
 
     fun referenceAttachmentsFrom(message: MessageEntity) {
@@ -288,9 +211,7 @@ class ChatViewModel(
         val state = ChatUiState.ReferencedMessage(
             messageId = message.id,
             timestamp = message.timestamp,
-            attachments = imageAttachments.map {
-                ChatUiState.ReferencedAttachment(attachment = it, selected = true)
-            }
+            attachments = imageAttachments.map { ChatUiState.ReferencedAttachment(attachment = it, selected = true) }
         )
         updateState { it.copy(referencedMessage = state) }
     }
@@ -303,11 +224,7 @@ class ChatViewModel(
         val current = _uiState.value.referencedMessage ?: return
         val updated = current.copy(
             attachments = current.attachments.map { entry ->
-                if (entry.attachment.url == url) {
-                    entry.copy(selected = !entry.selected)
-                } else {
-                    entry
-                }
+                if (entry.attachment.url == url) entry.copy(selected = !entry.selected) else entry
             }
         )
         updateState { it.copy(referencedMessage = updated) }
@@ -317,12 +234,7 @@ class ChatViewModel(
         viewModelScope.launch {
             chatRepository.editMessage(message.id, newContent, syncRemote = true)
             if (!message.isFromAtri) {
-                updateState {
-                    it.copy(
-                        showRegeneratePrompt = true,
-                        editedMessageId = message.id
-                    )
-                }
+                updateState { it.copy(showRegeneratePrompt = true, editedMessageId = message.id) }
             }
         }
     }
@@ -332,13 +244,9 @@ class ChatViewModel(
         val index = messages.indexOfFirst { it.id == messageId }
         if (index != -1) {
             val removed = messages.drop(index + 1)
-            removed.forEach { msg ->
-                chatRepository.deleteMessage(msg.id)
-            }
+            removed.forEach { msg -> chatRepository.deleteMessage(msg.id) }
             val removedIds = removed.map { it.id }
-            if (removedIds.isNotEmpty()) {
-                chatRepository.deleteConversationLogs(removedIds)
-            }
+            if (removedIds.isNotEmpty()) chatRepository.deleteConversationLogs(removedIds)
         }
     }
 
@@ -349,70 +257,54 @@ class ChatViewModel(
     }
 
     fun regenerateMessage(message: MessageEntity? = null) {
-        viewModelScope.launch {
-            val all = _uiState.value.historyMessages
-            val target = message ?: all.lastOrNull { it.isFromAtri }
-            if (target == null) return@launch
-            val (userMessage, userIndex) = if (target.isFromAtri) {
-                val atriIndex = all.indexOfFirst { it.id == target.id }
-                if (atriIndex <= 0) {
-                    null
+        if (currentSendJob?.isActive == true) return
+        currentSendJob = viewModelScope.launch {
+            try {
+                val all = _uiState.value.historyMessages
+                val target = message ?: all.lastOrNull { it.isFromAtri } ?: return@launch
+
+                val userMessage = if (target.isFromAtri) {
+                    val atriIndex = all.indexOfFirst { it.id == target.id }
+                    if (atriIndex <= 0) return@launch
+                    val index = (atriIndex - 1 downTo 0).firstOrNull { !all[it].isFromAtri } ?: return@launch
+                    all[index]
                 } else {
-                    val index = (atriIndex - 1 downTo 0).firstOrNull { !all[it].isFromAtri }
-                    index?.let { all[it] to it }
+                    val index = all.indexOfFirst { it.id == target.id }
+                    if (index == -1) return@launch
+                    all[index]
                 }
-            } else {
-                val index = all.indexOfFirst { it.id == target.id }
-                if (index == -1) null else all[index] to index
-            } ?: return@launch
 
-            updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                deleteMessagesAfter(userMessage.id)
+                delay(300)
+                val result = chatRepository.regenerateResponse(
+                    userMessageId = userMessage.id,
+                    userContent = userMessage.content,
+                    userAttachments = userMessage.attachments
+                )
 
-            deleteMessagesAfter(userMessage.id)
-            delay(300)
-
-            val contextUntilUser = all.take(userIndex + 1)
-            val trimmedUserContext = if (contextUntilUser.isNotEmpty() && !contextUntilUser.last().isFromAtri) {
-                contextUntilUser.dropLast(1)
-            } else contextUntilUser
-
-            var generating: MessageEntity? = null
-            val timestamp = System.currentTimeMillis()
-
-            val result = chatRepository.regenerateResponse(
-                onStreamResponse = { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                    if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@regenerateResponse
-                    val base = generating ?: MessageEntity(
-                        content = streamedText,
+                if (result.isSuccess) {
+                    val chatResult = result.getOrThrow()
+                    val atriMessage = MessageEntity(
+                        content = chatResult.reply,
                         isFromAtri = true,
-                        timestamp = timestamp,
-                        thinkingContent = thinkingText,
-                        thinkingStartTime = thinkingStart,
-                        thinkingEndTime = thinkingEnd
+                        timestamp = System.currentTimeMillis()
                     )
-                    val updated = base.copy(
-                        content = streamedText,
-                        thinkingContent = thinkingText,
-                        thinkingStartTime = thinkingStart,
-                        thinkingEndTime = thinkingEnd
-                    )
-                    generating = updated
-                    updateState { state -> state.copy(generatingMessage = updated) }
-                },
-                userContent = userMessage.content,
-                userAttachments = userMessage.attachments,
-                contextMessages = trimmedUserContext
-            )
-
-            if (result.isSuccess) {
-                generating?.let { chatRepository.persistAtriMessage(it) }
-                statusRepository.incrementIntimacy(1)
-            } else {
-                val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
-                updateState { it.copy(error = "重新生成失败: $hint") }
+                    chatRepository.persistAtriMessage(atriMessage)
+                    statusRepository.incrementIntimacy(1)
+                    updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                } else {
+                    val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                    updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
+                }
+            } catch (cancel: CancellationException) {
+                updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
+                throw cancel
+            } finally {
+                updateState { it.copy(isLoading = false) }
+                if (isActive) refreshWelcomeState()
+                currentSendJob = null
             }
-
-            updateState { it.copy(isLoading = false, generatingMessage = null) }
         }
     }
 
@@ -423,69 +315,51 @@ class ChatViewModel(
     }
 
     fun dismissRegeneratePrompt(shouldRegenerate: Boolean) {
-        viewModelScope.launch {
-            val editedId = _uiState.value.editedMessageId
-            updateState {
-                it.copy(
-                    showRegeneratePrompt = false,
-                    editedMessageId = null
-                )
-            }
+        if (currentSendJob?.isActive == true) return
+        currentSendJob = viewModelScope.launch {
+            try {
+                val editedId = _uiState.value.editedMessageId
+                updateState { it.copy(showRegeneratePrompt = false, editedMessageId = null) }
 
-            if (shouldRegenerate && editedId != null) {
-                val allMessages = _uiState.value.historyMessages
-                val editedIndex = allMessages.indexOfFirst { it.id == editedId }
-                val editedMessage = allMessages.getOrNull(editedIndex)
+                if (shouldRegenerate && editedId != null) {
+                    val allMessages = _uiState.value.historyMessages
+                    val editedIndex = allMessages.indexOfFirst { it.id == editedId }
+                    val editedMessage = allMessages.getOrNull(editedIndex)
 
-                if (editedMessage != null && !editedMessage.isFromAtri) {
-                    val contextUntilEdited = if (editedIndex >= 0) allMessages.take(editedIndex + 1) else allMessages
-                    val trimmedEditedContext = if (contextUntilEdited.isNotEmpty() && !contextUntilEdited.last().isFromAtri) {
-                        contextUntilEdited.dropLast(1)
-                    } else contextUntilEdited
+                    if (editedMessage != null && !editedMessage.isFromAtri) {
+                        deleteMessagesAfter(editedId)
+                        delay(300)
 
-                    deleteMessagesAfter(editedId)
-                    delay(300)
+                        updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                        val result = chatRepository.regenerateResponse(
+                            userMessageId = editedMessage.id,
+                            userContent = editedMessage.content,
+                            userAttachments = editedMessage.attachments
+                        )
 
-                    updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
-
-                    var generating: MessageEntity? = null
-                    val timestamp = System.currentTimeMillis()
-
-                    val result = chatRepository.regenerateResponse(
-                        onStreamResponse = { streamedText, thinkingText, thinkingStart, thinkingEnd ->
-                            if (streamedText.isEmpty() && thinkingText.isNullOrEmpty()) return@regenerateResponse
-                            val base = generating ?: MessageEntity(
-                                content = streamedText,
+                        if (result.isSuccess) {
+                            val chatResult = result.getOrThrow()
+                            val atriMessage = MessageEntity(
+                                content = chatResult.reply,
                                 isFromAtri = true,
-                                timestamp = timestamp,
-                                thinkingContent = thinkingText,
-                                thinkingStartTime = thinkingStart,
-                                thinkingEndTime = thinkingEnd
+                                timestamp = System.currentTimeMillis()
                             )
-                            val updated = base.copy(
-                                content = streamedText,
-                                thinkingContent = thinkingText,
-                                thinkingStartTime = thinkingStart,
-                                thinkingEndTime = thinkingEnd
-                            )
-                            generating = updated
-                            updateState { state -> state.copy(generatingMessage = updated) }
-                        },
-                        userContent = editedMessage.content,
-                        userAttachments = editedMessage.attachments,
-                        contextMessages = trimmedEditedContext
-                    )
-
-                    if (result.isSuccess) {
-                        generating?.let { chatRepository.persistAtriMessage(it) }
-                        statusRepository.incrementIntimacy(1)
-                    } else {
-                        val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
-                        updateState { it.copy(error = "重新生成失败: $hint") }
+                            chatRepository.persistAtriMessage(atriMessage)
+                            statusRepository.incrementIntimacy(1)
+                            updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                        } else {
+                            val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                            updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
+                        }
                     }
-
-                    updateState { it.copy(isLoading = false, generatingMessage = null) }
                 }
+            } catch (cancel: CancellationException) {
+                updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
+                throw cancel
+            } finally {
+                updateState { it.copy(isLoading = false) }
+                if (isActive) refreshWelcomeState()
+                currentSendJob = null
             }
         }
     }
@@ -521,14 +395,10 @@ class ChatViewModel(
     }
 
     fun updateAtriAvatar(path: String) {
-        viewModelScope.launch {
-            preferencesStore.setAtriAvatarPath(path)
-        }
+        viewModelScope.launch { preferencesStore.setAtriAvatarPath(path) }
     }
 
     fun clearAtriAvatar() {
-        viewModelScope.launch {
-            preferencesStore.clearAtriAvatar()
-        }
+        viewModelScope.launch { preferencesStore.clearAtriAvatar() }
     }
 }

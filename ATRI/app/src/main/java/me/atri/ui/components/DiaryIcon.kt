@@ -5,12 +5,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -23,42 +20,65 @@ fun DiaryIcon(
 ) {
     val density = LocalDensity.current
     Canvas(modifier = modifier.then(Modifier.size(iconSize))) {
-        val stroke = with(density) { 1.6.dp.toPx() }
-        val radius = with(density) { 3.dp.toPx() }
-        val width = size.width
-        val height = size.height
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(stroke / 2, stroke / 2),
-            size = Size(width - stroke, height - stroke),
-            cornerRadius = CornerRadius(radius, radius),
-            style = Stroke(width = stroke)
-        )
-        val bindingX = width * 0.28f
+        val stroke = with(density) { 2.dp.toPx() }
+        val w = size.width
+        val h = size.height
+
+        // 三条线的Y坐标
+        val line1Y = h * 0.25f
+        val line2Y = h * 0.5f
+        val line3Y = h * 0.75f
+
+        // ">" 箭头参数
+        val arrowLeft = w * 0.08f
+        val arrowTip = w * 0.38f  // > 的尖端位置
+
+        // 横线参数
+        val lineStartLong = arrowTip      // 第一、三条线从箭头尖端位置开始
+        val lineStartShort = arrowTip + w * 0.12f  // 第二条线有空隙
+        val lineRight = w * 0.92f         // 三条线右边对齐
+
+        // 第一条线（长）
         drawLine(
             color = tint,
-            start = Offset(bindingX, stroke * 2),
-            end = Offset(bindingX, height - stroke * 2),
-            strokeWidth = stroke
-        )
-        val pageX = width * 0.68f
-        drawLine(
-            color = tint,
-            start = Offset(pageX, stroke * 3),
-            end = Offset(pageX, height - stroke * 3),
-            strokeWidth = stroke
-        )
-        drawLine(
-            color = tint,
-            start = Offset(pageX + stroke, height * 0.35f),
-            end = Offset(width - stroke * 2, height * 0.35f),
+            start = Offset(lineStartLong, line1Y),
+            end = Offset(lineRight, line1Y),
             strokeWidth = stroke,
             cap = StrokeCap.Round
         )
+
+        // ">" 上半部分
         drawLine(
             color = tint,
-            start = Offset(pageX + stroke, height * 0.6f),
-            end = Offset(width - stroke * 2, height * 0.6f),
+            start = Offset(arrowLeft, line1Y),
+            end = Offset(arrowTip, line2Y),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+
+        // 第二条线（短，和箭头有空隙）
+        drawLine(
+            color = tint,
+            start = Offset(lineStartShort, line2Y),
+            end = Offset(lineRight, line2Y),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+
+        // ">" 下半部分
+        drawLine(
+            color = tint,
+            start = Offset(arrowTip, line2Y),
+            end = Offset(arrowLeft, line3Y),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+
+        // 第三条线（长）
+        drawLine(
+            color = tint,
+            start = Offset(lineStartLong, line3Y),
+            end = Offset(lineRight, line3Y),
             strokeWidth = stroke,
             cap = StrokeCap.Round
         )

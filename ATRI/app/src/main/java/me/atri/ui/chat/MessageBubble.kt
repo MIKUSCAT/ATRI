@@ -1,5 +1,8 @@
 package me.atri.ui.chat
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -8,14 +11,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,14 +31,21 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.halilibo.richtext.markdown.Markdown
@@ -39,8 +53,7 @@ import com.halilibo.richtext.ui.RichTextScope
 import com.halilibo.richtext.ui.material3.Material3RichText
 import me.atri.data.db.entity.MessageEntity
 import me.atri.data.model.AttachmentType
-import me.atri.ui.theme.MessageBubbleAtri
-import me.atri.ui.theme.MessageBubbleUser
+import me.atri.ui.theme.AtriTheme
 
 @Composable
 fun MessageBubble(
@@ -52,10 +65,42 @@ fun MessageBubble(
     val haptic = LocalHapticFeedback.current
     val alignment = if (message.isFromAtri) Alignment.Start else Alignment.End
 
+    // 只对新消息（3秒内）做入场动画
+    val isNewMessage = remember(message.id) {
+        System.currentTimeMillis() - message.timestamp < 3000
+    }
+
+    var animationStarted by remember { mutableStateOf(!isNewMessage) }
+    LaunchedEffect(message.id) {
+        if (isNewMessage) {
+            animationStarted = true
+        }
+    }
+
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (animationStarted) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "bubbleAlpha"
+    )
+
+    val animatedOffsetX by animateFloatAsState(
+        targetValue = if (animationStarted) 0f else if (message.isFromAtri) -60f else 60f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "bubbleOffset"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 40.dp),
+            .heightIn(min = 40.dp)
+            .alpha(animatedAlpha)
+            .offset { IntOffset(animatedOffsetX.toInt(), 0) },
         horizontalArrangement = if (message.isFromAtri) Arrangement.Start else Arrangement.End,
         verticalAlignment = Alignment.Top
     ) {
@@ -99,35 +144,37 @@ fun MessageBubble(
                     bottomEnd = if (message.isFromAtri) 28.dp else 8.dp,
                     bottomStart = if (message.isFromAtri) 8.dp else 28.dp
                 ),
-                color = if (message.isFromAtri) MessageBubbleAtri else MessageBubbleUser,
+                color = if (message.isFromAtri) AtriTheme.colors.messageBubbleAtri else AtriTheme.colors.messageBubbleUser,
                 tonalElevation = 0.dp,
-                shadowElevation = 4.dp
+                shadowElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (message.isFromAtri && message.thinkingContent != null) {
-                        ThinkingContent(
-                            thinkingText = message.thinkingContent,
-                            thinkingStartTime = message.thinkingStartTime,
-                            thinkingEndTime = message.thinkingEndTime,
-                            isThinking = isLoading && message.thinkingEndTime == null
-                        )
-                    }
-
                     val imageAttachments = message.attachments.filter { it.type == AttachmentType.IMAGE }
                     if (imageAttachments.isNotEmpty()) {
                         imageAttachments.forEach { attachment ->
-                            AsyncImage(
-                                model = attachment.url,
-                                contentDescription = attachment.name,
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 4.dp)
-                                    .heightIn(max = 220.dp)
+                                    .heightIn(min = 120.dp, max = 220.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                            )
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = attachment.url,
+                                    contentDescription = attachment.name,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(12.dp)),
+                                    onLoading = { },
+                                    onError = { },
+                                    onSuccess = { }
+                                )
+                            }
                         }
                     }
 
@@ -208,54 +255,66 @@ fun MessageBubble(
                             }
 
                             Surface(
-                                shape = MaterialTheme.shapes.extraSmall,
+                                shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
                                 ) {
-                                    IconButton(
+                                    val canPrev = message.currentVersionIndex > 0
+                                    val canNext = message.currentVersionIndex < message.totalVersions - 1
+
+                                    Surface(
                                         onClick = {
-                                            val prevIndex = (message.currentVersionIndex - 1)
-                                                .coerceIn(0, message.totalVersions - 1)
-                                            onVersionSwitch(message.id, prevIndex)
+                                            if (canPrev) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onVersionSwitch(message.id, message.currentVersionIndex - 1)
+                                            }
                                         },
-                                        enabled = message.currentVersionIndex > 0,
-                                        modifier = Modifier.size(20.dp)
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (canPrev) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent,
+                                        modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text(
-                                            text = "〈",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = if (message.currentVersionIndex > 0)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                        )
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                                contentDescription = "上一版本",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = if (canPrev) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                            )
+                                        }
                                     }
+
                                     Text(
                                         text = "${message.currentVersionIndex + 1}/${message.totalVersions}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
                                     )
-                                    IconButton(
+
+                                    Surface(
                                         onClick = {
-                                            val nextIndex = (message.currentVersionIndex + 1)
-                                                .coerceIn(0, message.totalVersions - 1)
-                                            onVersionSwitch(message.id, nextIndex)
+                                            if (canNext) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onVersionSwitch(message.id, message.currentVersionIndex + 1)
+                                            }
                                         },
-                                        enabled = message.currentVersionIndex < message.totalVersions - 1,
-                                        modifier = Modifier.size(20.dp)
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (canNext) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent,
+                                        modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text(
-                                            text = "〉",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = if (message.currentVersionIndex < message.totalVersions - 1)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                        )
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                contentDescription = "下一版本",
+                                                modifier = Modifier.size(18.dp),
+                                                tint = if (canNext) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                            )
+                                        }
                                     }
                                 }
                             }

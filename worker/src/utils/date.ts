@@ -28,6 +28,7 @@ export function formatTimeInZone(timestamp: number, timeZone = DEFAULT_TIME_ZONE
     timeZone,
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: false
   });
   return formatter.format(new Date(timestamp));

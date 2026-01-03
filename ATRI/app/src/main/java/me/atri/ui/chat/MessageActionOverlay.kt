@@ -3,26 +3,30 @@ package me.atri.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -30,69 +34,57 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.material3.ripple
 import me.atri.data.db.entity.MessageEntity
 import me.atri.data.model.AttachmentType
-import kotlin.math.max
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MessageActionOverlay(
     message: MessageEntity,
-    anchorBounds: Rect?,
+    anchorBounds: androidx.compose.ui.geometry.Rect?,
     onDismiss: () -> Unit,
     onEdit: (String) -> Unit,
     onDelete: () -> Unit,
     onRegenerate: () -> Unit,
     onReference: () -> Unit
 ) {
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-    val horizontalMarginPx = with(density) { 24.dp.toPx() }
-    val liftPx = with(density) { 96.dp.toPx() }
-    val topPx = anchorBounds?.top ?: 0f
-    val leftPx = anchorBounds?.left ?: horizontalMarginPx
-    val rightPx = anchorBounds?.right ?: (screenWidthPx - horizontalMarginPx)
-
-    val topPadding = if (anchorBounds == null) 0.dp else with(density) {
-        max(topPx - liftPx, horizontalMarginPx).toDp()
-    }
-    val startPadding = if (anchorBounds == null) 24.dp else with(density) {
-        max(leftPx - horizontalMarginPx, horizontalMarginPx).toDp()
-    }
-    val endPadding = if (anchorBounds == null) 24.dp else with(density) {
-        max(screenWidthPx - rightPx - horizontalMarginPx, horizontalMarginPx).toDp()
-    }
-
-    val surfaceAlignment = when {
-        anchorBounds == null -> Alignment.Center
-        message.isFromAtri -> Alignment.TopStart
-        else -> Alignment.TopEnd
-    }
-
     val context = LocalContext.current
     var showEditDialog by remember { mutableStateOf(false) }
     val hasImageAttachments = remember(message.attachments) {
         message.attachments.any { it.type == AttachmentType.IMAGE }
     }
+
+    // 入场动画
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    val scale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.9f,
+        animationSpec = tween(150),
+        label = "menuScale"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(150),
+        label = "menuAlpha"
+    )
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -102,101 +94,80 @@ fun MessageActionOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.25f))
+                .background(Color.Black.copy(alpha = 0.3f))
                 .clickable(
                     interactionSource = dismissInteraction,
                     indication = null,
                     onClick = onDismiss
-                )
+                ),
+            contentAlignment = Alignment.Center
         ) {
-            val modifier = if (surfaceAlignment == Alignment.Center) {
-                Modifier
-                    .align(surfaceAlignment)
-                    .padding(horizontal = 32.dp)
-            } else {
-                Modifier
-                    .align(surfaceAlignment)
-                    .padding(
-                        top = topPadding,
-                        start = if (message.isFromAtri) startPadding else 24.dp,
-                        end = if (!message.isFromAtri) endPadding else 24.dp
-                    )
-            }
-
             Surface(
-                modifier = modifier,
-                shape = MaterialTheme.shapes.large,
-                tonalElevation = 8.dp,
-                shadowElevation = 12.dp
+                modifier = Modifier
+                    .padding(horizontal = 48.dp)
+                    .scale(scale)
+                    .alpha(alpha),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp,
+                shadowElevation = 8.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(vertical = 8.dp)
                 ) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        MessageActionButton(
-                            icon = Icons.Outlined.ContentCopy,
-                            label = "复制",
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("message", message.content)
-                                clipboard.setPrimaryClip(clip)
-                                onDismiss()
-                            }
-                        )
-                        if (!message.isFromAtri) {
-                            MessageActionButton(
-                                icon = Icons.Outlined.Edit,
-                                label = "编辑",
-                                onClick = { showEditDialog = true }
-                            )
+                    // 复制
+                    MenuActionItem(
+                        icon = Icons.Outlined.ContentCopy,
+                        label = "复制",
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("message", message.content)
+                            clipboard.setPrimaryClip(clip)
+                            onDismiss()
                         }
-                        MessageActionButton(
-                            icon = Icons.Outlined.Refresh,
-                            label = "重答",
-                            onClick = {
-                                onRegenerate()
-                                onDismiss()
-                            }
+                    )
+
+                    // 编辑（仅用户消息）
+                    if (!message.isFromAtri) {
+                        MenuActionItem(
+                            icon = Icons.Outlined.Edit,
+                            label = "编辑消息",
+                            onClick = { showEditDialog = true }
                         )
-                        MessageActionButton(
+                    }
+
+                    // 重新回复
+                    MenuActionItem(
+                        icon = Icons.Outlined.Refresh,
+                        label = "重新回复",
+                        onClick = {
+                            onRegenerate()
+                            onDismiss()
+                        }
+                    )
+
+                    // 引用图片
+                    if (hasImageAttachments) {
+                        MenuActionItem(
                             icon = Icons.Outlined.Image,
-                            label = if (hasImageAttachments) "引用图片" else "无可引用",
-                            enabled = hasImageAttachments,
+                            label = "引用图片",
                             onClick = {
                                 onReference()
                                 onDismiss()
                             }
                         )
-                        MessageActionButton(
-                            icon = Icons.Outlined.Delete,
-                            label = "删除",
-                            onClick = {
-                                onDelete()
-                                onDismiss()
-                            }
-                        )
                     }
 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = formatMessageTime(message.timestamp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        if (message.totalVersions > 1) {
-                            Text(
-                                text = "版本 ${message.currentVersionIndex + 1}/${message.totalVersions}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    // 删除
+                    MenuActionItem(
+                        icon = Icons.Outlined.Delete,
+                        label = "删除",
+                        onClick = {
+                            onDelete()
+                            onDismiss()
+                        },
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         }
@@ -232,46 +203,36 @@ fun MessageActionOverlay(
 }
 
 @Composable
-private fun MessageActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun MenuActionItem(
+    icon: ImageVector,
     label: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.onSurface
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    Column(
-        modifier = Modifier.widthIn(min = 64.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple()
+            ) { onClick() }
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(
-                    if (enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    else MaterialTheme.colorScheme.surfaceVariant
-                )
-                .clickable(
-                    enabled = enabled,
-                    indication = ripple(),
-                    interactionSource = interactionSource
-                ) {
-                    onClick()
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(24.dp),
+            tint = tint.copy(alpha = 0.7f)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = 16.sp
+            ),
+            color = tint
         )
     }
 }

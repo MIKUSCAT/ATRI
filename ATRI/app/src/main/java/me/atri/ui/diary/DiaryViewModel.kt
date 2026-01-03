@@ -30,7 +30,7 @@ class DiaryViewModel(
         refresh()
     }
 
-    fun refresh(limit: Int = 14) {
+    fun refresh(limit: Int = 365) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             val result = diaryRepository.fetchRemoteDiaries(limit)

@@ -46,16 +46,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import me.atri.data.model.AttachmentType
@@ -121,43 +114,19 @@ fun InputBar(
                 }
             }
         }
-        val inputShape = RoundedCornerShape(32.dp)
-        val surfaceColor = MaterialTheme.colorScheme.surface
-        val cornerRadiusPx = with(LocalDensity.current) { 32.dp.toPx() }
-        val highlightBrush = remember(surfaceColor) {
-            val baseAlpha = if (surfaceColor.luminance() > 0.5f) 0.55f else 0.25f
-            Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = baseAlpha),
-                    Color.Transparent
-                )
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 24.dp,
-                    shape = inputShape,
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = 0.1f),
-                    spotColor = Color.Black.copy(alpha = 0.28f)
-                )
-                .clip(inputShape)
-                .background(surfaceColor)
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), inputShape)
-                .drawBehind {
-                    drawRoundRect(
-                        brush = highlightBrush,
-                        size = Size(width = size.width, height = size.height * 0.4f),
-                        cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
-                    )
-                }
+        val inputShape = RoundedCornerShape(28.dp)
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = inputShape,
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 4.dp,
+            tonalElevation = 1.dp
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -176,16 +145,18 @@ fun InputBar(
                     maxLines = 4,
                     enabled = enabled,
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     )
                 )
 
-                val canSend = text.isNotBlank() || attachments.isNotEmpty()
+                val hasReferencedSelection = reference?.attachments?.any { it.selected } == true
+                val canSend = text.isNotBlank() || attachments.isNotEmpty() || hasReferencedSelection
                 val buttonEnabled = if (isProcessing) {
                     true
                 } else {

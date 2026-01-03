@@ -1,6 +1,12 @@
 package me.atri.ui.chat
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Surface
@@ -17,27 +23,35 @@ fun TypingIndicator() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "typing")
         repeat(3) { index ->
-            val infiniteTransition = rememberInfiniteTransition(label = "typing")
             val scale by infiniteTransition.animateFloat(
-                initialValue = 0.5f,
+                initialValue = 0.6f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(600),
+                    animation = tween(500, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = StartOffset(index * 200)
+                    initialStartOffset = StartOffset(index * 150)
                 ),
-                label = "scale"
+                label = "scale$index"
             )
-
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(500, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = StartOffset(index * 150)
+                ),
+                label = "alpha$index"
+            )
             Surface(
-                modifier = Modifier
-                    .size((8 * scale).dp)
-                    .padding(horizontal = 4.dp),
+                modifier = Modifier.size((6 + 4 * scale).dp),
                 shape = CircleShape,
-                color = AtriBlue
+                color = AtriBlue.copy(alpha = alpha)
             ) {}
         }
     }

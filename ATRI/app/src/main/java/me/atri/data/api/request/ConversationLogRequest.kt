@@ -13,6 +13,7 @@ data class ConversationLogRequest(
     val content: String,
     val timestamp: Long,
     val attachments: List<ChatRequest.AttachmentPayload> = emptyList(),
+    val mood: String? = null,
     val userName: String? = null,
     val timeZone: String? = null,
     val date: String? = null

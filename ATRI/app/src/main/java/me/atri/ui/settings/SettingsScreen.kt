@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.RectangleShape
@@ -77,17 +78,24 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            var apiUrl by remember { mutableStateOf(uiState.apiUrl) }
-            var userName by remember { mutableStateOf(uiState.userName) }
-            var modelName by remember { mutableStateOf(uiState.modelName) }
+            var apiUrl by rememberSaveable { mutableStateOf("") }
+            var userName by rememberSaveable { mutableStateOf("") }
+            var modelName by rememberSaveable { mutableStateOf("") }
+            var appToken by rememberSaveable { mutableStateOf("") }
             var importUserId by remember { mutableStateOf("") }
             val availableModels = uiState.availableModels
             var modelsExpanded by remember { mutableStateOf(false) }
+            var initialized by rememberSaveable { mutableStateOf(false) }
 
-            LaunchedEffect(uiState.apiUrl) { apiUrl = uiState.apiUrl }
-            LaunchedEffect(uiState.userName) { userName = uiState.userName }
-            LaunchedEffect(uiState.modelName) { modelName = uiState.modelName }
-            LaunchedEffect(uiState.userId) { importUserId = "" }
+            LaunchedEffect(uiState.apiUrl, uiState.userName, uiState.modelName, uiState.appToken) {
+                if (!initialized && uiState.apiUrl.isNotEmpty()) {
+                    apiUrl = uiState.apiUrl
+                    userName = uiState.userName
+                    modelName = uiState.modelName
+                    appToken = uiState.appToken
+                    initialized = true
+                }
+            }
 
             Surface(
                 shape = MaterialTheme.shapes.extraLarge,
@@ -118,6 +126,21 @@ fun SettingsScreen(
                         enabled = !uiState.isLoading
                     ) {
                         Text(if (uiState.isLoading) "保存中..." else "保存 Worker URL")
+                    }
+                    OutlinedTextField(
+                        value = appToken,
+                        onValueChange = { appToken = it },
+                        label = { Text("鉴权 Token (X-App-Token)") },
+                        placeholder = { Text("填入与你的 Worker 配置一致的 Token") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = { viewModel.updateAppToken(appToken) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = appToken.isNotBlank()
+                    ) {
+                        Text("保存 Token")
                     }
             ModelSelector(
                 modelName = modelName,
@@ -371,7 +394,7 @@ private fun ModelSelector(
                             )
                         }
                         if (index != models.lastIndex) {
-                            androidx.compose.material3.Divider()
+                            androidx.compose.material3.HorizontalDivider()
                         }
                     }
                 }

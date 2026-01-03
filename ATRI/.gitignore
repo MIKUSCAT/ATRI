@@ -21,6 +21,10 @@ output.json
 *.hprof
 google-services.json
 local.properties
+keystore.properties
+keystore/
+*.jks
+*.keystore
 worker/node_modules/
 app/src/main/assets/prompts.json
 worker/src/config/prompts.json

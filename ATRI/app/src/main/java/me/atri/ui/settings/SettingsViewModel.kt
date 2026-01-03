@@ -17,6 +17,7 @@ data class SettingsUiState(
     val userName: String = "",
     val modelName: String = "",
     val userId: String = "",
+    val appToken: String = "",
     val isLoading: Boolean = false,
     val isClearing: Boolean = false,
     val statusMessage: String? = null,
@@ -67,6 +68,11 @@ class SettingsViewModel(
                 _uiState.update { it.copy(modelName = model) }
             }
         }
+        viewModelScope.launch {
+            preferencesStore.appToken.collect { token ->
+                _uiState.update { it.copy(appToken = token) }
+            }
+        }
     }
 
     fun updateApiUrl(url: String) {
@@ -88,6 +94,13 @@ class SettingsViewModel(
         viewModelScope.launch {
             preferencesStore.setModelName(model)
             _uiState.update { it.copy(showModelSavedDialog = true) }
+        }
+    }
+
+    fun updateAppToken(token: String) {
+        viewModelScope.launch {
+            preferencesStore.setAppToken(token.trim())
+            _uiState.update { it.copy(statusMessage = "已保存鉴权 Token") }
         }
     }
 

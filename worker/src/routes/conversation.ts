@@ -9,12 +9,16 @@ import {
   deleteConversationLogsByIds
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
+import { requireAppToken } from '../utils/auth';
 
 const VALID_ROLES = new Set(['user', 'atri']);
 
 export function registerConversationRoutes(router: Router) {
   router.post('/conversation/log', async (request: Request, env: Env) => {
     try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
       const body = await request.json();
       const userId = String(body.userId || '').trim();
       const role = String(body.role || '').trim();
@@ -33,6 +37,7 @@ export function registerConversationRoutes(router: Router) {
         role: role as 'user' | 'atri',
         content: cleanedContent,
         attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
+        mood: typeof body.mood === 'string' ? body.mood : undefined,
         timestamp: typeof body.timestamp === 'number' ? body.timestamp : undefined,
         userName: typeof body.userName === 'string' ? body.userName : undefined,
         timeZone: typeof body.timeZone === 'string' ? body.timeZone : undefined,
@@ -40,14 +45,17 @@ export function registerConversationRoutes(router: Router) {
       });
 
       return jsonResponse({ ok: true, id: result.id, date: result.date });
-    } catch (error: any) {
-      console.error('[ATRI] conversation log error:', error);
-      return jsonResponse({ error: 'log_failed', details: String(error?.message || error) }, 500);
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation log error');
+      return jsonResponse({ error: 'log_failed' }, 500);
     }
   });
 
   router.post('/conversation/delete', async (request: Request, env: Env) => {
     try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
       const body = await request.json();
       const userId = String(body.userId || '').trim();
       const ids = Array.isArray(body.ids)
@@ -58,16 +66,16 @@ export function registerConversationRoutes(router: Router) {
       }
       const changes = await deleteConversationLogsByIds(env, userId, ids);
       return jsonResponse({ ok: true, deleted: changes });
-    } catch (error: any) {
-      console.error('[ATRI] conversation delete error:', error);
-      return jsonResponse(
-        { error: 'delete_failed', details: String(error?.message || error) },
-        500
-      );
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation delete error');
+      return jsonResponse({ error: 'delete_failed' }, 500);
     }
   });
 
   router.get('/conversation/last', async (request: Request, env: Env) => {
+    const auth = requireAppToken(request, env);
+    if (auth) return auth;
+
     const { searchParams } = new URL(request.url);
     const userId = (searchParams.get('userId') || '').trim();
     const timeZone = (searchParams.get('timeZone') || DEFAULT_TIMEZONE).trim();
@@ -85,9 +93,9 @@ export function registerConversationRoutes(router: Router) {
       }
       const daysSince = calculateDaysBetween(lastDate, anchorDate);
       return jsonResponse({ status: 'ok', date: lastDate, daysSince });
-    } catch (error: any) {
-      console.error('[ATRI] conversation last error:', error);
-      return jsonResponse({ error: 'lookup_failed', details: String(error?.message || error) }, 500);
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation last error');
+      return jsonResponse({ error: 'lookup_failed' }, 500);
     }
   });
 }

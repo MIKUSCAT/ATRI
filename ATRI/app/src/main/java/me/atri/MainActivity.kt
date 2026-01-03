@@ -3,6 +3,12 @@ package me.atri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -21,9 +27,7 @@ import me.atri.ui.chat.ChatScreen
 import me.atri.ui.diary.DiaryScreen
 import me.atri.ui.settings.SettingsScreen
 import me.atri.ui.theme.AtriTheme
-import me.atri.ui.welcome.WelcomeScreen
 import org.koin.android.ext.android.inject
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : ComponentActivity() {
@@ -46,6 +50,10 @@ class MainActivity : ComponentActivity() {
 
 }
 
+private enum class AppScreen {
+    LOADING, CHAT, SETTINGS, DIARY
+}
+
 @Composable
 fun AtriApp(preferencesStore: PreferencesStore) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -60,37 +68,59 @@ fun AtriApp(preferencesStore: PreferencesStore) {
     var showSettings by remember { mutableStateOf(false) }
     var showDiary by remember { mutableStateOf(false) }
     var chatWelcomeDismissed by rememberSaveable { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
-    when {
-        isFirstLaunch == null -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+    // 首次启动时自动标记为非首次，跳过 WelcomeScreen
+    LaunchedEffect(isFirstLaunch) {
+        if (isFirstLaunch == true) {
+            preferencesStore.setFirstLaunch(false)
         }
-        isFirstLaunch == true -> {
-            WelcomeScreen { userName, avatarPath ->
-                scope.launch {
-                    preferencesStore.setUserName(userName)
-                    if (!avatarPath.isNullOrBlank()) {
-                        preferencesStore.setAtriAvatarPath(avatarPath)
-                    }
-                    preferencesStore.setFirstLaunch(false)
+    }
+
+    val currentScreen = when {
+        isFirstLaunch == null -> AppScreen.LOADING
+        showSettings -> AppScreen.SETTINGS
+        showDiary -> AppScreen.DIARY
+        else -> AppScreen.CHAT
+    }
+
+    AnimatedContent(
+        targetState = currentScreen,
+        transitionSpec = {
+            when {
+                // 进入设置或日记：从右滑入
+                targetState == AppScreen.SETTINGS || targetState == AppScreen.DIARY -> {
+                    (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
+                            (slideOutHorizontally { -it / 3 } + fadeOut())
+                }
+                // 返回聊天：从左滑入
+                initialState == AppScreen.SETTINGS || initialState == AppScreen.DIARY -> {
+                    (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
+                            (slideOutHorizontally { it / 3 } + fadeOut())
+                }
+                else -> fadeIn() togetherWith fadeOut()
+            }
+        },
+        label = "screenTransition"
+    ) { screen ->
+        when (screen) {
+            AppScreen.LOADING -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
             }
-        }
-        showSettings -> SettingsScreen(onNavigateBack = { showSettings = false })
-        showDiary -> DiaryScreen(onNavigateBack = { showDiary = false })
-        else -> {
-            ChatScreen(
-                onOpenSettings = { showSettings = true },
-                onOpenDiary = { showDiary = true },
-                welcomeDismissed = chatWelcomeDismissed,
-                onDismissWelcome = { chatWelcomeDismissed = true }
-            )
+            AppScreen.SETTINGS -> SettingsScreen(onNavigateBack = { showSettings = false })
+            AppScreen.DIARY -> DiaryScreen(onNavigateBack = { showDiary = false })
+            AppScreen.CHAT -> {
+                ChatScreen(
+                    onOpenSettings = { showSettings = true },
+                    onOpenDiary = { showDiary = true },
+                    welcomeDismissed = chatWelcomeDismissed,
+                    onDismissWelcome = { chatWelcomeDismissed = true }
+                )
+            }
         }
     }
 }

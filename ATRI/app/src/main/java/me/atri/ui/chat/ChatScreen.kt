@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -420,7 +422,8 @@ fun ChatScreen(
 
     LaunchedEffect(uiState.displayItems.size, showWelcome) {
         if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
-            listState.animateScrollToItem(uiState.displayItems.lastIndex)
+            // 返回时使用无动画滚动，直接定位到最后一条消息
+            listState.scrollToItem(uiState.displayItems.lastIndex)
         }
     }
 
@@ -452,7 +455,7 @@ fun ChatScreen(
                             scope.launch { drawerState.close() }
                         }
                     )
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     DrawerDateHeader(totalDays = uiState.dateSections.size)
                     DrawerDateBrowser(
                         sections = uiState.dateSections,
@@ -471,7 +474,7 @@ fun ChatScreen(
                             }
                         }
                     )
-                    Divider(modifier = Modifier.padding(top = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
                     DrawerAction(text = "前往设置") {
                         scope.launch { drawerState.close() }
                         onOpenSettings()
@@ -490,38 +493,49 @@ fun ChatScreen(
                         onOpenDiary = onOpenDiary
                     )
                 }
-            },
-            bottomBar = {
-                if (!showWelcome) {
-                    Box(Modifier.imePadding().navigationBarsPadding()) {
-                        InputBar(
-                            enabled = !uiState.isLoading,
-                            isProcessing = uiState.isLoading,
-                            reference = uiState.referencedMessage,
-                            onClearReference = { viewModel.clearReferencedAttachments() },
-                            onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
-                            onCancelProcessing = { viewModel.cancelSending() },
-                            onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
-                        )
-                    }
-                }
             }
         ) { paddingValues ->
+            // 右边缘滑动检测：从右边缘向左滑动时进入日记页面
+            var startX by remember { mutableStateOf(0f) }
+            var swipeOffset by remember { mutableStateOf(0f) }
+            val swipeThreshold = 60f   // 滑动阈值（像素）
+            val edgeWidth = 100f       // 边缘检测区域宽度（像素）- 约屏幕右侧 1/4
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .pointerInput(showWelcome, drawerState.isOpen) {
+                        // 只在非欢迎界面且抽屉关闭时检测右边缘左滑
+                        if (!showWelcome && !drawerState.isOpen) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { offset ->
+                                    startX = offset.x
+                                    swipeOffset = 0f
+                                },
+                                onDragEnd = {
+                                    // 只有从右边缘开始且向左滑动超过阈值才触发
+                                    val screenWidth = size.width.toFloat()
+                                    if (startX > screenWidth - edgeWidth && swipeOffset < -swipeThreshold) {
+                                        onOpenDiary()
+                                    }
+                                    swipeOffset = 0f
+                                },
+                                onDragCancel = { swipeOffset = 0f },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    swipeOffset += dragAmount
+                                }
+                            )
+                        }
+                    }
             ) {
                 if (showWelcome) {
-                    if (welcomeState.isLoading) {
-                        DailyWelcomeLoading()
-                    } else {
-                        DailyWelcome(
-                            state = welcomeState,
-                            avatarPath = atriAvatarPath,
-                            sessions = uiState.dateSections,
-                            onStartChat = {
-                                pendingScrollIndex = uiState.displayItems.lastIndex.takeIf { it >= 0 }
+                    DailyWelcome(
+                        state = welcomeState,
+                        avatarPath = atriAvatarPath,
+                        sessions = uiState.dateSections,
+                        onStartChat = {
+                            pendingScrollIndex = uiState.displayItems.lastIndex.takeIf { it >= 0 }
                             onDismissWelcome()
                         },
                         onSelectSession = { section ->
@@ -529,8 +543,7 @@ fun ChatScreen(
                             onDismissWelcome()
                         }
                     )
-                }
-            } else {
+                } else {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -540,7 +553,7 @@ fun ChatScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 16.dp,
-                            bottom = 160.dp
+                            bottom = 300.dp  // 足够让最后一条消息滑动到屏幕中上部
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -556,39 +569,74 @@ fun ChatScreen(
                             when (item) {
                                 is ChatItem.DateHeaderItem -> DateHeader(label = item.label)
                                 is ChatItem.MessageItem -> {
-                                    if (item.showTimestamp) {
-                                        TimestampText(timestamp = item.message.timestamp)
-                                    }
-                                    MessageBubble(
-                                        message = item.message,
-                                        isLoading = uiState.isLoading && uiState.generatingMessage?.id == item.message.id,
-                                        onLongPress = { pressed ->
-                                            val anchor = listBounds?.let { bounds ->
-                                                val info = listState.layoutInfo.visibleItemsInfo
-                                                    .firstOrNull { it.key == item.message.id }
-                                                info?.let {
-                                                    Rect(
-                                                        left = bounds.left,
-                                                        top = bounds.top + it.offset,
-                                                        right = bounds.right,
-                                                        bottom = bounds.top + it.offset + it.size
-                                                    )
-                                                }
-                                            }
-                                            selectedMessage = SelectedMessageState(pressed, anchor)
-                                        },
-                                        onVersionSwitch = { messageId, versionIndex ->
-                                            viewModel.switchMessageVersion(messageId, versionIndex)
+                                    Column {
+                                        if (item.showTimestamp) {
+                                            TimestampText(timestamp = item.message.timestamp)
                                         }
-                                    )
+                                        MessageBubble(
+                                            message = item.message,
+                                            onLongPress = { pressed ->
+                                                val anchor = listBounds?.let { bounds ->
+                                                    val info = listState.layoutInfo.visibleItemsInfo
+                                                        .firstOrNull { it.key == item.message.id }
+                                                    info?.let {
+                                                        Rect(
+                                                            left = bounds.left,
+                                                            top = bounds.top + it.offset,
+                                                            right = bounds.right,
+                                                            bottom = bounds.top + it.offset + it.size
+                                                        )
+                                                    }
+                                                }
+                                                selectedMessage = SelectedMessageState(pressed, anchor)
+                                            },
+                                            onVersionSwitch = { messageId, versionIndex ->
+                                                viewModel.switchMessageVersion(messageId, versionIndex)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
-                        if (uiState.isLoading && uiState.generatingMessage == null) {
+                        if (uiState.isLoading) {
                             item { TypingIndicator() }
                         }
                     }
                 }
+
+                // 悬浮输入框 - 叠加在内容上方
+                if (!showWelcome) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.8f),
+                                        MaterialTheme.colorScheme.background
+                                    ),
+                                    startY = 0f,
+                                    endY = 150f
+                                )
+                            )
+                            .imePadding()
+                            .navigationBarsPadding()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        InputBar(
+                            enabled = !uiState.isLoading,
+                            isProcessing = uiState.isLoading,
+                            reference = uiState.referencedMessage,
+                            onClearReference = { viewModel.clearReferencedAttachments() },
+                            onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
+                            onCancelProcessing = { viewModel.cancelSending() },
+                            onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
+                        )
+                    }
+                }
+
                 uiState.error?.let { error ->
                     AtriErrorBanner(
                         message = error,

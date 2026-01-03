@@ -5,15 +5,23 @@ import {
   buildConversationTranscript,
   calculateDaysBetween,
   fetchConversationLogs,
+  getAtriSelfReview,
   getDiaryEntry,
+  getFirstConversationTimestamp,
   getLastConversationDate,
   getUserModelPreference,
+  getUserProfile,
   listDiaryEntries,
-  saveDiaryEntry
+  saveAtriSelfReview,
+  saveDiaryEntry,
+  saveUserProfile
 } from '../services/data-service';
 import { requireAppToken } from '../utils/auth';
 import { generateDiaryFromConversation } from '../services/diary-generator';
-import { upsertDiaryMemory } from '../services/memory-service';
+import { upsertDiaryHighlightsMemory } from '../services/memory-service';
+import { generateUserProfile } from '../services/profile-generator';
+import { generateAtriSelfReview } from '../services/self-review-generator';
+import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 
 export function registerDiaryRoutes(router: any) {
   router.get('/diary', async (request: any, env: Env) => {
@@ -107,14 +115,59 @@ export function registerDiaryRoutes(router: any) {
         status: 'ready'
       });
 
-      await upsertDiaryMemory(env, {
-        entryId: savedEntry.id,
+      await upsertDiaryHighlightsMemory(env, {
         userId,
         date,
         mood: diary.mood,
-        content: diary.content,
+        highlights: Array.isArray(diary.highlights) && diary.highlights.length
+          ? diary.highlights
+          : summaryText
+            ? summaryText.split('；').map(s => s.trim()).filter(Boolean).slice(0, 10)
+            : [diary.content],
         timestamp: diary.timestamp
       });
+
+      // ✅ 强制刷新：用户长期档案（user_profiles）
+      try {
+        const previousProfile = await getUserProfile(env, userId);
+        const profile = await generateUserProfile(env, {
+          transcript,
+          diaryContent: '',
+          date,
+          userName: detectedUserName || '这个人',
+          previousProfile: previousProfile?.content || '',
+          modelKey: preferredModel
+        });
+        await saveUserProfile(env, { userId, content: profile.raw });
+      } catch (err) {
+        console.warn('[ATRI] User profile update skipped (regenerate)', { userId, date, err });
+      }
+
+      // ✅ 强制刷新：ATRI 自我审查表（atri_self_reviews）
+      try {
+        const timeZone =
+          logs.find(l => l.role === 'user' && l.timeZone)?.timeZone
+          || logs.find(l => l.timeZone)?.timeZone
+          || DEFAULT_TIMEZONE;
+
+        const firstConversationAt = await getFirstConversationTimestamp(env, userId);
+        const firstDate = firstConversationAt ? formatDateInZone(firstConversationAt, timeZone) : null;
+        const daysTogether = firstDate ? Math.max(1, calculateDaysBetween(firstDate, date) + 1) : 1;
+
+        const previousSelfReview = await getAtriSelfReview(env, userId);
+        const selfReview = await generateAtriSelfReview(env, {
+          transcript,
+          diaryContent: '',
+          date,
+          daysTogether,
+          userName: detectedUserName || '这个人',
+          previousSelfReview: previousSelfReview?.content || '',
+          modelKey: preferredModel
+        });
+        await saveAtriSelfReview(env, { userId, content: selfReview.raw });
+      } catch (err) {
+        console.warn('[ATRI] Self review update skipped (regenerate)', { userId, date, err });
+      }
 
       const entry = await getDiaryEntry(env, userId, date);
       if (!entry) {

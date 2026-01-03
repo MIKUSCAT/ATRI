@@ -1,9 +1,29 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     kotlin("android")
     kotlin("plugin.serialization")
     kotlin("plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+val hasReleaseKeystore = keystorePropertiesFile.exists()
+
+val isReleaseBuild = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+if (isReleaseBuild && !hasReleaseKeystore) {
+    throw org.gradle.api.GradleException(
+        "要打 release 包请先创建签名配置：\n" +
+            "1) 复制 keystore.properties.example -> keystore.properties\n" +
+            "2) 生成 keystore/atri-release.jks 并填好密码\n" +
+            "然后再跑 :app:assembleRelease"
+    )
+}
+
+if (hasReleaseKeystore) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 android {
@@ -15,7 +35,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -24,9 +44,26 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseKeystore) {
+                val storeFilePath = keystoreProperties.getProperty("storeFile")
+                    ?: error("keystore.properties 缺少 storeFile")
+                storeFile = file(storeFilePath)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                    ?: error("keystore.properties 缺少 storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                    ?: error("keystore.properties 缺少 keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                    ?: error("keystore.properties 缺少 keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -123,15 +160,3 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-val sharedPromptsFile = rootDir.parentFile.resolve("shared/prompts.json")
-val androidAssetsDir = projectDir.resolve("src/main/assets").apply { mkdirs() }
-
-tasks.register<Copy>("syncPrompts") {
-    from(sharedPromptsFile)
-    into(androidAssetsDir)
-    rename { "prompts.json" }
-}
-
-tasks.named("preBuild") {
-    dependsOn("syncPrompts")
-}
