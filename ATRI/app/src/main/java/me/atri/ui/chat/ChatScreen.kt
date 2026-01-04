@@ -34,7 +34,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.HorizontalDivider
@@ -149,8 +148,7 @@ private data class SelectedMessageState(
 private fun DrawerHeader(
     avatarPath: String,
     welcomeState: ChatViewModel.WelcomeUiState,
-    onChangeAvatar: () -> Unit,
-    onBack: () -> Unit
+    onChangeAvatar: () -> Unit
 ) {
     val context = LocalContext.current
     val avatarRequest = remember(avatarPath, context) {
@@ -163,40 +161,10 @@ private fun DrawerHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 4.dp),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        CircleShape
-                    )
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "返回",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
         Box(
             modifier = Modifier.size(112.dp),
             contentAlignment = Alignment.Center
@@ -499,10 +467,7 @@ fun ChatScreen(
                     DrawerHeader(
                         avatarPath = atriAvatarPath,
                         welcomeState = welcomeState,
-                        onChangeAvatar = { avatarPickerLauncher.launch("image/*") },
-                        onBack = {
-                            scope.launch { drawerState.close() }
-                        }
+                        onChangeAvatar = { avatarPickerLauncher.launch("image/*") }
                     )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     DrawerDateHeader(totalDays = uiState.dateSections.size)
