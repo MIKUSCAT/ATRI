@@ -1,6 +1,7 @@
 package me.atri.ui.chat
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -57,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -429,23 +431,6 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(uiState.displayItems.size, showWelcome) {
-        if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
-            // 返回时使用无动画滚动，直接定位到最后一条消息
-            listState.scrollToItem(uiState.displayItems.lastIndex)
-        }
-    }
-
-
-    LaunchedEffect(pendingScrollIndex, showWelcome, uiState.displayItems.size) {
-        val target = pendingScrollIndex
-        if (!showWelcome && target != null && uiState.displayItems.isNotEmpty()) {
-            val bounded = target.coerceIn(0, uiState.displayItems.lastIndex)
-            listState.scrollToItem(bounded)
-            pendingScrollIndex = null
-        }
-    }
-
     val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val isImeVisible = imeBottomPadding > 0.dp
@@ -455,6 +440,38 @@ fun ChatScreen(
         imeBottomPadding + baseBottomPadding
     } else {
         baseBottomPadding
+    }
+
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
+    LaunchedEffect(uiState.displayItems.size, showWelcome, listBottomPadding) {
+        if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
+            // 返回时使用无动画滚动，确保最后一条消息完整可见
+            val lastIndex = uiState.displayItems.lastIndex
+            listState.scrollToItem(lastIndex)
+            withFrameNanos { }
+            val layoutInfo = listState.layoutInfo
+            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
+            if (lastItem != null) {
+                val visibleBottom = layoutInfo.viewportEndOffset -
+                    with(density) { listBottomPadding.toPx() }
+                val overflow = lastItem.offset + lastItem.size - visibleBottom
+                if (overflow > 0) {
+                    listState.scrollBy(overflow.toFloat())
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(pendingScrollIndex, showWelcome, uiState.displayItems.size) {
+        val target = pendingScrollIndex
+        if (!showWelcome && target != null && uiState.displayItems.isNotEmpty()) {
+            val bounded = target.coerceIn(0, uiState.displayItems.lastIndex)
+            listState.scrollToItem(bounded)
+            pendingScrollIndex = null
+        }
     }
 
     LaunchedEffect(imeBottomPadding, showWelcome, uiState.displayItems.size) {
@@ -527,29 +544,26 @@ fun ChatScreen(
                 }
             }
         ) { paddingValues ->
-            // 右边缘滑动检测：从右边缘向左滑动时进入日记页面
-            var startX by remember { mutableStateOf(0f) }
+            // 全屏左右滑动：左滑进入日记，右滑打开抽屉
             var swipeOffset by remember { mutableStateOf(0f) }
             val swipeThreshold = 60f   // 滑动阈值（像素）
-            val edgeWidth = 100f       // 边缘检测区域宽度（像素）- 约屏幕右侧 1/4
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
                     .pointerInput(showWelcome, drawerState.isOpen) {
-                        // 只在非欢迎界面且抽屉关闭时检测右边缘左滑
+                        // 只在非欢迎界面且抽屉关闭时检测左右滑
                         if (!showWelcome && !drawerState.isOpen) {
                             detectHorizontalDragGestures(
-                                onDragStart = { offset ->
-                                    startX = offset.x
+                                onDragStart = {
                                     swipeOffset = 0f
                                 },
                                 onDragEnd = {
-                                    // 只有从右边缘开始且向左滑动超过阈值才触发
-                                    val screenWidth = size.width.toFloat()
-                                    if (startX > screenWidth - edgeWidth && swipeOffset < -swipeThreshold) {
+                                    if (swipeOffset < -swipeThreshold) {
                                         onOpenDiary()
+                                    } else if (swipeOffset > swipeThreshold) {
+                                        scope.launch { drawerState.open() }
                                     }
                                     swipeOffset = 0f
                                 },
@@ -585,7 +599,7 @@ fun ChatScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 16.dp,
-                            bottom = listBottomPadding  // 键盘抬起时预留输入框+键盘高度，收起时保留额外空间
+                            bottom = listBottomPadding  // 键盘抬起时预留输入框+键盘高度，收起时保留输入框与底栏
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {

@@ -1,5 +1,7 @@
 package me.atri.ui.diary
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -50,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,31 +73,68 @@ fun DiaryScreen(
     viewModel: DiaryViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var swipeOffset by remember { mutableStateOf(0f) }
+    val swipeThreshold = 60f
 
-    AnimatedContent(
-        targetState = uiState.selectedEntry?.date,
-        transitionSpec = {
-            if (targetState != null) {
-                (slideInHorizontally { it } + fadeIn()) togetherWith
-                        (slideOutHorizontally { -it / 3 } + fadeOut())
-            } else {
-                (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { it } + fadeOut())
-            }
-        },
-        label = "diary_transition"
-    ) { selectedDate ->
-        if (selectedDate != null) {
-            val selectedEntry = uiState.selectedEntry
-                ?: uiState.entries.firstOrNull { it.date == selectedDate }
-            if (selectedEntry != null) {
-                DiaryDetailScreen(
-                    entry = selectedEntry,
-                    errorMessage = uiState.error,
-                    isRegenerating = uiState.isRegeneratingEntry,
-                    onRegenerate = { viewModel.regenerateEntry(it) },
-                    onNavigateBack = viewModel::closeDiary
+    BackHandler(enabled = uiState.selectedEntry != null) {
+        viewModel.closeDiary()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(uiState.selectedEntry) {
+                detectHorizontalDragGestures(
+                    onDragStart = { swipeOffset = 0f },
+                    onDragEnd = {
+                        if (swipeOffset > swipeThreshold) {
+                            if (uiState.selectedEntry != null) {
+                                viewModel.closeDiary()
+                            } else {
+                                onNavigateBack()
+                            }
+                        }
+                        swipeOffset = 0f
+                    },
+                    onDragCancel = { swipeOffset = 0f },
+                    onHorizontalDrag = { _, dragAmount ->
+                        swipeOffset += dragAmount
+                    }
                 )
+            }
+    ) {
+        AnimatedContent(
+            targetState = uiState.selectedEntry?.date,
+            transitionSpec = {
+                if (targetState != null) {
+                    (slideInHorizontally { it } + fadeIn()) togetherWith
+                            (slideOutHorizontally { -it / 3 } + fadeOut())
+                } else {
+                    (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
+                            (slideOutHorizontally { it } + fadeOut())
+                }
+            },
+            label = "diary_transition"
+        ) { selectedDate ->
+            if (selectedDate != null) {
+                val selectedEntry = uiState.selectedEntry
+                    ?: uiState.entries.firstOrNull { it.date == selectedDate }
+                if (selectedEntry != null) {
+                    DiaryDetailScreen(
+                        entry = selectedEntry,
+                        errorMessage = uiState.error,
+                        isRegenerating = uiState.isRegeneratingEntry,
+                        onRegenerate = { viewModel.regenerateEntry(it) },
+                        onNavigateBack = viewModel::closeDiary
+                    )
+                } else {
+                    DiaryListScreen(
+                        uiState = uiState,
+                        onNavigateBack = onNavigateBack,
+                        onRefresh = { viewModel.refresh() },
+                        onOpenDiary = { viewModel.openDiary(it) }
+                    )
+                }
             } else {
                 DiaryListScreen(
                     uiState = uiState,
@@ -103,13 +143,6 @@ fun DiaryScreen(
                     onOpenDiary = { viewModel.openDiary(it) }
                 )
             }
-        } else {
-            DiaryListScreen(
-                uiState = uiState,
-                onNavigateBack = onNavigateBack,
-                onRefresh = { viewModel.refresh() },
-                onOpenDiary = { viewModel.openDiary(it) }
-            )
         }
     }
 }
