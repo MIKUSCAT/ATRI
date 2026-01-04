@@ -1,21 +1,27 @@
 package me.atri.ui.chat
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -28,7 +34,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +69,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -141,8 +148,7 @@ private data class SelectedMessageState(
 private fun DrawerHeader(
     avatarPath: String,
     welcomeState: ChatViewModel.WelcomeUiState,
-    onChangeAvatar: () -> Unit,
-    onBack: () -> Unit
+    onChangeAvatar: () -> Unit
 ) {
     val context = LocalContext.current
     val avatarRequest = remember(avatarPath, context) {
@@ -155,40 +161,10 @@ private fun DrawerHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 4.dp),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        CircleShape
-                    )
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "返回",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
         Box(
             modifier = Modifier.size(112.dp),
             contentAlignment = Alignment.Center
@@ -401,9 +377,12 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var selectedMessage by remember { mutableStateOf<SelectedMessageState?>(null) }
     var listBounds by remember { mutableStateOf<Rect?>(null) }
+    var inputBarHeight by remember { mutableStateOf(0.dp) }
+    var lastImePadding by remember { mutableStateOf(0.dp) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val density = LocalDensity.current
     var pendingScrollIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val showWelcome = !welcomeDismissed
     val avatarPickerScope = rememberCoroutineScope()
@@ -420,13 +399,39 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(uiState.displayItems.size, showWelcome) {
-        if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
-            // 返回时使用无动画滚动，直接定位到最后一条消息
-            listState.scrollToItem(uiState.displayItems.lastIndex)
-        }
+    val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val isImeVisible = imeBottomPadding > 0.dp
+    val inputBarBottomSpacing = 8.dp
+    val baseBottomPadding = inputBarHeight + inputBarBottomSpacing + navigationBarPadding
+    val listBottomPadding = if (isImeVisible) {
+        imeBottomPadding + baseBottomPadding
+    } else {
+        baseBottomPadding
     }
 
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
+    LaunchedEffect(uiState.displayItems.size, showWelcome, listBottomPadding) {
+        if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
+            // 返回时使用无动画滚动，确保最后一条消息完整可见
+            val lastIndex = uiState.displayItems.lastIndex
+            listState.scrollToItem(lastIndex)
+            withFrameNanos { }
+            val layoutInfo = listState.layoutInfo
+            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
+            if (lastItem != null) {
+                val visibleBottom = layoutInfo.viewportEndOffset -
+                    with(density) { listBottomPadding.toPx() }
+                val overflow = lastItem.offset + lastItem.size - visibleBottom
+                if (overflow > 0) {
+                    listState.scrollBy(overflow.toFloat())
+                }
+            }
+        }
+    }
 
     LaunchedEffect(pendingScrollIndex, showWelcome, uiState.displayItems.size) {
         val target = pendingScrollIndex
@@ -435,6 +440,18 @@ fun ChatScreen(
             listState.scrollToItem(bounded)
             pendingScrollIndex = null
         }
+    }
+
+    LaunchedEffect(imeBottomPadding, showWelcome, uiState.displayItems.size) {
+        if (showWelcome || uiState.displayItems.isEmpty()) {
+            lastImePadding = imeBottomPadding
+            return@LaunchedEffect
+        }
+        val delta = imeBottomPadding - lastImePadding
+        if (delta > 0.dp) {
+            listState.scrollBy(with(density) { delta.toPx() })
+        }
+        lastImePadding = imeBottomPadding
     }
 
     ModalNavigationDrawer(
@@ -450,10 +467,7 @@ fun ChatScreen(
                     DrawerHeader(
                         avatarPath = atriAvatarPath,
                         welcomeState = welcomeState,
-                        onChangeAvatar = { avatarPickerLauncher.launch("image/*") },
-                        onBack = {
-                            scope.launch { drawerState.close() }
-                        }
+                        onChangeAvatar = { avatarPickerLauncher.launch("image/*") }
                     )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     DrawerDateHeader(totalDays = uiState.dateSections.size)
@@ -495,29 +509,26 @@ fun ChatScreen(
                 }
             }
         ) { paddingValues ->
-            // 右边缘滑动检测：从右边缘向左滑动时进入日记页面
-            var startX by remember { mutableStateOf(0f) }
+            // 全屏左右滑动：左滑进入日记，右滑打开抽屉
             var swipeOffset by remember { mutableStateOf(0f) }
             val swipeThreshold = 60f   // 滑动阈值（像素）
-            val edgeWidth = 100f       // 边缘检测区域宽度（像素）- 约屏幕右侧 1/4
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
                     .pointerInput(showWelcome, drawerState.isOpen) {
-                        // 只在非欢迎界面且抽屉关闭时检测右边缘左滑
+                        // 只在非欢迎界面且抽屉关闭时检测左右滑
                         if (!showWelcome && !drawerState.isOpen) {
                             detectHorizontalDragGestures(
-                                onDragStart = { offset ->
-                                    startX = offset.x
+                                onDragStart = {
                                     swipeOffset = 0f
                                 },
                                 onDragEnd = {
-                                    // 只有从右边缘开始且向左滑动超过阈值才触发
-                                    val screenWidth = size.width.toFloat()
-                                    if (startX > screenWidth - edgeWidth && swipeOffset < -swipeThreshold) {
+                                    if (swipeOffset < -swipeThreshold) {
                                         onOpenDiary()
+                                    } else if (swipeOffset > swipeThreshold) {
+                                        scope.launch { drawerState.open() }
                                     }
                                     swipeOffset = 0f
                                 },
@@ -553,7 +564,7 @@ fun ChatScreen(
                             start = 16.dp,
                             end = 16.dp,
                             top = 16.dp,
-                            bottom = 300.dp  // 足够让最后一条消息滑动到屏幕中上部
+                            bottom = listBottomPadding  // 键盘抬起时预留输入框+键盘高度，收起时保留输入框与底栏
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -625,15 +636,26 @@ fun ChatScreen(
                             .navigationBarsPadding()
                             .padding(bottom = 8.dp)
                     ) {
-                        InputBar(
-                            enabled = !uiState.isLoading,
-                            isProcessing = uiState.isLoading,
-                            reference = uiState.referencedMessage,
-                            onClearReference = { viewModel.clearReferencedAttachments() },
-                            onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
-                            onCancelProcessing = { viewModel.cancelSending() },
-                            onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    val height = with(density) { coordinates.size.height.toDp() }
+                                    if (height != inputBarHeight) {
+                                        inputBarHeight = height
+                                    }
+                                }
+                        ) {
+                            InputBar(
+                                enabled = !uiState.isLoading,
+                                isProcessing = uiState.isLoading,
+                                reference = uiState.referencedMessage,
+                                onClearReference = { viewModel.clearReferencedAttachments() },
+                                onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
+                                onCancelProcessing = { viewModel.cancelSending() },
+                                onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
+                            )
+                        }
                     }
                 }
 

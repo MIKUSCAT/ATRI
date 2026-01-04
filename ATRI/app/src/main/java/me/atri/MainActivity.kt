@@ -2,6 +2,7 @@ package me.atri
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -68,6 +69,13 @@ fun AtriApp(preferencesStore: PreferencesStore) {
     var showSettings by remember { mutableStateOf(false) }
     var showDiary by remember { mutableStateOf(false) }
     var chatWelcomeDismissed by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = showSettings || showDiary) {
+        when {
+            showSettings -> showSettings = false
+            showDiary -> showDiary = false
+        }
+    }
 
     // 首次启动时自动标记为非首次，跳过 WelcomeScreen
     LaunchedEffect(isFirstLaunch) {
