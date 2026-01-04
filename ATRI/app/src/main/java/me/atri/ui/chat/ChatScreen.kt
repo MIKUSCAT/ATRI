@@ -414,22 +414,11 @@ fun ChatScreen(
         scope.launch { drawerState.close() }
     }
 
-    LaunchedEffect(uiState.displayItems.size, showWelcome, listBottomPadding) {
+    LaunchedEffect(uiState.displayItems.size, showWelcome) {
         if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
             // 返回时使用无动画滚动，确保最后一条消息完整可见
             val lastIndex = uiState.displayItems.lastIndex
             listState.scrollToItem(lastIndex)
-            withFrameNanos { }
-            val layoutInfo = listState.layoutInfo
-            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
-            if (lastItem != null) {
-                val visibleBottom = layoutInfo.viewportEndOffset -
-                    with(density) { listBottomPadding.toPx() }
-                val overflow = lastItem.offset + lastItem.size - visibleBottom
-                if (overflow > 0) {
-                    listState.scrollBy(overflow.toFloat())
-                }
-            }
         }
     }
 
