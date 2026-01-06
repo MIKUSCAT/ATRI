@@ -4,6 +4,8 @@ export interface Env {
   MEDIA_BUCKET: R2Bucket;
   OPENAI_API_KEY: string;
   OPENAI_API_URL: string;
+  // Tavily 搜索（可选，不配则不启用 web_search）
+  TAVILY_API_KEY?: string;
   // 媒体签名密钥（可选，不配则回退用 APP_TOKEN）
   MEDIA_SIGNING_KEY?: string;
   // 日记/用户档案专用上游（可选，不配则走默认聊天上游）

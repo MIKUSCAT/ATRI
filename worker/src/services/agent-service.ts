@@ -10,6 +10,7 @@ import { resolveDayStartTimestamp, formatTimeInZone, DEFAULT_TIMEZONE } from '..
 import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
 import { searchMemories } from './memory-service';
+import { webSearch } from './web-search-service';
 import {
   ConversationLogRecord,
   fetchConversationLogs,
@@ -538,6 +539,11 @@ async function executeAgentTool(
     return { output };
   }
 
+  if (name === 'web_search') {
+    const output = await runWebSearch(env, args);
+    return { output };
+  }
+
   if (name === 'update_mood') {
     const updated = await updateMoodState(env, {
       userId,
@@ -686,6 +692,37 @@ async function runSearchMemory(env: Env, userId: string, args: any) {
   }
 }
 
+async function runWebSearch(env: Env, args: any) {
+  const query = sanitizeText(String(args?.query || '').trim());
+  if (!query) {
+    return '请给我 query。';
+  }
+
+  try {
+    const items = await webSearch(env, { query, maxResults: 5, timeoutMs: 12000 });
+    if (!items.length) {
+      return '没有搜到有用结果';
+    }
+
+    const lines: string[] = ['外部信息要点（只用于这次回答）：'];
+    for (const item of items) {
+      const title = String(item?.title || '').trim();
+      const snippet = String(item?.snippet || '').trim();
+      if (!title && !snippet) continue;
+      if (title && snippet) {
+        lines.push(`- ${title}：${snippet}`);
+      } else {
+        lines.push(`- ${title || snippet}`);
+      }
+    }
+    return lines.join('\n');
+  } catch (error) {
+    console.warn('[ATRI] web_search failed', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return msg.includes('TAVILY_API_KEY') ? '我现在没法联网搜索（配置还没准备好）' : '联网搜索时出错';
+  }
+}
+
 function extractMessageText(message: any): string {
   if (!message) return '';
   const content = message.content;
@@ -712,11 +749,11 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_diary',
-      description: '查看某一天的日记（亚托莉自己写的第一人称，“我”指亚托莉）。当需要回忆那天发生了什么、那天是什么心情时使用。',
+      description: '翻开那天的日记本。日记是我自己写的，记着那天发生了什么、我当时的心情。',
       parameters: {
         type: 'object',
         properties: {
-          date: { type: 'string', description: '日期，格式 YYYY-MM-DD，比如 2025-12-30' }
+          date: { type: 'string', description: '想看哪天的日记，YYYY-MM-DD' }
         },
         required: ['date']
       }
@@ -726,11 +763,11 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_conversation',
-      description: '查看某一天的完整聊天记录（带时间戳）。当需要确认当时具体说了什么、原话是什么时使用。',
+      description: '回看那天的聊天记录。想确认当时到底说了什么原话的时候会翻出来看。',
       parameters: {
         type: 'object',
         properties: {
-          date: { type: 'string', description: '日期，格式 YYYY-MM-DD，比如 2025-12-30' }
+          date: { type: 'string', description: '想看哪天的记录，YYYY-MM-DD' }
         },
         required: ['date']
       }
@@ -740,11 +777,25 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'search_memory',
-      description: '搜索记忆（向量召回）。用来先找到相关日期和片段；如果用户问的是“为什么/由来/原话/具体细节”，而片段里没有关键信息，就继续用 read_diary(date) 查看那天日记原文再回答，不要靠猜。',
+      description: '在脑海里搜索模糊的记忆。能找到相关的日期和片段；如果片段不够清楚，会再去翻日记或聊天记录确认，不会靠猜。',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '想找的内容，用关键词描述' }
+          query: { type: 'string', description: '想找的内容' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: '去外面查一查。有些事情光靠记忆和常识我不敢乱说，需要确认一下才行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '想查什么' }
         },
         required: ['query']
       }
@@ -754,14 +805,14 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'update_mood',
-      description: '当用户的对话引起了情绪波动时调用，更新 PAD 状态',
+      description: '心情有了变化。和他聊天的时候，我的情绪会自然地波动。',
       parameters: {
         type: 'object',
         properties: {
-          pleasure_delta: { type: 'number', description: '愉悦度变化 (-1.0 到 1.0)' },
-          arousal_delta: { type: 'number', description: '兴奋度变化 (-1.0 到 1.0)' },
-          dominance_delta: { type: 'number', description: '掌控度变化 (-1.0 到 1.0)' },
-          reason: { type: 'string', description: '简短的内心独白（推荐）' }
+          pleasure_delta: { type: 'number', description: '开心↑难过↓ (-1.0~1.0)' },
+          arousal_delta: { type: 'number', description: '兴奋↑平静↓ (-1.0~1.0)' },
+          dominance_delta: { type: 'number', description: '自信↑退缩↓ (-1.0~1.0)' },
+          reason: { type: 'string', description: '内心的声音' }
         },
         required: ['pleasure_delta', 'arousal_delta', 'reason']
       }
@@ -771,12 +822,12 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'update_intimacy',
-      description: '当对话让关系升温/降温时调用，更新关系温度（范围 -100~100，允许正负变化）',
+      description: '关系有了变化。相处久了心会靠近；但被伤到了也会退缩。',
       parameters: {
         type: 'object',
         properties: {
-          delta: { type: 'integer', description: '关系温度变化（建议 -25~+10，极端情况可到 -50）' },
-          reason: { type: 'string', description: '简短原因或内心独白（推荐）' }
+          delta: { type: 'integer', description: '靠近+/退缩- (通常-25~+10，很受伤可到-50)' },
+          reason: { type: 'string', description: '内心的声音' }
         },
         required: ['delta', 'reason']
       }

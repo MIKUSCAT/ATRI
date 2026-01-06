@@ -32,3 +32,14 @@ crons = ["59 15 * * *"]
 # Custom domain (需要在Cloudflare Dashboard手动添加)
 # Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
 # 添加: mikuscat.qzz.io
+
+# ==========================================
+# Secrets (使用 wrangler secret put 设置)
+# ==========================================
+# 必需:
+#   wrangler secret put APP_TOKEN
+#   wrangler secret put OPENAI_API_KEY
+#
+# 可选 (联网搜索功能):
+#   wrangler secret put TAVILY_API_KEY
+#   获取地址: https://tavily.com/
