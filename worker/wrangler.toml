@@ -8,9 +8,13 @@ OPENAI_API_URL = "https://mikuscat.zeabur.app/antigravity/v1"
 
 DIARY_API_URL = "https://mikuscat.zeabur.app/antigravity/v1"
 
-DIARY_MODEL = "claude-opus-4-5"  
+DIARY_MODEL = "claude-opus-4-5"
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
 EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+
+# Tavily 联网搜索（可选）
+# API Key 通过 secret 设置: npx wrangler secret put TAVILY_API_KEY
+TAVILY_API_URL = "https://api.tavily.com"
 
 [[vectorize]]
 binding = "VECTORIZE"
@@ -33,13 +37,3 @@ crons = ["59 15 * * *"]
 # Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
 # 添加: mikuscat.qzz.io
 
-# ==========================================
-# Secrets (使用 wrangler secret put 设置)
-# ==========================================
-# 必需:
-#   wrangler secret put APP_TOKEN
-#   wrangler secret put OPENAI_API_KEY
-#
-# 可选 (联网搜索功能):
-#   wrangler secret put TAVILY_API_KEY
-#   获取地址: https://tavily.com/
