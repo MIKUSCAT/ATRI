@@ -16,6 +16,7 @@ import {
   saveDiaryEntry,
   saveUserProfile
 } from '../services/data-service';
+import { deleteDiaryVectors } from '../services/memory-service';
 import { requireAppToken } from '../utils/auth';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
@@ -114,6 +115,14 @@ export function registerDiaryRoutes(router: any) {
         mood: diary.mood,
         status: 'ready'
       });
+
+      // 先删除旧的 highlight 向量（最多 10 条）
+      const oldHighlightIds = Array.from({ length: 10 }, (_, i) => `hl:${userId}:${date}:${i}`);
+      try {
+        await deleteDiaryVectors(env, oldHighlightIds);
+      } catch (err) {
+        console.warn('[ATRI] Failed to delete old highlight vectors', { userId, date, err });
+      }
 
       await upsertDiaryHighlightsMemory(env, {
         userId,

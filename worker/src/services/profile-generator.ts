@@ -45,7 +45,11 @@ export async function generateUserProfile(env: Env, params: {
 
   const diaryApiUrl = typeof env.DIARY_API_URL === 'string' ? env.DIARY_API_URL.trim() : '';
   const diaryApiKey = typeof env.DIARY_API_KEY === 'string' ? env.DIARY_API_KEY.trim() : '';
-  const model = resolveProfileModel(env, params.modelKey);
+  // 如果配置了专用的日记 API，则不使用用户偏好模型，避免模型与 API 不匹配
+  const useCustomDiaryApi = !!(diaryApiUrl && diaryApiKey);
+  const model = useCustomDiaryApi
+    ? resolveProfileModel(env, null)
+    : resolveProfileModel(env, params.modelKey);
 
   try {
     const response = await callChatCompletions(

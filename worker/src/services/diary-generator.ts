@@ -72,6 +72,11 @@ export async function generateDiaryFromConversation(env: Env, params: {
   try {
     const diaryApiUrl = typeof env.DIARY_API_URL === 'string' ? env.DIARY_API_URL.trim() : '';
     const diaryApiKey = typeof env.DIARY_API_KEY === 'string' ? env.DIARY_API_KEY.trim() : '';
+    // 如果配置了专用的日记 API，则不使用用户偏好模型，避免模型与 API 不匹配
+    const useCustomDiaryApi = !!(diaryApiUrl && diaryApiKey);
+    const model = useCustomDiaryApi
+      ? resolveDiaryModel(env, null)  // 专用 API 时忽略用户偏好
+      : resolveDiaryModel(env, params.modelKey);
     const response = await withRetry(() => callChatCompletions(
       env,
       {
@@ -83,7 +88,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
         max_tokens: 4096
       },
       {
-        model: resolveDiaryModel(env, params.modelKey),
+        model,
         apiUrl: diaryApiUrl || undefined,
         apiKey: diaryApiKey || undefined,
         timeoutMs: 120000
