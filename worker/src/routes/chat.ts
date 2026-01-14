@@ -4,8 +4,9 @@ import { jsonResponse } from '../utils/json-response';
 import { normalizeAttachmentList } from '../utils/attachments';
 import { sanitizeText } from '../utils/sanitize';
 import { runAgentChat } from '../services/agent-service';
-import { saveUserModelPreference } from '../services/data-service';
+import { saveConversationLog, saveUserModelPreference, isConversationLogDeleted } from '../services/data-service';
 import { requireAppToken } from '../utils/auth';
+import { notifyChatWaiters } from '../services/chat-socket';
 
 interface ChatRequestBody {
   userId: string;
@@ -17,6 +18,7 @@ interface ChatRequestBody {
   modelKey?: string;
   imageUrl?: string;
   attachments?: AttachmentPayload[];
+  timeZone?: string;
 }
 
 function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null {
@@ -44,7 +46,8 @@ function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null
     clientTimeIso: getString(body, ['clientTimeIso', 'client_time']),
     modelKey: getString(body, ['modelKey', 'model']),
     imageUrl,
-    attachments
+    attachments,
+    timeZone: getString(body, ['timeZone', 'time_zone'])
   };
 }
 
@@ -69,6 +72,27 @@ function getAnyString(obj: Record<string, unknown>, keys: string[]): string | un
 }
 
 export function registerChatRoutes(router: Router) {
+  router.get('/api/v1/chat/ws', async (request: Request, env: Env) => {
+    const auth = requireAppToken(request, env);
+    if (auth) return auth;
+
+    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+      return jsonResponse({ error: 'websocket_required' }, 426);
+    }
+
+    const { searchParams } = new URL(request.url);
+    const userId = (searchParams.get('userId') || '').trim();
+    if (!userId) {
+      return jsonResponse({ error: 'missing_user' }, 400);
+    }
+    if (!env.CHAT_SOCKET) {
+      return jsonResponse({ error: 'socket_unavailable' }, 503);
+    }
+
+    const stub = env.CHAT_SOCKET.get(env.CHAT_SOCKET.idFromName(userId));
+    return stub.fetch(request);
+  });
+
   router.post('/api/v1/chat', async (request, env: Env) => {
     try {
       const auth = requireAppToken(request, env);
@@ -107,7 +131,49 @@ export function registerChatRoutes(router: Router) {
         model: resolveModelKey(parsed.modelKey),
         logId: parsed.logId
       });
-      return jsonResponse(result);
+      const replyTo = typeof parsed.logId === 'string' ? parsed.logId : undefined;
+      const replyLogId = crypto.randomUUID();
+      const replyTimestamp = Date.now();
+      const moodPayload = result.mood ? JSON.stringify(result.mood) : undefined;
+
+      const shouldSkip = replyTo
+        ? await isConversationLogDeleted(env, parsed.userId, replyTo)
+        : false;
+      if (!shouldSkip) {
+        try {
+          await saveConversationLog(env, {
+            id: replyLogId,
+            userId: parsed.userId,
+            role: 'atri',
+            content: result.reply,
+            attachments: [],
+            mood: moodPayload,
+            replyTo,
+            timestamp: replyTimestamp,
+            userName: parsed.userName,
+            timeZone: parsed.timeZone
+          });
+          await notifyChatWaiters(env, {
+            userId: parsed.userId,
+            reply: result.reply,
+            mood: result.mood,
+            action: result.action,
+            intimacy: result.intimacy,
+            replyLogId,
+            replyTimestamp,
+            replyTo
+          });
+        } catch (err) {
+          console.warn('[ATRI] reply log failed', { userId: parsed.userId, err });
+        }
+      }
+
+      return jsonResponse({
+        ...result,
+        replyLogId,
+        replyTimestamp,
+        replyTo
+      });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       const errStack = error instanceof Error ? error.stack : undefined;

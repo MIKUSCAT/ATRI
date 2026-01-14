@@ -25,6 +25,10 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
         private val MODEL_NAME = stringPreferencesKey("model_name")
         private val ATRI_AVATAR_PATH = stringPreferencesKey("atri_avatar_path")
         private val LAST_CHAT_DATE = stringPreferencesKey("last_chat_date")
+        private val REPLIED_MESSAGE_IDS = stringSetPreferencesKey("replied_message_ids")
+        private val PENDING_MESSAGE_IDS = stringSetPreferencesKey("pending_message_ids")
+        private const val MAX_REPLIED_MESSAGE_IDS = 200
+        private const val MAX_PENDING_MESSAGE_IDS = 50
     }
 
     val userId: Flow<String> = dataStore.data.map { it[USER_ID] ?: "" }
@@ -38,6 +42,8 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
     val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "gpt-4o" }
     val atriAvatarPath: Flow<String> = dataStore.data.map { it[ATRI_AVATAR_PATH] ?: "" }
     val lastConversationDate: Flow<String> = dataStore.data.map { it[LAST_CHAT_DATE] ?: "" }
+    val repliedMessageIds: Flow<Set<String>> = dataStore.data.map { it[REPLIED_MESSAGE_IDS] ?: emptySet() }
+    val pendingMessageIds: Flow<Set<String>> = dataStore.data.map { it[PENDING_MESSAGE_IDS] ?: emptySet() }
 
     suspend fun ensureUserId(): String {
         val current = dataStore.data.first()[USER_ID]
@@ -104,5 +110,76 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setLastConversationDate(date: String) {
         dataStore.edit { it[LAST_CHAT_DATE] = date }
+    }
+
+    suspend fun markMessageReplied(messageId: String) {
+        markMessagesReplied(listOf(messageId))
+    }
+
+    suspend fun markMessagesReplied(messageIds: Collection<String>) {
+        val normalized = messageIds.mapNotNull { it.trim().takeIf(String::isNotBlank) }.toSet()
+        if (normalized.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = prefs[REPLIED_MESSAGE_IDS]?.toMutableSet() ?: mutableSetOf()
+            current.addAll(normalized)
+            val trimmed = if (current.size > MAX_REPLIED_MESSAGE_IDS) {
+                current.take(MAX_REPLIED_MESSAGE_IDS).toSet()
+            } else {
+                current
+            }
+            prefs[REPLIED_MESSAGE_IDS] = trimmed
+        }
+    }
+
+    suspend fun clearMessageReplied(messageId: String) {
+        val trimmed = messageId.trim()
+        if (trimmed.isBlank()) return
+        dataStore.edit { prefs ->
+            val current = prefs[REPLIED_MESSAGE_IDS] ?: return@edit
+            if (!current.contains(trimmed)) return@edit
+            val updated = current.toMutableSet().apply { remove(trimmed) }
+            if (updated.isEmpty()) {
+                prefs.remove(REPLIED_MESSAGE_IDS)
+            } else {
+                prefs[REPLIED_MESSAGE_IDS] = updated
+            }
+        }
+    }
+
+    suspend fun markMessagePending(messageId: String) {
+        markMessagesPending(listOf(messageId))
+    }
+
+    suspend fun markMessagesPending(messageIds: Collection<String>) {
+        val normalized = messageIds.mapNotNull { it.trim().takeIf(String::isNotBlank) }.toSet()
+        if (normalized.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = prefs[PENDING_MESSAGE_IDS]?.toMutableSet() ?: mutableSetOf()
+            current.addAll(normalized)
+            val trimmed = if (current.size > MAX_PENDING_MESSAGE_IDS) {
+                current.take(MAX_PENDING_MESSAGE_IDS).toSet()
+            } else {
+                current
+            }
+            prefs[PENDING_MESSAGE_IDS] = trimmed
+        }
+    }
+
+    suspend fun clearMessagePending(messageId: String) {
+        clearMessagesPending(listOf(messageId))
+    }
+
+    suspend fun clearMessagesPending(messageIds: Collection<String>) {
+        val normalized = messageIds.mapNotNull { it.trim().takeIf(String::isNotBlank) }.toSet()
+        if (normalized.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = prefs[PENDING_MESSAGE_IDS] ?: return@edit
+            val updated = current.toMutableSet().apply { removeAll(normalized) }
+            if (updated.isEmpty()) {
+                prefs.remove(PENDING_MESSAGE_IDS)
+            } else {
+                prefs[PENDING_MESSAGE_IDS] = updated
+            }
+        }
     }
 }

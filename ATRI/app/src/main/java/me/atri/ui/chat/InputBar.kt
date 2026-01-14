@@ -58,6 +58,11 @@ private const val MAX_ATTACHMENTS = 6
 
 @Composable
 fun InputBar(
+    text: String,
+    attachments: List<PendingAttachment>,
+    onTextChange: (String) -> Unit,
+    onAddAttachments: (List<PendingAttachment>) -> Unit,
+    onRemoveAttachment: (PendingAttachment) -> Unit,
     enabled: Boolean = true,
     isProcessing: Boolean = false,
     reference: ChatUiState.ReferencedMessage? = null,
@@ -67,8 +72,6 @@ fun InputBar(
     onSendMessage: (String, List<PendingAttachment>) -> Unit
 ) {
     val context = LocalContext.current
-    var text by remember { mutableStateOf("") }
-    val attachments = remember { mutableStateListOf<PendingAttachment>() }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -79,9 +82,10 @@ fun InputBar(
         val newItems = uris
             .take(remaining)
             .mapNotNull { uri -> context.buildPendingAttachment(uri) }
-        attachments.addAll(newItems)
+        if (newItems.isNotEmpty()) {
+            onAddAttachments(newItems)
+        }
     }
-
 
     Column(
         modifier = Modifier
@@ -109,7 +113,7 @@ fun InputBar(
                 ) { attachment ->
                     AttachmentPreview(
                         attachment = attachment,
-                        onRemove = { attachments.remove(attachment) }
+                        onRemove = { onRemoveAttachment(attachment) }
                     )
                 }
             }
@@ -139,7 +143,7 @@ fun InputBar(
 
                 TextField(
                     value = text,
-                    onValueChange = { text = it },
+                    onValueChange = onTextChange,
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("说点什么吧…") },
                     maxLines = 4,
@@ -174,9 +178,7 @@ fun InputBar(
                         if (isProcessing) {
                             onCancelProcessing()
                         } else if (canSend) {
-                            onSendMessage(text, attachments.toList())
-                            text = ""
-                            attachments.clear()
+                            onSendMessage(text, attachments)
                         }
                     },
                     enabled = buttonEnabled,

@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,10 +74,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.atri.data.db.entity.MessageEntity
@@ -372,8 +378,10 @@ fun ChatScreen(
     onDismissWelcome: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val draftState by viewModel.draftState.collectAsStateWithLifecycle()
     val welcomeState by viewModel.welcomeUiState.collectAsStateWithLifecycle()
     val atriAvatarPath by viewModel.atriAvatarPath.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     var selectedMessage by remember { mutableStateOf<SelectedMessageState?>(null) }
     var listBounds by remember { mutableStateOf<Rect?>(null) }
@@ -385,6 +393,8 @@ fun ChatScreen(
     val density = LocalDensity.current
     var pendingScrollIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val showWelcome = !welcomeDismissed
+    val savedScrollPosition = remember { viewModel.getSavedScrollPosition() }
+    var hasRestoredScroll by remember { mutableStateOf(false) }
     val avatarPickerScope = rememberCoroutineScope()
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -397,6 +407,25 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.onChatResumed()
+                Lifecycle.Event.ON_PAUSE -> viewModel.onChatPaused()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onChatPaused()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.onChatResumed()
     }
 
     val imeBottomPadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
@@ -415,8 +444,20 @@ fun ChatScreen(
     }
 
     LaunchedEffect(uiState.displayItems.size, showWelcome) {
-        if (uiState.displayItems.isNotEmpty() && !showWelcome && pendingScrollIndex == null) {
-            // 返回时使用无动画滚动，确保最后一条消息完整可见
+        if (showWelcome || uiState.displayItems.isEmpty() || pendingScrollIndex != null) return@LaunchedEffect
+
+        if (!hasRestoredScroll) {
+            val saved = savedScrollPosition
+            if (saved != null) {
+                val bounded = saved.index.coerceIn(0, uiState.displayItems.lastIndex)
+                listState.scrollToItem(bounded, saved.offset)
+            } else {
+                // 返回时使用无动画滚动，确保最后一条消息完整可见
+                val lastIndex = uiState.displayItems.lastIndex
+                listState.scrollToItem(lastIndex)
+            }
+            hasRestoredScroll = true
+        } else {
             val lastIndex = uiState.displayItems.lastIndex
             listState.scrollToItem(lastIndex)
         }
@@ -428,7 +469,17 @@ fun ChatScreen(
             val bounded = target.coerceIn(0, uiState.displayItems.lastIndex)
             listState.scrollToItem(bounded)
             pendingScrollIndex = null
+            hasRestoredScroll = true
         }
+    }
+
+    LaunchedEffect(listState, showWelcome, hasRestoredScroll) {
+        if (showWelcome || !hasRestoredScroll) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (index, offset) ->
+                viewModel.updateScrollPosition(index, offset)
+            }
     }
 
     LaunchedEffect(imeBottomPadding, showWelcome, uiState.displayItems.size) {
@@ -600,6 +651,8 @@ fun ChatScreen(
                         }
                         if (uiState.isLoading) {
                             item { TypingIndicator() }
+                        } else if (uiState.isAwaitingReply) {
+                            item { TypingIndicator(label = "等待回复…") }
                         }
                     }
                 }
@@ -636,13 +689,18 @@ fun ChatScreen(
                                 }
                         ) {
                             InputBar(
+                                text = draftState.text,
+                                attachments = draftState.attachments,
+                                onTextChange = viewModel::updateDraftText,
+                                onAddAttachments = viewModel::addDraftAttachments,
+                                onRemoveAttachment = viewModel::removeDraftAttachment,
                                 enabled = !uiState.isLoading,
                                 isProcessing = uiState.isLoading,
                                 reference = uiState.referencedMessage,
                                 onClearReference = { viewModel.clearReferencedAttachments() },
                                 onToggleReferenceAttachment = { url -> viewModel.toggleReferencedAttachment(url) },
                                 onCancelProcessing = { viewModel.cancelSending() },
-                                onSendMessage = { content, attachments -> viewModel.sendMessage(content, attachments) }
+                                onSendMessage = viewModel::sendMessage
                             )
                         }
                     }

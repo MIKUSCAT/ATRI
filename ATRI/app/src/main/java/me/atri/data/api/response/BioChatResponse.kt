@@ -7,7 +7,10 @@ data class BioChatResponse(
     val reply: String? = null,
     val mood: Mood? = null,
     val action: String? = null,
-    val intimacy: Int? = null
+    val intimacy: Int? = null,
+    val replyLogId: String? = null,
+    val replyTimestamp: Long? = null,
+    val replyTo: String? = null
 ) {
     @Serializable
     data class Mood(

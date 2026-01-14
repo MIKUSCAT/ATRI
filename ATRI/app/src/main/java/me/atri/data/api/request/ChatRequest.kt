@@ -13,7 +13,8 @@ data class ChatRequest(
     // 新增：默认注入用户名称与客户端本地时间（到秒，含时区）
     val userName: String? = null,
     val clientTimeIso: String? = null,
-    val modelKey: String? = null
+    val modelKey: String? = null,
+    val timeZone: String? = null
 ) {
     @Serializable
     data class AttachmentPayload(

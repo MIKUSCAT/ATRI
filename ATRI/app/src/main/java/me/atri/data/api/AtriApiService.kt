@@ -9,6 +9,7 @@ import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
 import me.atri.data.api.response.BioChatResponse
 import me.atri.data.api.response.ModelListResponse
+import me.atri.data.api.response.ConversationPullResponse
 import me.atri.data.api.response.UploadResponse
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -46,6 +47,14 @@ interface AtriApiService {
         @Query("timeZone") timeZone: String? = null,
         @Query("date") date: String? = null
     ): Response<LastConversationResponse>
+
+    @GET("/conversation/pull")
+    suspend fun pullConversationLogs(
+        @Query("userId") userId: String,
+        @Query("after") after: Long? = null,
+        @Query("limit") limit: Int = 50,
+        @Query("role") role: String? = null
+    ): Response<ConversationPullResponse>
 
     @GET("/diary/list")
     suspend fun fetchDiaryList(

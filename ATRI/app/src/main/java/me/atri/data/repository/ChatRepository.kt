@@ -6,7 +6,13 @@ import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import me.atri.data.api.AtriApiService
 import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
@@ -22,10 +28,13 @@ import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import kotlin.text.RegexOption
 import kotlinx.coroutines.CancellationException
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import okio.buffer
 import okio.source
 import java.time.Instant
@@ -34,13 +43,20 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import me.atri.data.model.LastConversationInfo
 import me.atri.data.api.response.BioChatResponse
+import me.atri.data.api.response.ConversationPullResponse
+import me.atri.data.api.ws.ChatSocketRequest
+import me.atri.data.api.ws.ChatSocketResponse
 
 data class ChatResult(
     val reply: String,
     val mood: BioChatResponse.Mood?,
-    val intimacy: Int
+    val intimacy: Int,
+    val replyLogId: String?,
+    val replyTimestamp: Long?,
+    val replyTo: String?
 )
 
 class ChatRepository(
@@ -61,6 +77,11 @@ class ChatRepository(
             pattern = "^\\[[^]]+\\]\\s*",
             options = setOf(RegexOption.MULTILINE)
         )
+        private const val PULL_SKEW_MS = 5 * 60 * 1000L
+        private const val SOCKET_SEND_TIMEOUT_MS = 60_000L
+        private const val SOCKET_WAIT_TIMEOUT_MS = 90_000L
+        private const val SOCKET_PATH = "/api/v1/chat/ws"
+        private const val DEFAULT_BASE_URL = "https://example.com"
     }
 
     private val mediaHttpClient = OkHttpClient.Builder()
@@ -68,6 +89,22 @@ class ChatRepository(
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    private val socketHttpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
+    private val socketJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+
+    private class ChatSocketException(
+        message: String,
+        val shouldFallback: Boolean,
+        cause: Throwable? = null
+    ) : Exception(message, cause)
 
     fun observeMessages(): Flow<List<MessageEntity>> = messageDao.observeAll()
 
@@ -78,7 +115,7 @@ class ChatRepository(
         content: String,
         attachments: List<PendingAttachment>,
         reusedAttachments: List<Attachment> = emptyList(),
-        onUserMessagePrepared: (MessageEntity) -> Unit = {}
+        onUserMessagePrepared: suspend (MessageEntity) -> Unit = {}
     ): Result<ChatResult> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
@@ -98,7 +135,13 @@ class ChatRepository(
                 timestamp = System.currentTimeMillis(),
                 attachments = finalUserAttachments
             )
-            onUserMessagePrepared(userMessage)
+            try {
+                onUserMessagePrepared(userMessage)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("用户消息准备回调失败: ${e.message}")
+            }
             messageDao.insert(userMessage)
             markConversationTouched(userMessage.timestamp)
             logConversationSafely(
@@ -118,7 +161,7 @@ class ChatRepository(
                 inlineImageDataUrl = inlineImageDataUrl
             )
 
-            val chatResult = executeChatRequest(request)
+            val chatResult = executeChatWithFallback(request, SOCKET_SEND_TIMEOUT_MS)
             Result.success(chatResult)
         } catch (e: CancellationException) {
             throw e
@@ -146,14 +189,22 @@ class ChatRepository(
                 inlineImageDataUrl = inlineImageDataUrl
             )
 
-            val chatResult = executeChatRequest(request)
+            val chatResult = executeChatWithFallback(request, SOCKET_SEND_TIMEOUT_MS)
             Result.success(chatResult)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun persistAtriMessage(finalMessage: MessageEntity, mood: BioChatResponse.Mood? = null) = withContext(Dispatchers.IO) {
+    suspend fun persistAtriMessage(
+        finalMessage: MessageEntity,
+        mood: BioChatResponse.Mood? = null,
+        replyTo: String? = null,
+        syncRemote: Boolean = true
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (shouldSkipReply(replyTo)) {
+            return@withContext false
+        }
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
         // 将 PAD 状态转换为 JSON 字符串存储
         val moodJson = if (mood != null) {
@@ -182,17 +233,21 @@ class ChatRepository(
 
         markConversationTouched(persisted.timestamp)
 
-        val userId = preferencesStore.ensureUserId()
-        logConversationSafely(
-            logId = persisted.id,
-            userId = userId,
-            userName = null,
-            role = "atri",
-            content = persisted.content,
-            timestamp = persisted.timestamp,
-            attachments = persisted.attachments,
-            mood = persisted.mood
-        )
+        if (syncRemote) {
+            val userId = preferencesStore.ensureUserId()
+            logConversationSafely(
+                logId = persisted.id,
+                userId = userId,
+                userName = null,
+                role = "atri",
+                content = persisted.content,
+                timestamp = persisted.timestamp,
+                attachments = persisted.attachments,
+                mood = persisted.mood,
+                replyTo = replyTo
+            )
+        }
+        true
     }
 
     suspend fun editMessage(
@@ -226,7 +281,12 @@ class ChatRepository(
     }
 
     suspend fun deleteMessage(id: String, syncRemote: Boolean = false) = withContext(Dispatchers.IO) {
+        val message = messageDao.getMessageById(id)
         messageDao.softDelete(id)
+        if (message != null && !message.isFromAtri) {
+            preferencesStore.clearMessageReplied(id)
+            preferencesStore.clearMessagePending(id)
+        }
         if (syncRemote) {
             deleteConversationLogs(listOf(id))
         }
@@ -367,25 +427,221 @@ class ChatRepository(
             attachments = requestAttachments.map { it.toPayload() },
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
-            modelKey = preferredModel
+            modelKey = preferredModel,
+            timeZone = zoneId.id
         )
     }
+
+    private fun ChatRequest.toSocketRequest(): ChatSocketRequest =
+        ChatSocketRequest(
+            type = "send",
+            userId = userId,
+            content = content,
+            logId = logId,
+            imageUrl = imageUrl,
+            attachments = attachments,
+            userName = userName,
+            clientTimeIso = clientTimeIso,
+            modelKey = modelKey,
+            timeZone = timeZone
+        )
 
     private suspend fun executeChatRequest(request: ChatRequest): ChatResult {
         val response = apiService.sendBioMessage(request)
         if (!response.isSuccessful) {
-            throw Exception("API Error: ${response.code()}")
+            throw IllegalStateException("API Error: ${response.code()}")
         }
         val body = response.body()
         val reply = body?.reply?.trim().orEmpty()
         if (reply.isEmpty()) {
-            throw Exception("空回复")
+            throw IllegalStateException("空回复")
         }
+        val replyTo = body?.replyTo?.trim()?.takeIf { it.isNotBlank() } ?: request.logId
         return ChatResult(
             reply = reply,
             mood = body?.mood,
-            intimacy = body?.intimacy ?: 0
+            intimacy = body?.intimacy ?: 0,
+            replyLogId = body?.replyLogId?.trim()?.takeIf { it.isNotBlank() },
+            replyTimestamp = body?.replyTimestamp,
+            replyTo = replyTo
         )
+    }
+
+    private suspend fun executeChatWithFallback(request: ChatRequest, timeoutMs: Long): ChatResult {
+        return try {
+            executeChatSocketRequest(request.toSocketRequest(), timeoutMs)
+        } catch (error: Exception) {
+            val socketError = error as? ChatSocketException
+            if (socketError != null && socketError.shouldFallback) {
+                executeChatRequest(request)
+            } else {
+                throw error
+            }
+        }
+    }
+
+    private suspend fun executeChatSocketRequest(
+        request: ChatSocketRequest,
+        timeoutMs: Long = SOCKET_SEND_TIMEOUT_MS
+    ): ChatResult {
+        val socketRequest = buildSocketRequest(request.userId)
+        val messageText = socketJson.encodeToString(request)
+        val messageSent = AtomicBoolean(false)
+        return try {
+            withTimeout(timeoutMs) {
+                suspendCancellableCoroutine { continuation ->
+                    val completed = AtomicBoolean(false)
+
+                    val listener = object : WebSocketListener() {
+                        override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                            val sent = webSocket.send(messageText)
+                            messageSent.set(sent)
+                            if (!sent) {
+                                failOnce(
+                                    continuation,
+                                    completed,
+                                    ChatSocketException("WebSocket发送失败", shouldFallback = true)
+                                )
+                                webSocket.close(1011, "send_failed")
+                            }
+                        }
+
+                        override fun onMessage(webSocket: WebSocket, text: String) {
+                            if (completed.get()) return
+                            val payload = runCatching {
+                                socketJson.decodeFromString<ChatSocketResponse>(text)
+                            }.getOrElse {
+                                failOnce(
+                                    continuation,
+                                    completed,
+                                    ChatSocketException("响应解析失败", shouldFallback = false, cause = it)
+                                )
+                                webSocket.close(1011, "parse_error")
+                                return
+                            }
+
+                            when (payload.type?.lowercase()) {
+                                "reply" -> {
+                                    val reply = payload.reply?.trim().orEmpty()
+                                    if (reply.isEmpty()) {
+                                        failOnce(
+                                            continuation,
+                                            completed,
+                                            ChatSocketException("空回复", shouldFallback = false)
+                                        )
+                                    } else {
+                                        val replyTo = payload.replyTo?.trim()
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?: request.logId
+                                        completeOnce(
+                                            continuation,
+                                            completed,
+                                            ChatResult(
+                                                reply = reply,
+                                                mood = payload.mood,
+                                                intimacy = payload.intimacy ?: 0,
+                                                replyLogId = payload.replyLogId?.trim()
+                                                    .takeIf { !it.isNullOrBlank() },
+                                                replyTimestamp = payload.replyTimestamp,
+                                                replyTo = replyTo
+                                            )
+                                        )
+                                    }
+                                    webSocket.close(1000, "done")
+                                }
+                                "error" -> {
+                                    val message = payload.message?.takeIf { it.isNotBlank() } ?: "WebSocket错误"
+                                    failOnce(
+                                        continuation,
+                                        completed,
+                                        ChatSocketException(message, shouldFallback = false)
+                                    )
+                                    webSocket.close(1011, "error")
+                                }
+                                else -> {
+                                    // ignore non-reply messages
+                                }
+                            }
+                        }
+
+                        override fun onFailure(
+                            webSocket: WebSocket,
+                            t: Throwable,
+                            response: okhttp3.Response?
+                        ) {
+                            val message = response?.let { "WebSocket连接失败: ${it.code}" }
+                                ?: (t.message ?: "WebSocket连接失败")
+                            val shouldFallback = response != null || !messageSent.get()
+                            failOnce(
+                                continuation,
+                                completed,
+                                ChatSocketException(message, shouldFallback = shouldFallback, cause = t)
+                            )
+                        }
+
+                        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                            if (!completed.get()) {
+                                val shouldFallback = !messageSent.get()
+                                failOnce(
+                                    continuation,
+                                    completed,
+                                    ChatSocketException("连接已关闭", shouldFallback = shouldFallback)
+                                )
+                            }
+                        }
+                    }
+
+                    val webSocket = socketHttpClient.newWebSocket(socketRequest, listener)
+                    continuation.invokeOnCancellation {
+                        webSocket.close(1000, "cancelled")
+                    }
+                }
+            }
+        } catch (error: TimeoutCancellationException) {
+            throw ChatSocketException("等待回复超时", shouldFallback = !messageSent.get(), cause = error)
+        }
+    }
+
+
+    private suspend fun buildSocketRequest(userId: String): Request {
+        val baseUrlRaw = preferencesStore.apiUrl.first().trim().ifBlank { DEFAULT_BASE_URL }
+        val normalizedBaseUrl = baseUrlRaw
+            .replaceFirst("wss://", "https://", ignoreCase = true)
+            .replaceFirst("ws://", "http://", ignoreCase = true)
+        val baseUrl = normalizedBaseUrl.toHttpUrlOrNull()
+            ?: DEFAULT_BASE_URL.toHttpUrlOrNull()
+            ?: throw IllegalStateException("无效的 API 地址")
+        val wsUrl = baseUrl.newBuilder()
+            .encodedPath(SOCKET_PATH)
+            .addQueryParameter("userId", userId)
+            .build()
+
+        val token = preferencesStore.appToken.first().trim()
+        val builder = Request.Builder().url(wsUrl)
+        if (token.isNotBlank()) {
+            builder.addHeader("X-App-Token", token)
+        }
+        return builder.build()
+    }
+
+    private fun <T> completeOnce(
+        continuation: kotlinx.coroutines.CancellableContinuation<T>,
+        completed: AtomicBoolean,
+        value: T
+    ) {
+        if (completed.compareAndSet(false, true) && continuation.isActive) {
+            continuation.resumeWith(Result.success(value))
+        }
+    }
+
+    private fun failOnce(
+        continuation: kotlinx.coroutines.CancellableContinuation<ChatResult>,
+        completed: AtomicBoolean,
+        throwable: Throwable
+    ) {
+        if (completed.compareAndSet(false, true) && continuation.isActive) {
+            continuation.resumeWith(Result.failure(throwable))
+        }
     }
 
     private fun currentClientTimeIso(): String =
@@ -533,7 +789,8 @@ class ChatRepository(
         content: String,
         timestamp: Long,
         attachments: List<Attachment>,
-        mood: String? = null
+        mood: String? = null,
+        replyTo: String? = null
     ) {
         if (content.isBlank()) return
         val date = Instant.ofEpochMilli(timestamp)
@@ -550,7 +807,8 @@ class ChatRepository(
             userName = userName,
             timeZone = zoneId.id,
             date = date,
-            mood = mood
+            mood = mood,
+            replyTo = replyTo
         )
         runCatching {
             val response = apiService.logConversation(request)
@@ -604,6 +862,12 @@ class ChatRepository(
         preferencesStore.setLastConversationDate(date)
     }
 
+    private suspend fun shouldSkipReply(replyTo: String?): Boolean {
+        val trimmed = replyTo?.trim()?.takeIf { it.isNotBlank() } ?: return false
+        val message = messageDao.getMessageById(trimmed) ?: return false
+        return message.isDeleted
+    }
+
     suspend fun fetchLastConversationInfo(): Result<LastConversationInfo?> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
@@ -629,6 +893,206 @@ class ChatRepository(
         }
     }
 
+    suspend fun hasPendingReply(): Boolean = withContext(Dispatchers.IO) {
+        val last = messageDao.getRecentMessages(1).firstOrNull() ?: return@withContext false
+        if (last.isFromAtri) return@withContext false
+        val pendingIds = preferencesStore.pendingMessageIds.first()
+        if (pendingIds.contains(last.id)) return@withContext true
+        val repliedIds = preferencesStore.repliedMessageIds.first()
+        !repliedIds.contains(last.id)
+    }
+
+    suspend fun waitForRemoteReply(): Result<ChatResult> = withContext(Dispatchers.IO) {
+        try {
+            val userId = preferencesStore.ensureUserId()
+            val after = resolveWaitAfterTimestamp()
+            val request = ChatSocketRequest(
+                type = "wait",
+                userId = userId,
+                after = after,
+                timeZone = zoneId.id
+            )
+            val chatResult = executeChatSocketRequest(request, SOCKET_WAIT_TIMEOUT_MS)
+            Result.success(chatResult)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun resolveWaitAfterTimestamp(): Long {
+        val lastAtriTimestamp = messageDao.getLatestAtriMessageTimestamp() ?: 0L
+        val lastMessage = messageDao.getRecentMessages(1).firstOrNull()
+        val lastUserTimestamp = if (lastMessage != null && !lastMessage.isFromAtri) {
+            lastMessage.timestamp
+        } else {
+            0L
+        }
+        val adjustedUserTimestamp = if (lastUserTimestamp > 0L) {
+            (lastUserTimestamp - PULL_SKEW_MS).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        return maxOf(lastAtriTimestamp, adjustedUserTimestamp)
+    }
+
+    suspend fun pullRemoteReplies(limit: Int = 50): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val userId = preferencesStore.ensureUserId()
+            val lastMessageTimestamp = messageDao.getRecentMessages(1).firstOrNull()?.timestamp ?: 0L
+            val lastAtriTimestamp = messageDao.getLatestAtriMessageTimestamp()
+            val afterTimestamp = when {
+                lastAtriTimestamp != null -> lastAtriTimestamp
+                lastMessageTimestamp > 0L -> (lastMessageTimestamp - PULL_SKEW_MS).coerceAtLeast(0L)
+                else -> 0L
+            }
+            val response = apiService.pullConversationLogs(
+                userId = userId,
+                after = afterTimestamp,
+                limit = limit,
+                role = "atri"
+            )
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("conversation pull failed: ${response.code()}"))
+            }
+            val logs = response.body()?.logs.orEmpty()
+            if (logs.isEmpty()) {
+                return@withContext Result.success(0)
+            }
+
+            var latestTimestamp = lastMessageTimestamp
+            var normalizedTimestamp = lastMessageTimestamp
+            val repliedIds = mutableSetOf<String>()
+            logs.forEach { log ->
+                if (log.id.isBlank() || log.role != "atri") return@forEach
+                if (shouldSkipReply(log.replyTo)) return@forEach
+                val replyToId = log.replyTo?.trim()?.takeIf { it.isNotBlank() }
+                if (replyToId != null) repliedIds.add(replyToId)
+                val rawTimestamp = if (log.timestamp > 0L) log.timestamp else System.currentTimeMillis()
+                val timestamp = if (rawTimestamp <= normalizedTimestamp) {
+                    normalizedTimestamp + 1
+                } else {
+                    rawTimestamp
+                }
+                normalizedTimestamp = timestamp
+                val attachments = log.attachments.mapNotNull { it.toAttachment() }
+                val message = MessageEntity(
+                    id = log.id,
+                    content = log.content,
+                    isFromAtri = true,
+                    timestamp = timestamp,
+                    attachments = attachments,
+                    mood = log.mood
+                )
+                messageDao.insert(message)
+                if (timestamp > latestTimestamp) {
+                    latestTimestamp = timestamp
+                }
+            }
+
+            if (latestTimestamp > lastMessageTimestamp) {
+                markConversationTouched(latestTimestamp)
+            }
+
+            if (repliedIds.isNotEmpty()) {
+                preferencesStore.markMessagesReplied(repliedIds)
+                preferencesStore.clearMessagesPending(repliedIds)
+            }
+
+            Result.success(logs.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncConversationHistory(limit: Int = 200): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val token = preferencesStore.appToken.first().trim()
+            val baseUrl = preferencesStore.apiUrl.first().trim()
+            val normalizedBaseUrl = baseUrl.trimEnd('/')
+            if (token.isBlank() || normalizedBaseUrl.isBlank() || normalizedBaseUrl == DEFAULT_BASE_URL) {
+                return@withContext Result.success(0)
+            }
+
+            val userId = preferencesStore.ensureUserId()
+            val existingIds = messageDao.getMessageIds().toHashSet()
+            val lastLocalTimestamp = messageDao.getRecentMessages(1).firstOrNull()?.timestamp ?: 0L
+            var after = if (lastLocalTimestamp > 0L) {
+                (lastLocalTimestamp - PULL_SKEW_MS).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            var normalizedTimestamp = after
+            var latestTimestamp = lastLocalTimestamp
+            var inserted = 0
+            val repliedIds = mutableSetOf<String>()
+
+            while (true) {
+                val response = apiService.pullConversationLogs(
+                    userId = userId,
+                    after = after,
+                    limit = limit,
+                    role = null
+                )
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("conversation pull failed: ${response.code()}"))
+                }
+                val logs = response.body()?.logs.orEmpty()
+                if (logs.isEmpty()) break
+
+                logs.forEach { log ->
+                    if (log.id.isBlank()) return@forEach
+                    if (log.role == "atri" && shouldSkipReply(log.replyTo)) return@forEach
+                    if (log.role == "atri") {
+                        val replyToId = log.replyTo?.trim()?.takeIf { it.isNotBlank() }
+                        if (replyToId != null) repliedIds.add(replyToId)
+                    }
+                    val rawTimestamp = if (log.timestamp > 0L) log.timestamp else System.currentTimeMillis()
+                    val timestamp = if (rawTimestamp <= normalizedTimestamp) {
+                        normalizedTimestamp + 1
+                    } else {
+                        rawTimestamp
+                    }
+                    normalizedTimestamp = timestamp
+                    latestTimestamp = maxOf(latestTimestamp, timestamp)
+
+                    if (existingIds.contains(log.id)) return@forEach
+
+                    val attachments = log.attachments.mapNotNull { it.toAttachment() }
+                    val isFromAtri = log.role == "atri"
+                    val content = if (isFromAtri) cleanTimestampPrefix(log.content) else log.content
+                    val message = MessageEntity(
+                        id = log.id,
+                        content = content,
+                        isFromAtri = isFromAtri,
+                        timestamp = timestamp,
+                        attachments = attachments,
+                        mood = if (isFromAtri) log.mood else null
+                    )
+                    messageDao.insert(message)
+                    existingIds.add(log.id)
+                    inserted += 1
+                }
+
+                if (logs.size < limit) break
+                val nextAfter = logs.maxOfOrNull { it.timestamp } ?: after
+                after = if (nextAfter > after) nextAfter else normalizedTimestamp
+            }
+
+            if (latestTimestamp > 0L) {
+                markConversationTouched(latestTimestamp)
+            }
+
+            if (repliedIds.isNotEmpty()) {
+                preferencesStore.markMessagesReplied(repliedIds)
+                preferencesStore.clearMessagesPending(repliedIds)
+            }
+
+            Result.success(inserted)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private suspend fun fallbackLastConversation(): LastConversationInfo? {
         val stored = preferencesStore.lastConversationDate.first().takeIf { it.isNotBlank() } ?: return null
         return runCatching {
@@ -637,6 +1101,23 @@ class ChatRepository(
             val diff = ChronoUnit.DAYS.between(last, today).toInt()
             LastConversationInfo(stored, diff)
         }.getOrNull()
+    }
+
+    private fun ConversationPullResponse.AttachmentPayload.toAttachment(): Attachment? {
+        if (url.isBlank()) return null
+        val mappedType = when (type) {
+            AttachmentContract.TYPE_IMAGE -> AttachmentType.IMAGE
+            AttachmentContract.TYPE_DOCUMENT -> AttachmentType.DOCUMENT
+            else -> null
+        } ?: return null
+        val resolvedMime = mime?.ifBlank { null } ?: "application/octet-stream"
+        return Attachment(
+            type = mappedType,
+            url = url,
+            mime = resolvedMime,
+            name = name,
+            sizeBytes = sizeBytes
+        )
     }
 }
 

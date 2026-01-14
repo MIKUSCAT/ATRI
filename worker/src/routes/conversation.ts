@@ -6,7 +6,9 @@ import {
   saveConversationLog,
   calculateDaysBetween,
   getLastConversationDate,
-  deleteConversationLogsByIds
+  deleteConversationLogsByIds,
+  fetchConversationLogsAfter,
+  isConversationLogDeleted
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { requireAppToken } from '../utils/auth';
@@ -22,6 +24,11 @@ export function registerConversationRoutes(router: Router) {
       const body = await request.json();
       const userId = String(body.userId || '').trim();
       const role = String(body.role || '').trim();
+      const logId = typeof body.logId === 'string' ? body.logId.trim() : undefined;
+      const replyToRaw = typeof body.replyTo === 'string'
+        ? body.replyTo
+        : (typeof body.reply_to === 'string' ? body.reply_to : undefined);
+      const replyTo = typeof replyToRaw === 'string' ? replyToRaw.trim() : undefined;
       if (!userId || !VALID_ROLES.has(role)) {
         return jsonResponse({ error: 'invalid_params' }, 400);
       }
@@ -31,8 +38,15 @@ export function registerConversationRoutes(router: Router) {
         return jsonResponse({ error: 'empty_content' }, 400);
       }
 
+      if (logId && await isConversationLogDeleted(env, userId, logId)) {
+        return jsonResponse({ ok: true, ignored: true });
+      }
+      if (replyTo && await isConversationLogDeleted(env, userId, replyTo)) {
+        return jsonResponse({ ok: true, ignored: true });
+      }
+
       const result = await saveConversationLog(env, {
-        id: typeof body.logId === 'string' ? body.logId : undefined,
+        id: logId,
         userId,
         role: role as 'user' | 'atri',
         content: cleanedContent,
@@ -41,7 +55,8 @@ export function registerConversationRoutes(router: Router) {
         timestamp: typeof body.timestamp === 'number' ? body.timestamp : undefined,
         userName: typeof body.userName === 'string' ? body.userName : undefined,
         timeZone: typeof body.timeZone === 'string' ? body.timeZone : undefined,
-        date: typeof body.date === 'string' ? body.date : undefined
+        date: typeof body.date === 'string' ? body.date : undefined,
+        replyTo
       });
 
       return jsonResponse({ ok: true, id: result.id, date: result.date });
@@ -96,6 +111,37 @@ export function registerConversationRoutes(router: Router) {
     } catch (error: unknown) {
       console.error('[ATRI] conversation last error');
       return jsonResponse({ error: 'lookup_failed' }, 500);
+    }
+  });
+
+  router.get('/conversation/pull', async (request: Request, env: Env) => {
+    const auth = requireAppToken(request, env);
+    if (auth) return auth;
+
+    const { searchParams } = new URL(request.url);
+    const userId = (searchParams.get('userId') || '').trim();
+    if (!userId) {
+      return jsonResponse({ error: 'missing_user' }, 400);
+    }
+
+    const afterRaw = Number(searchParams.get('after'));
+    const limitRaw = Number(searchParams.get('limit'));
+    const roleParam = (searchParams.get('role') || '').trim();
+    const roles = roleParam
+      ? roleParam.split(',').map(item => item.trim()).filter(role => VALID_ROLES.has(role))
+      : [];
+
+    try {
+      const logs = await fetchConversationLogsAfter(env, {
+        userId,
+        after: Number.isFinite(afterRaw) ? afterRaw : 0,
+        limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
+        roles: roles as Array<'user' | 'atri'>
+      });
+      return jsonResponse({ logs });
+    } catch (error: unknown) {
+      console.error('[ATRI] conversation pull error');
+      return jsonResponse({ error: 'pull_failed' }, 500);
     }
   });
 }

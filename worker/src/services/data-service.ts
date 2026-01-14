@@ -11,6 +11,7 @@ export type ConversationLogInput = {
   timestamp?: number;
   attachments?: unknown[];
   mood?: string;
+  replyTo?: string;
   userName?: string;
   timeZone?: string;
   date?: string;
@@ -24,6 +25,7 @@ export type ConversationLogRecord = {
   content: string;
   attachments: unknown[];
   mood?: string;
+  replyTo?: string;
   timestamp: number;
   userName?: string;
   timeZone?: string;
@@ -78,10 +80,11 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
   const date = payload.date || formatDateInZone(timestamp, timeZone);
   const id = payload.id || crypto.randomUUID();
   const attachments = payload.attachments ?? [];
+  const replyTo = typeof payload.replyTo === 'string' && payload.replyTo.trim() ? payload.replyTo.trim() : null;
   await env.ATRI_DB.prepare(
     `INSERT INTO conversation_logs
-        (id, user_id, date, role, content, attachments, mood, timestamp, user_name, time_zone, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, date, role, content, attachments, mood, reply_to, timestamp, user_name, time_zone, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        user_id = excluded.user_id,
        date = excluded.date,
@@ -89,6 +92,7 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
        content = excluded.content,
        attachments = excluded.attachments,
        mood = excluded.mood,
+       reply_to = COALESCE(excluded.reply_to, reply_to),
        timestamp = excluded.timestamp,
        user_name = excluded.user_name,
        time_zone = excluded.time_zone`
@@ -101,6 +105,7 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
       payload.content,
       JSON.stringify(attachments),
       payload.mood ?? null,
+      replyTo,
       timestamp,
       payload.userName ?? null,
       timeZone,
@@ -112,13 +117,52 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
 
 export async function fetchConversationLogs(env: Env, userId: string, date: string): Promise<ConversationLogRecord[]> {
   const result = await env.ATRI_DB.prepare(
-    `SELECT id, user_id as userId, date, role, content, attachments, mood, timestamp, user_name as userName, time_zone as timeZone
+    `SELECT id, user_id as userId, date, role, content, attachments, mood, reply_to as replyTo, timestamp, user_name as userName, time_zone as timeZone
      FROM conversation_logs
      WHERE user_id = ? AND date = ?
      ORDER BY timestamp ASC`
   )
     .bind(userId, date)
   .all<ConversationLogRecord>();
+
+  return (result.results || []).map((row) => ({
+    ...row,
+    attachments: parseJson(row.attachments),
+  }));
+}
+
+export async function fetchConversationLogsAfter(
+  env: Env,
+  params: {
+    userId: string;
+    after?: number;
+    limit?: number;
+    roles?: ConversationRole[];
+  }
+): Promise<ConversationLogRecord[]> {
+  const userId = String(params.userId || '').trim();
+  if (!userId) return [];
+  const after = typeof params.after === 'number' && Number.isFinite(params.after) ? params.after : 0;
+  const rawLimit = typeof params.limit === 'number' ? params.limit : 50;
+  const limit = Math.min(Math.max(rawLimit, 1), 200);
+  const roles = Array.isArray(params.roles)
+    ? params.roles.filter(role => role === 'user' || role === 'atri')
+    : [];
+
+  let sql = `SELECT id, user_id as userId, date, role, content, attachments, mood, reply_to as replyTo, timestamp, user_name as userName, time_zone as timeZone
+     FROM conversation_logs
+     WHERE user_id = ? AND timestamp > ?`;
+  const binds: Array<string | number> = [userId, after];
+  if (roles.length) {
+    sql += ` AND role IN (${roles.map(() => '?').join(', ')})`;
+    binds.push(...roles);
+  }
+  sql += ` ORDER BY timestamp ASC LIMIT ?`;
+  binds.push(limit);
+
+  const result = await env.ATRI_DB.prepare(sql)
+    .bind(...binds)
+    .all<ConversationLogRecord>();
 
   return (result.results || []).map((row) => ({
     ...row,
@@ -555,6 +599,60 @@ export async function listDiaryDatesByUser(env: Env, userId: string) {
     .filter(Boolean);
 }
 
+export async function isConversationLogDeleted(env: Env, userId: string, logId: string): Promise<boolean> {
+  const trimmedUserId = String(userId || '').trim();
+  const trimmedLogId = String(logId || '').trim();
+  if (!trimmedUserId || !trimmedLogId) {
+    return false;
+  }
+  const row = await env.ATRI_DB.prepare(
+    `SELECT 1 as found
+     FROM conversation_log_tombstones
+     WHERE user_id = ? AND log_id = ?
+     LIMIT 1`
+  )
+    .bind(trimmedUserId, trimmedLogId)
+    .first<{ found?: number }>();
+  return Boolean(row?.found);
+}
+
+export async function markConversationLogsDeleted(env: Env, userId: string, ids: string[]) {
+  const trimmedUserId = String(userId || '').trim();
+  const trimmedIds = ids.map(id => String(id || '').trim()).filter(Boolean);
+  if (!trimmedUserId || !trimmedIds.length) {
+    return;
+  }
+  const now = Date.now();
+  const placeholders = trimmedIds.map(() => '(?, ?, ?)').join(', ');
+  const bindings: Array<string | number> = [];
+  trimmedIds.forEach((id) => {
+    bindings.push(trimmedUserId, id, now);
+  });
+  await env.ATRI_DB.prepare(
+    `INSERT OR REPLACE INTO conversation_log_tombstones (user_id, log_id, deleted_at)
+     VALUES ${placeholders}`
+  )
+    .bind(...bindings)
+    .run();
+}
+
+async function listConversationReplyIds(env: Env, userId: string, replyToIds: string[]): Promise<string[]> {
+  const trimmedUserId = String(userId || '').trim();
+  const trimmedIds = replyToIds.map(id => String(id || '').trim()).filter(Boolean);
+  if (!trimmedUserId || !trimmedIds.length) {
+    return [];
+  }
+  const placeholders = trimmedIds.map(() => '?').join(', ');
+  const result = await env.ATRI_DB.prepare(
+    `SELECT id
+     FROM conversation_logs
+     WHERE user_id = ? AND reply_to IN (${placeholders})`
+  )
+    .bind(trimmedUserId, ...trimmedIds)
+    .all<{ id: string }>();
+  return (result.results || []).map(row => String(row?.id || '').trim()).filter(Boolean);
+}
+
 export async function deleteDiaryEntriesByUser(env: Env, userId: string) {
   const result = await env.ATRI_DB.prepare(
     `DELETE FROM diary_entries WHERE user_id = ?`
@@ -574,13 +672,22 @@ export async function deleteConversationLogsByUser(env: Env, userId: string) {
 }
 
 export async function deleteConversationLogsByIds(env: Env, userId: string, ids: string[]) {
-  if (!ids.length) {
+  const trimmedUserId = String(userId || '').trim();
+  const trimmedIds = ids.map(id => String(id || '').trim()).filter(Boolean);
+  if (!trimmedUserId || !trimmedIds.length) {
     return 0;
   }
-  const placeholders = ids.map(() => '?').join(', ');
-  const statement = `DELETE FROM conversation_logs WHERE user_id = ? AND id IN (${placeholders})`;
+  const replyIds = await listConversationReplyIds(env, trimmedUserId, trimmedIds);
+  const tombstoneIds = Array.from(new Set([...trimmedIds, ...replyIds]));
+  await markConversationLogsDeleted(env, trimmedUserId, tombstoneIds);
+
+  const idPlaceholders = tombstoneIds.map(() => '?').join(', ');
+  const replyPlaceholders = trimmedIds.map(() => '?').join(', ');
+  const statement = `DELETE FROM conversation_logs
+     WHERE user_id = ?
+       AND (id IN (${idPlaceholders}) OR reply_to IN (${replyPlaceholders}))`;
   const result = await env.ATRI_DB.prepare(statement)
-    .bind(userId, ...ids)
+    .bind(trimmedUserId, ...tombstoneIds, ...trimmedIds)
     .run();
   return Number(result?.meta?.changes ?? 0);
 }

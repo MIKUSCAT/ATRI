@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
   content TEXT NOT NULL,
   attachments TEXT,
   mood TEXT,
+  reply_to TEXT,
   timestamp INTEGER NOT NULL,
   user_name TEXT,
   time_zone TEXT,
@@ -17,6 +18,18 @@ CREATE INDEX IF NOT EXISTS idx_conversation_user_date
   ON conversation_logs(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_conversation_user_timestamp
   ON conversation_logs(user_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_conversation_user_reply_to
+  ON conversation_logs(user_id, reply_to);
+
+CREATE TABLE IF NOT EXISTS conversation_log_tombstones (
+  user_id TEXT NOT NULL,
+  log_id TEXT NOT NULL,
+  deleted_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, log_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_tombstone_user
+  ON conversation_log_tombstones(user_id);
 
 -- 用户状态记录（PAD/亲密度等）
 CREATE TABLE IF NOT EXISTS user_states (

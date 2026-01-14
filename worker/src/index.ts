@@ -7,6 +7,7 @@ import { registerAdminRoutes } from './routes/admin';
 import { runDiaryCron } from './jobs/diary-cron';
 import { Env } from './types';
 import { registerModelRoutes } from './routes/models';
+export { ChatSocket } from './durable/chat-socket';
 
 const router = Router();
 

@@ -2,6 +2,7 @@ export interface Env {
   ATRI_DB: D1Database;
   VECTORIZE: VectorizeIndex;
   MEDIA_BUCKET: R2Bucket;
+  CHAT_SOCKET?: DurableObjectNamespace;
   OPENAI_API_KEY: string;
   OPENAI_API_URL: string;
   // Tavily 搜索（可选，不配则不启用 web_search）
@@ -50,6 +51,12 @@ export interface BioChatRequest {
 
 export interface BioChatResponse {
   reply: string;
+  mood?: { p: number; a: number; d: number };
+  action?: string | null;
+  intimacy?: number;
+  replyLogId?: string;
+  replyTimestamp?: number;
+  replyTo?: string;
 }
 
 // Memory 相关类型
@@ -93,4 +100,5 @@ export interface ConversationLog {
   userName?: string;
   timeZone?: string;
   date: string;
+  replyTo?: string;
 }

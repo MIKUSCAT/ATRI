@@ -36,6 +36,9 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM messages WHERE isDeleted = 0")
     suspend fun getMessageCount(): Int
 
+    @Query("SELECT id FROM messages")
+    suspend fun getMessageIds(): List<String>
+
     @Query("SELECT COUNT(*) FROM messages WHERE isDeleted = 0 AND date(timestamp/1000,'unixepoch','localtime') = date('now','localtime')")
     suspend fun getTodayMessageCount(): Int
 
@@ -44,6 +47,9 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getMessageById(id: String): MessageEntity?
+
+    @Query("SELECT MAX(timestamp) FROM messages WHERE isDeleted = 0 AND isFromAtri = 1")
+    suspend fun getLatestAtriMessageTimestamp(): Long?
 
     // 新增：按时间范围查询消息（升序），用于“问时即取”按日检索
     @Query("SELECT * FROM messages WHERE isDeleted = 0 AND timestamp BETWEEN :startMs AND :endMs ORDER BY timestamp ASC")

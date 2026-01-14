@@ -1,5 +1,5 @@
 import prompts from '../config/prompts.json';
-import { AttachmentPayload, ContentPart, Env } from '../types';
+import { AttachmentPayload, ContentPart, Env, CHAT_MODEL } from '../types';
 import {
   buildHistoryContentParts,
   buildUserContentParts,
@@ -160,6 +160,50 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     action: null,
     intimacy: finalState.intimacy
   };
+}
+
+function shouldRetryChatCompletion(error: unknown): boolean {
+  if (error instanceof ChatCompletionError) {
+    if (error.status >= 500 || error.status === 429) return true;
+    const details = String(error.details || '').toLowerCase();
+    if (details.includes('empty_response') || details.includes('empty response') || details.includes('no candidates')) {
+      return true;
+    }
+  }
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  return message.includes('empty_response') || message.includes('empty response');
+}
+
+async function requestChatCompletionData(
+  env: Env,
+  payload: Record<string, unknown>,
+  options: { timeoutMs?: number; model?: string }
+) {
+  const response = await callChatCompletions(env, payload, options);
+  try {
+    return await response.json();
+  } catch {
+    throw new Error('empty_response');
+  }
+}
+
+async function requestChatCompletionWithRetry(
+  env: Env,
+  payload: Record<string, unknown>,
+  options: { timeoutMs?: number; model?: string }
+): Promise<{ data: any; model: string }> {
+  const primaryModel = options.model || CHAT_MODEL;
+  try {
+    const data = await requestChatCompletionData(env, payload, { ...options, model: primaryModel });
+    return { data, model: primaryModel };
+  } catch (error) {
+    if (!shouldRetryChatCompletion(error)) {
+      throw error;
+    }
+    const fallbackModel = primaryModel !== CHAT_MODEL ? CHAT_MODEL : primaryModel;
+    const data = await requestChatCompletionData(env, payload, { ...options, model: fallbackModel });
+    return { data, model: fallbackModel };
+  }
 }
 
 async function resolveConversationDateForChat(
@@ -438,11 +482,12 @@ async function runToolLoop(env: Env, params: {
   firstConversationAt?: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
+  let activeModel = params.model || CHAT_MODEL;
 
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     let data: any;
     try {
-      const response = await callChatCompletions(
+      const result = await requestChatCompletionWithRetry(
         env,
         {
           messages: params.messages,
@@ -452,9 +497,10 @@ async function runToolLoop(env: Env, params: {
           stream: false,
           max_tokens: 4096
         },
-        { timeoutMs: 120000, model: params.model }
+        { timeoutMs: 120000, model: activeModel }
       );
-      data = await response.json();
+      data = result.data;
+      activeModel = result.model;
     } catch (error) {
       const isApiError = error instanceof ChatCompletionError;
       console.error('[ATRI] agent chat失败', isApiError ? { status: error.status, details: error.details } : error);
