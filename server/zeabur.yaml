@@ -3,7 +3,7 @@ kind: Template
 metadata:
   name: atri-server
 spec:
-  description: "ATRI VPS 后端（自带网页控制台 /admin；打开域名自动进入控制台）"
+  description: "ATRI VPS 后端（自带网页控制台；打开域名自动进入控制台）"
   tags:
     - atri
     - ai
@@ -14,30 +14,18 @@ spec:
       type: DOMAIN
       name: 访问域名
       description: Zeabur 生成的 *.zeabur.app 子域名
-    - key: POSTGRES_PASSWORD
+    - key: PASSWORD
       type: STRING
-      name: 数据库密码
-      description: PostgreSQL 密码（请用强密码）
-    - key: APP_TOKEN
-      type: STRING
-      name: APP_TOKEN
-      description: 客户端调用本服务的鉴权 token（请用强密码）
-    - key: ADMIN_API_KEY
-      type: STRING
-      name: ADMIN_API_KEY
-      description: 管理后台登录密钥（请用强密码）
-    - key: ADMIN_CONFIG_ENCRYPTION_KEY
-      type: STRING
-      name: ADMIN_CONFIG_ENCRYPTION_KEY
-      description: 用于加密保存上游密钥（推荐 openssl rand -base64 32）
+      name: 密码
+      description: 用于管理后台登录和客户端鉴权（请用强密码）
   readme: |
     # ATRI Server（Zeabur 一键部署）
 
     部署完成后直接访问你的域名，会自动跳到 `/admin` 进入控制台。
 
-    - 管理后台登录：用你填写的 `ADMIN_API_KEY`
-    - 上游（OpenAI/Anthropic/Gemini）与 Embeddings：可以部署后在后台里配置（保存即生效）
-    - 上游 Base URL：只需要填到 `/v1` 之前，后台会自动补全版本路径
+    - **管理后台登录**：用你填写的 `密码`
+    - **客户端 APP_TOKEN**：同样是你填写的 `密码`
+    - **上游 API**：部署后在后台配置（OpenAI/Anthropic/Gemini）
 
   services:
     - name: db
@@ -55,7 +43,7 @@ spec:
           POSTGRES_USER:
             default: "atri"
           POSTGRES_PASSWORD:
-            default: ${POSTGRES_PASSWORD}
+            default: ${PASSWORD}
           POSTGRES_DB:
             default: "atri"
         volumes:
@@ -81,13 +69,13 @@ spec:
           MEDIA_ROOT:
             default: "/data/media"
           DATABASE_URL:
-            default: postgres://atri:${POSTGRES_PASSWORD}@db.zeabur.internal:5432/atri
+            default: postgres://atri:${PASSWORD}@db.zeabur.internal:5432/atri
           APP_TOKEN:
-            default: ${APP_TOKEN}
+            default: ${PASSWORD}
           ADMIN_API_KEY:
-            default: ${ADMIN_API_KEY}
+            default: ${PASSWORD}
           ADMIN_CONFIG_ENCRYPTION_KEY:
-            default: ${ADMIN_CONFIG_ENCRYPTION_KEY}
+            default: ${PASSWORD}
           ADMIN_PUBLIC:
             default: "1"
           PUBLIC_BASE_URL:

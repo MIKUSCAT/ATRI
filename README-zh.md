@@ -109,13 +109,11 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/MIKUSCAT/ATRI?referralCode=MIKUSCAT)
 
 1. 点击上方按钮
-2. 填写必要变量：
-   - `POSTGRES_PASSWORD` - 数据库密码
-   - `APP_TOKEN` - 客户端访问令牌
-   - `ADMIN_API_KEY` - 管理后台登录密钥
-   - `ADMIN_CONFIG_ENCRYPTION_KEY` - 加密密钥（运行 `openssl rand -base64 32` 生成）
+2. 只需填写 **2 个变量**：
+   - `DOMAIN` - Zeabur 自动生成
+   - `PASSWORD` - 你的密码（用于管理后台登录和客户端鉴权）
 3. 等待部署完成
-4. 访问你的域名进入管理后台（`/admin`）
+4. 访问你的域名进入管理后台
 5. 在后台配置上游 API（OpenAI/Claude/Gemini）
 
 ### 方案 B：Cloudflare Workers
