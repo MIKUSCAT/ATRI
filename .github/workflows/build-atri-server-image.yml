@@ -2,7 +2,7 @@ name: Build & Push ATRI Server (GHCR)
 
 on:
   push:
-    branches: ["vps-server"]
+    branches: ["main"]
     paths:
       - "server/**"
       - ".github/workflows/build-atri-server-image.yml"
