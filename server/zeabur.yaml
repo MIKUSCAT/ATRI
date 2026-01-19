@@ -26,6 +26,7 @@ spec:
     - **管理后台登录**：用你填写的 `密码`
     - **客户端 APP_TOKEN**：同样是你填写的 `密码`
     - **上游 API**：部署后在后台配置（OpenAI/Anthropic/Gemini）
+    - **密码提示**：可以用强密码（带 `@ : / # ?` 等特殊字符也没问题）
 
   services:
     - name: db
@@ -56,7 +57,7 @@ spec:
         id: api
         name: api
         source:
-          image: ghcr.io/mikuscat/atri-server
+          image: ghcr.io/mikuscat/atri-server:latest
         ports:
           - id: web
             port: 3111
@@ -68,8 +69,16 @@ spec:
             default: "3111"
           MEDIA_ROOT:
             default: "/data/media"
-          DATABASE_URL:
-            default: postgres://atri:${PASSWORD}@db.zeabur.internal:5432/atri
+          POSTGRES_HOST:
+            default: "db.zeabur.internal"
+          POSTGRES_PORT:
+            default: "5432"
+          POSTGRES_USER:
+            default: "atri"
+          POSTGRES_PASSWORD:
+            default: ${PASSWORD}
+          POSTGRES_DB:
+            default: "atri"
           APP_TOKEN:
             default: ${PASSWORD}
           ADMIN_API_KEY:

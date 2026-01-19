@@ -194,7 +194,12 @@ crontab -e
 
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
-| `DATABASE_URL` | PostgreSQL 连接字符串 | `postgres://atri:password@db:5432/atri` |
+| `DATABASE_URL` | PostgreSQL 连接字符串（和 `POSTGRES_*` 二选一） | `postgres://atri:password@db:5432/atri` |
+| `POSTGRES_HOST` | 数据库主机（和 `DATABASE_URL` 二选一） | `db` |
+| `POSTGRES_PORT` | 数据库端口 | `5432` |
+| `POSTGRES_USER` | 数据库用户名 | `atri` |
+| `POSTGRES_PASSWORD` | 数据库密码 | `password` |
+| `POSTGRES_DB` | 数据库名 | `atri` |
 | `OPENAI_API_URL` | 聊天 API 地址（不带 /v1） | `https://api.openai.com` |
 | `OPENAI_API_KEY` | 聊天 API 密钥 | `sk-xxx` |
 | `EMBEDDINGS_API_URL` | 嵌入向量 API 地址 | `https://api.siliconflow.cn/v1` |
@@ -378,10 +383,23 @@ server/
 <details>
 <summary><b>数据库连接失败</b></summary>
 
-检查 `DATABASE_URL` 配置是否正确，格式：
+数据库连接支持两种方式：
+
+1）`DATABASE_URL`（格式如下）
 ```
 postgres://用户名:密码@主机:端口/数据库名
 ```
+
+2）`POSTGRES_*`（推荐，强密码带特殊字符也不怕）
+```env
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+POSTGRES_USER=atri
+POSTGRES_PASSWORD=你的密码
+POSTGRES_DB=atri
+```
+
+> 如果你用 `DATABASE_URL` 且密码里有 `@ : / # ?` 这类字符，记得先 URL 编码；不想折腾就用 `POSTGRES_*`。
 
 </details>
 

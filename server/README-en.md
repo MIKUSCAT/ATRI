@@ -194,7 +194,12 @@ crontab -e
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://atri:password@db:5432/atri` |
+| `DATABASE_URL` | PostgreSQL connection string (or use `POSTGRES_*`) | `postgres://atri:password@db:5432/atri` |
+| `POSTGRES_HOST` | DB host (alternative to `DATABASE_URL`) | `db` |
+| `POSTGRES_PORT` | DB port | `5432` |
+| `POSTGRES_USER` | DB username | `atri` |
+| `POSTGRES_PASSWORD` | DB password | `password` |
+| `POSTGRES_DB` | DB name | `atri` |
 | `OPENAI_API_URL` | Chat API URL (without /v1) | `https://api.openai.com` |
 | `OPENAI_API_KEY` | Chat API key | `sk-xxx` |
 | `EMBEDDINGS_API_URL` | Embeddings API URL | `https://api.siliconflow.cn/v1` |
@@ -378,10 +383,23 @@ server/
 <details>
 <summary><b>Database connection failed</b></summary>
 
-Check if `DATABASE_URL` is correctly configured:
+Database connection supports two options:
+
+1) `DATABASE_URL` (format)
 ```
 postgres://username:password@host:port/database
 ```
+
+2) `POSTGRES_*` (recommended; works even if your password contains special characters)
+```env
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+POSTGRES_USER=atri
+POSTGRES_PASSWORD=your_password
+POSTGRES_DB=atri
+```
+
+> If you use `DATABASE_URL` and your password contains characters like `@ : / # ?`, URL-encode it first; otherwise use `POSTGRES_*`.
 
 </details>
 

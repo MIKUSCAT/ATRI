@@ -26,10 +26,36 @@ function readNumber(value: unknown) {
   return undefined;
 }
 
+function buildDatabaseUrlFromParts(source: NodeJS.ProcessEnv) {
+  const host = readOptionalText(source.POSTGRES_HOST) || readOptionalText(source.PGHOST);
+  const user = readOptionalText(source.POSTGRES_USER) || readOptionalText(source.PGUSER);
+  const password = readOptionalText(source.POSTGRES_PASSWORD) || readOptionalText(source.PGPASSWORD);
+  const database = readOptionalText(source.POSTGRES_DB) || readOptionalText(source.PGDATABASE);
+  const port =
+    readNumber(source.POSTGRES_PORT)
+    ?? readNumber(source.PGPORT)
+    ?? 5432;
+
+  if (!host || !user || !database) return null;
+
+  const url = new URL('postgres://localhost');
+  url.hostname = host;
+  url.port = String(port);
+  url.username = user;
+  if (typeof password === 'string') url.password = password;
+  url.pathname = `/${database}`;
+  return url.toString();
+}
+
 export function loadEnv(source: NodeJS.ProcessEnv): Env {
-  const databaseUrl = readText(source.DATABASE_URL);
+  const databaseUrl =
+    readText(source.DATABASE_URL)
+    || buildDatabaseUrlFromParts(source)
+    || '';
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL is missing');
+    throw new Error(
+      'DATABASE_URL is missing (or set POSTGRES_HOST/POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB)'
+    );
   }
 
   const db = new Pool({ connectionString: databaseUrl });

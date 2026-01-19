@@ -53,13 +53,19 @@
 
 ### 3.1 数据库连接
 
-假设你数据库服务的名字叫 `db`，那就填：
+假设你数据库服务的名字叫 `db`，推荐你这样配（强密码带特殊字符也不怕）：
 
 ```env
-DATABASE_URL=postgres://atri:<POSTGRES_PASSWORD>@db.zeabur.internal:5432/atri
+POSTGRES_HOST=db.zeabur.internal
+POSTGRES_PORT=5432
+POSTGRES_USER=atri
+POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
+POSTGRES_DB=atri
 ```
 
-如果你数据库服务不叫 `db`，把 `db.zeabur.internal` 改成你的服务名，例如 `postgres.zeabur.internal`。
+如果你数据库服务不叫 `db`，把 `POSTGRES_HOST` 改成你的服务名，例如 `postgres.zeabur.internal`。
+
+> 你也可以继续用 `DATABASE_URL`，但如果密码里有 `@ : / # ?` 这类字符，需要先做 URL 编码；不想折腾就用上面的 `POSTGRES_*`。
 
 ### 3.2 后台可公网访问 + 登录
 

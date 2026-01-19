@@ -112,9 +112,13 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 2. 只需填写 **2 个变量**：
    - `DOMAIN` - Zeabur 自动生成
    - `PASSWORD` - 你的密码（用于管理后台登录和客户端鉴权）
+
+   > `PASSWORD` 可以放心用强密码（带 `@ : / # ?` 这类特殊字符也没问题）
 3. 等待部署完成
 4. 访问你的域名进入管理后台
 5. 在后台配置上游 API（OpenAI/Claude/Gemini）
+
+补充：Android 客户端和 Web 前端都不用改代码——Cloudflare Worker 版和 VPS/Zeabur 版对外 API 路径保持一致（比如 `/api/v1/chat`、`/upload`、`/diary`），你只需要在客户端把“后端地址”切到对应域名即可。
 
 ### 方案 B：Cloudflare Workers
 
