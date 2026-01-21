@@ -263,8 +263,21 @@ export function registerCompatRoutes(app: FastifyInstance, env: Env) {
     });
   });
 
-  // 注意这里的变化：:model 变成了 :model(^[^:]+)
-  app.post('/v1beta/models/:model(^[^:]+):generateContent', async (request, reply) => {
+  app.post('/v1beta/models/*', async (request, reply) => {
+    const path = String((request.params as any)?.['*'] || '');
+    const generateSuffix = ':generateContent';
+    const streamSuffix = ':streamGenerateContent';
+
+    if (path.endsWith(streamSuffix)) {
+      return sendJson(reply, { error: { message: 'streamGenerateContent is not supported on this VPS backend (use generateContent).' } }, 400);
+    }
+
+    if (!path.endsWith(generateSuffix)) {
+      return reply.callNotFound();
+    }
+
+    const modelFromPath = path.slice(0, -generateSuffix.length);
+
     const keyFromQuery = typeof (request.query as any)?.key === 'string' ? String((request.query as any).key || '') : '';
     const keyFromHeader = pickHeader(request, 'x-goog-api-key').trim();
     const guard = requireCompatKey(keyFromQuery || keyFromHeader, env);
@@ -282,8 +295,8 @@ export function registerCompatRoutes(app: FastifyInstance, env: Env) {
       || buildStableAnonUserId(guard.key);
 
     const settings = await getEffectiveRuntimeSettings(env);
-    const model = typeof (request.params as any)?.model === 'string' && String((request.params as any).model).trim()
-      ? String((request.params as any).model).trim()
+    const model = modelFromPath && modelFromPath.trim()
+      ? modelFromPath.trim()
       : settings.defaultChatModel;
 
     const result = await runAgentChat(env, {
@@ -315,10 +328,5 @@ export function registerCompatRoutes(app: FastifyInstance, env: Env) {
         }
       ]
     });
-  });
-
-  // 同理，这里的 :model 也加上正则
-  app.post('/v1beta/models/:model(^[^:]+):streamGenerateContent', async (request, reply) => {
-    return sendJson(reply, { error: { message: 'streamGenerateContent is not supported on this VPS backend (use generateContent).' } }, 400);
   });
 }
