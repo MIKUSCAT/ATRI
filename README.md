@@ -1,8 +1,14 @@
 <div align="center">
 
-# ATRI - Emotionally Evolving AI Companion
+<img src="ATRI.png" alt="ATRI" width="280" />
 
-### Your personal AI who remembers, reflects, and grows alongside you
+<br/>
+
+# ✨ ATRI - Emotionally Evolving AI Companion ✨
+
+### 💕 Your personal AI who remembers, reflects, and grows alongside you 💕
+
+<br/>
 
 [![Android](https://img.shields.io/badge/Android-Kotlin%20%7C%20Jetpack%20Compose-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
 [![Backend](https://img.shields.io/badge/Backend-CF%20Workers%20%7C%20VPS-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](#-backend-deployment)
@@ -11,119 +17,168 @@
 
 <br/>
 
-**Language: English | [简体中文](README-zh.md)**
+[![Stars](https://img.shields.io/github/stars/MIKUSCAT/ATRI?style=social)](https://github.com/MIKUSCAT/ATRI)
+[![Forks](https://img.shields.io/github/forks/MIKUSCAT/ATRI?style=social)](https://github.com/MIKUSCAT/ATRI/fork)
+[![Issues](https://img.shields.io/github/issues/MIKUSCAT/ATRI)](https://github.com/MIKUSCAT/ATRI/issues)
 
 <br/>
 
-<img src="ATRI.png" alt="ATRI" width="420" />
+**🌐 Language: English | [简体中文](README-zh.md)**
 
 <br/>
 
-**An AI companion that remembers, grows, and maintains emotional continuity**
+> *"An AI companion that remembers, grows, and maintains emotional continuity"*
 
-[Quick Start](#-quick-start) •
-[Features](#-key-features) •
-[Screenshots](#️-ui-preview) •
-[Documentation](#-learn-more)
+<br/>
 
-</div>
+[🚀 Quick Start](#-quick-start) •
+[✨ Features](#-key-features) •
+[📸 Screenshots](#️-ui-preview) •
+[📚 Documentation](#-learn-more)
+
+<br/>
 
 ---
 
-## What is ATRI?
+</div>
 
-ATRI is an **Android app + cloud backend** AI companion project. Unlike ordinary chatbots, she has:
+## 💭 What is ATRI?
 
+**ATRI** is an **Android app + cloud backend** AI companion project. Unlike ordinary chatbots, she has:
+
+<br/>
+
+<div align="center">
 <table>
 <tr>
 <td align="center" width="33%">
-<h3>ATRI on Your Phone</h3>
-Chat with her anytime, anywhere<br/>
-Send images and documents
+<br/>
+<img src="https://img.icons8.com/fluency/96/smartphone-tablet.png" width="48"/>
+<h3>📱 ATRI on Your Phone</h3>
+<p>Chat with her anytime, anywhere<br/>Send images and documents</p>
+<br/>
 </td>
 <td align="center" width="33%">
-<h3>Nightly Diary</h3>
-She records what happened today<br/>
-Written from her perspective
+<br/>
+<img src="https://img.icons8.com/fluency/96/book.png" width="48"/>
+<h3>📔 Nightly Diary</h3>
+<p>She records what happened today<br/>Written from her perspective</p>
+<br/>
 </td>
 <td align="center" width="33%">
-<h3>Long-term Memory</h3>
-Diaries become "memories"<br/>
-Recalled in future conversations
+<br/>
+<img src="https://img.icons8.com/fluency/96/brain.png" width="48"/>
+<h3>🧠 Long-term Memory</h3>
+<p>Diaries become "memories"<br/>Recalled in future conversations</p>
+<br/>
 </td>
 </tr>
 </table>
+</div>
 
-### What Makes It Different?
+<br/>
 
-| Traditional Chatbots | ATRI's Approach |
-|----------------------|-----------------|
+### 🎯 What Makes It Different?
+
+<div align="center">
+
+| 🤖 Traditional Chatbots | 💖 ATRI's Approach |
+|:----------------------:|:------------------:|
 | Every conversation starts fresh | Remembers everything important via diary + vector memory |
 | Emotions change instantly | PAD 3D emotion model + natural decay, emotions have inertia |
 | One-size-fits-all responses | Intimacy system affects speaking style, relationships grow |
 | May fabricate memories | Tool registration mechanism, actively verifies when needed |
 
+</div>
+
+<br/>
+
 ---
 
-## Architecture
+## 🏗️ Architecture
+
+<div align="center">
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Android App (Kotlin)                        │
+│                     📱 Android App (Kotlin)                     │
 │              Jetpack Compose • Room • DataStore                 │
 └──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTPS + Token Auth
+                           │ 🔐 HTTPS + Token Auth
                            ▼
     ┌──────────────────────┴──────────────────────┐
     │                                             │
     ▼                                             ▼
 ┌───────────────────────┐         ┌───────────────────────────────┐
-│  Cloudflare Workers   │   OR    │      VPS / Zeabur Server      │
+│  ☁️ Cloudflare Workers │   OR    │   🖥️ VPS / Zeabur Server      │
 │  D1 + R2 + Vectorize  │         │  PostgreSQL + pgvector + Node │
 └───────────────────────┘         └───────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   AI Model Service (Swappable)                  │
+│                  🤖 AI Model Service (Swappable)                │
 │        OpenAI • Claude • Gemini • DeepSeek • Local Models       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
----
+</div>
 
-## Quick Start
-
-### Choose Your Backend
-
-| Option | Best For | Features |
-|:------:|----------|----------|
-| **Cloudflare Workers** | Beginners, low cost | Serverless, free tier, simple setup |
-| **VPS / Zeabur** | Advanced users | Web admin panel, PostgreSQL, more control |
+<br/>
 
 ---
 
-## Backend Deployment
+## 🚀 Quick Start
 
-### Option A: Zeabur One-Click Deploy (Recommended)
+### 📦 Choose Your Backend
 
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/MIKUSCAT/ATRI?referralCode=MIKUSCAT)
+<div align="center">
 
-1. Click the button above
-2. Fill in only **2 variables**:
-   - `DOMAIN` - Auto-generated by Zeabur
+| | Option | Best For | Features |
+|:--:|:------:|:---------|:---------|
+| ☁️ | **Cloudflare Workers** | Beginners, low cost | Serverless, free tier, simple setup |
+| 🖥️ | **VPS / Zeabur** | Advanced users | Web admin panel, PostgreSQL, more control |
+
+</div>
+
+<br/>
+
+---
+
+## 🔧 Backend Deployment
+
+### ✅ Option A: Zeabur One-Click Deploy (Recommended)
+
+<div align="center">
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/VR6HBL)
+
+</div>
+
+<br/>
+
+1. **Click** the button above
+2. **Fill in** only **2 variables**:
+   - `DOMAIN` - Public domain bound to the API service (must match the publicly exposed domain)
    - `PASSWORD` - Your password (used for admin login and client auth)
 
-   > `PASSWORD` can be a strong password (special characters like `@ : / # ?` are safe)
-3. Wait for deployment to complete
-4. Visit your domain to access the admin panel
-5. Configure upstream API (OpenAI/Claude/Gemini) in the admin panel
+   > 💡 `PASSWORD` can be a strong password (special characters like `@ : / # ?` are safe)
+   >
+   > ⚠️ **Important**: `DOMAIN` must match the actual public domain, otherwise the admin panel may fail with CORS / `bad_origin`
 
-Note: The Android client and web frontend use the same public API paths on both backends (Cloudflare Workers and VPS/Zeabur), so switching backends is just changing the base URL.
+3. **Wait** for deployment to complete
+4. **Visit** your domain to access the admin panel
+5. **Configure** upstream API (OpenAI/Claude/Gemini) in the admin panel
 
-### Option B: Cloudflare Workers
+> 📝 **Note**: The Android client and web frontend use the same public API paths on both backends (Cloudflare Workers and VPS/Zeabur), so switching backends is just changing the base URL.
+
+<br/>
+
+### ☁️ Option B: Cloudflare Workers
 
 <details>
-<summary><b>Windows One-Click Deploy</b></summary>
+<summary><b>🪟 Windows One-Click Deploy</b></summary>
+
+<br/>
 
 1. Double-click `scripts/deploy_cf.bat`
 2. Follow the prompts to enter:
@@ -139,7 +194,9 @@ Note: The Android client and web frontend use the same public API paths on both 
 </details>
 
 <details>
-<summary><b>macOS / Linux Manual Deploy</b></summary>
+<summary><b>🍎 macOS / 🐧 Linux Manual Deploy</b></summary>
+
+<br/>
 
 ```bash
 # 1. Clone and install
@@ -165,7 +222,9 @@ cd worker && npx wrangler deploy
 
 </details>
 
-### Option C: Docker Compose (Self-hosted VPS)
+<br/>
+
+### 🐳 Option C: Docker Compose (Self-hosted VPS)
 
 ```bash
 cd server
@@ -174,98 +233,139 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-See [server/README.md](server/README.md) for detailed VPS deployment guide.
+> 📖 See [server/README.md](server/README.md) for detailed VPS deployment guide.
+
+<br/>
 
 ---
 
-## Install the Android App
+## 📲 Install the Android App
 
-1. Download APK from [**Releases**](../../releases)
-2. Install and open the app
-3. Set your nickname on the welcome screen
-4. Go to Settings (gear icon) and configure:
-   - **API URL**: Your backend URL
-   - **App Token**: Your APP_TOKEN value
-   - **Model**: Select based on your upstream API
+<div align="center">
+
+| Step | Action |
+|:----:|:-------|
+| 1️⃣ | Download APK from [**Releases**](../../releases) |
+| 2️⃣ | Install and open the app |
+| 3️⃣ | Set your nickname on the welcome screen |
+| 4️⃣ | Go to Settings (⚙️) and configure: **API URL**, **App Token**, **Model** |
+
+</div>
+
+<br/>
 
 ---
 
-## Key Features
+## ✨ Key Features
+
+<div align="center">
 
 <table>
 <tr>
 <td align="center" width="20%">
+<br/>
+🎭<br/><br/>
 <b>In-Character</b><br/>
 <sub>Authentic personality<br/>defined in prompts.json</sub>
+<br/><br/>
 </td>
 <td align="center" width="20%">
+<br/>
+💬<br/><br/>
 <b>Context Memory</b><br/>
 <sub>Today's conversations<br/>inform responses</sub>
+<br/><br/>
 </td>
 <td align="center" width="20%">
+<br/>
+📓<br/><br/>
 <b>Auto Diary</b><br/>
 <sub>Nightly reflections<br/>from her perspective</sub>
+<br/><br/>
 </td>
 <td align="center" width="20%">
+<br/>
+🧠<br/><br/>
 <b>Long-term Memory</b><br/>
 <sub>Vector-stored memories<br/>awakened when needed</sub>
+<br/><br/>
 </td>
 <td align="center" width="20%">
+<br/>
+🖼️<br/><br/>
 <b>Rich Media</b><br/>
 <sub>Send images or docs<br/>she understands them</sub>
+<br/><br/>
 </td>
 </tr>
 </table>
 
-### Technical Highlights
+</div>
+
+<br/>
+
+### 🔬 Technical Highlights
+
+<div align="center">
 
 | Feature | Description |
-|---------|-------------|
-| **PAD Emotion Model** | 3D emotion coordinates (Pleasure/Arousal/Dominance) + natural decay |
-| **Intimacy System** | Relationship temperature affects reply style, fades without maintenance |
-| **Tool Registration** | Model actively verifies memories, doesn't fabricate |
-| **Split Architecture** | Chat and diary can use different upstreams independently |
-| **Web Admin Panel** | (VPS only) Configure everything via browser |
+|:-------:|:------------|
+| 🎨 **PAD Emotion Model** | 3D emotion coordinates (Pleasure/Arousal/Dominance) + natural decay |
+| 💕 **Intimacy System** | Relationship temperature affects reply style, fades without maintenance |
+| 🔧 **Tool Registration** | Model actively verifies memories, doesn't fabricate |
+| 🔀 **Split Architecture** | Chat and diary can use different upstreams independently |
+| 🌐 **Web Admin Panel** | (VPS only) Configure everything via browser |
+
+</div>
+
+<br/>
 
 ---
 
-## UI Preview
+## 🖼️ UI Preview
+
+<div align="center">
 
 <table>
 <tr>
 <td align="center">
 <img src="欢迎界面.jpg" width="200"/><br/>
-<b>Welcome</b>
+<b>👋 Welcome</b>
 </td>
 <td align="center">
 <img src="对话界面.jpg" width="200"/><br/>
-<b>Chat</b>
+<b>💬 Chat</b>
 </td>
 <td align="center">
 <img src="侧边栏.jpg" width="200"/><br/>
-<b>Sidebar</b>
+<b>📋 Sidebar</b>
 </td>
 </tr>
 <tr>
 <td align="center">
 <img src="日记界面.jpg" width="200"/><br/>
-<b>Diary</b>
+<b>📔 Diary</b>
 </td>
 <td align="center">
 <img src="设置界面.jpg" width="200"/><br/>
-<b>Settings</b>
+<b>⚙️ Settings</b>
 </td>
-<td></td>
+<td align="center">
+</td>
 </tr>
 </table>
 
+</div>
+
+<br/>
+
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 .
-├── ATRI/                    # Android App
+├── 📱 ATRI/                 # Android App
 │   ├── app/src/main/
 │   │   ├── java/me/atri/
 │   │   │   ├── data/        # Data layer (API, DB, Repository)
@@ -275,7 +375,7 @@ See [server/README.md](server/README.md) for detailed VPS deployment guide.
 │   │   └── res/             # Resources
 │   └── build.gradle.kts
 │
-├── worker/                  # Cloudflare Worker Backend
+├── ☁️ worker/               # Cloudflare Worker Backend
 │   ├── src/
 │   │   ├── routes/          # API routes
 │   │   ├── services/        # Core services
@@ -283,7 +383,7 @@ See [server/README.md](server/README.md) for detailed VPS deployment guide.
 │   ├── db/schema.sql        # Database schema
 │   └── wrangler.toml        # Worker config
 │
-├── server/                  # VPS Backend (Node.js + PostgreSQL)
+├── 🖥️ server/               # VPS Backend (Node.js + PostgreSQL)
 │   ├── src/
 │   │   ├── routes/          # API routes
 │   │   ├── services/        # Core services
@@ -293,45 +393,89 @@ See [server/README.md](server/README.md) for detailed VPS deployment guide.
 │   ├── Dockerfile
 │   └── zeabur.yaml          # Zeabur deployment config
 │
-├── shared/                  # Shared Config
+├── 🔗 shared/               # Shared Config
 │   └── prompts.json         # Personality and prompts
 │
-└── scripts/                 # Deployment Scripts
+└── 📜 scripts/              # Deployment Scripts
     ├── deploy_cf.bat        # Windows CF deploy
     └── sync_shared.py       # Sync prompts
 ```
 
----
-
-## Learn More
-
-| Document | Content |
-|:---------|:--------|
-| [**Tech Architecture Blueprint**](TECH_ARCHITECTURE_BLUEPRINT.md) | Design philosophy, data flow, API contracts |
-| [**VPS Deployment Guide**](server/README.md) | Docker, Zeabur, 1Panel, Baota deployment |
-| [**Personality Definition**](shared/prompts.json) | ATRI's personality and prompts |
+<br/>
 
 ---
 
-## Contributing
+## 📚 Learn More
 
-Contributions are welcome! Feel free to open issues or submit pull requests.
+<div align="center">
+
+| 📄 Document | 📝 Content |
+|:------------|:-----------|
+| [**🏛️ Tech Architecture Blueprint**](TECH_ARCHITECTURE_BLUEPRINT.md) | Design philosophy, data flow, API contracts |
+| [**🚀 VPS Deployment Guide**](server/README.md) | Docker, Zeabur, 1Panel, Baota deployment |
+| [**🎭 Personality Definition**](shared/prompts.json) | ATRI's personality and prompts |
+
+</div>
+
+<br/>
 
 ---
 
-## License
+## 🤝 Contributing
 
-This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+<div align="center">
 
-- Personal learning, research, non-commercial use allowed
-- Commercial use requires separate authorization
+**Contributions are welcome!** 
+
+Feel free to open issues or submit pull requests.
+
+<br/>
+
+[![Contributors](https://img.shields.io/github/contributors/MIKUSCAT/ATRI?style=for-the-badge)](https://github.com/MIKUSCAT/ATRI/graphs/contributors)
+
+</div>
+
+<br/>
+
+---
+
+## 📄 License
+
+<div align="center">
+
+This project is licensed under the [**PolyForm Noncommercial License 1.0.0**](LICENSE).
+
+</div>
+
+- ✅ Personal learning, research, non-commercial use allowed
+- ⚠️ Commercial use requires separate authorization
+
+<br/>
 
 ---
 
 <div align="center">
 
-**If this project helps you, consider giving it a Star**
+<br/>
 
-<sub>Built with love for those who believe AI can be more than just a tool</sub>
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=MIKUSCAT/ATRI&type=Date)](https://star-history.com/#MIKUSCAT/ATRI&Date)
+
+<br/>
+
+---
+
+<br/>
+
+**🌟 If this project helps you, consider giving it a Star 🌟**
+
+<br/>
+
+<sub>💖 Built with love for those who believe AI can be more than just a tool 💖</sub>
+
+<br/>
+
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=100&section=footer" width="100%"/>
 
 </div>

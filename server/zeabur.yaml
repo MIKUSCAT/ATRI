@@ -13,7 +13,7 @@ spec:
     - key: DOMAIN
       type: DOMAIN
       name: 访问域名
-      description: Zeabur 生成的 *.zeabur.app 子域名
+      description: 部署时绑定到 API 服务的公网域名（必须与最终对外域名一致）
     - key: PASSWORD
       type: STRING
       name: 密码
@@ -23,6 +23,7 @@ spec:
 
     部署完成后直接访问你的域名，会自动跳到 `/admin` 进入控制台。
 
+    - **域名重要**：`DOMAIN` 会绑定到公网访问域名，并用于后台跨域校验；必须和你实际对外访问的域名一致
     - **管理后台登录**：用你填写的 `密码`
     - **客户端 APP_TOKEN**：同样是你填写的 `密码`
     - **上游 API**：部署后在后台配置（OpenAI/Anthropic/Gemini）
@@ -53,6 +54,7 @@ spec:
 
     - name: api
       template: PREBUILT
+      domainKey: DOMAIN
       spec:
         id: api
         name: api

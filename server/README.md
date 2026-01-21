@@ -17,9 +17,9 @@
 
 <!--
   Zeabur 一键部署按钮（等模板发布后替换链接）
-  生成方式：npx zeabur@latest template deploy -f zeabur.yaml
+  生成方式：npx zeabur@latest template create -f zeabur.yaml
 -->
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates?q=atri)
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/VR6HBL)
 
 <br/>
 
