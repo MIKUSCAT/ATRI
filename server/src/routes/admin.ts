@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Env } from '../runtime/types';
 import { sendJson } from '../utils/reply';
+import { timingSafeEqual } from '../utils/auth';
 import { sanitizeFileName } from '../utils/file';
 import {
   deleteConversationLogsByUser,
@@ -74,7 +75,7 @@ export function registerAdminRoutes(app: FastifyInstance, env: Env) {
       return sendJson(reply, { error: 'admin_disabled' }, 503);
     }
     const providedKey = extractToken(String(request.headers['authorization'] || ''));
-    if (providedKey !== adminKey) {
+    if (!timingSafeEqual(providedKey, adminKey)) {
       return sendJson(reply, { error: 'forbidden' }, 403);
     }
 
@@ -110,4 +111,3 @@ export function registerAdminRoutes(app: FastifyInstance, env: Env) {
     }
   });
 }
-

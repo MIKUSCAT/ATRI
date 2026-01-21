@@ -29,10 +29,7 @@ function readNumber(value: unknown) {
 function buildDatabaseUrlFromParts(source: NodeJS.ProcessEnv) {
   const explicitHost = readOptionalText(source.POSTGRES_HOST) || readOptionalText(source.PGHOST);
   const zeaburHost = readOptionalText(source.DB_HOST);
-  const host =
-    zeaburHost && (!explicitHost || explicitHost === 'db' || explicitHost === 'db.zeabur.internal')
-      ? zeaburHost
-      : explicitHost;
+  const host = explicitHost || zeaburHost;
 
   const user =
     readOptionalText(source.POSTGRES_USER)
