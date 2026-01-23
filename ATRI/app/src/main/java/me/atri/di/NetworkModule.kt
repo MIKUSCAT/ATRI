@@ -65,7 +65,8 @@ class DynamicConfigProvider(private val preferencesStore: PreferencesStore) {
     }
 
     companion object {
-        const val DEFAULT_BASE_URL = ""
+        // 占位符 URL，实际由用户配置的 API 地址替换
+        const val DEFAULT_BASE_URL = "https://localhost"
     }
 }
 

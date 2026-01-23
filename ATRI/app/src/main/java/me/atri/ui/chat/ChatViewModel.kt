@@ -131,7 +131,7 @@ class ChatViewModel(
     init {
         observeMessages()
         refreshWelcomeState()
-        // 同步已在 MainActivity 启动时完成，这里不再重复调用
+        syncRemoteHistoryOnStart()
         updateState { it }
     }
 

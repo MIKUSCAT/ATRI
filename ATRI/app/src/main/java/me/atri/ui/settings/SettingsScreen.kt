@@ -234,6 +234,36 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
+                        text = "数据同步",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "从服务器拉取最近 30 天的聊天记录到本地，可在侧边栏按日期浏览。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { viewModel.syncHistory() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isSyncing
+                    ) {
+                        Text(if (uiState.isSyncing) "同步中..." else "一键同步聊天记录")
+                    }
+                }
+            }
+
+            Surface(
+                shape = MaterialTheme.shapes.extraLarge,
+                tonalElevation = 1.dp,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
                         text = "隐私与数据",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
