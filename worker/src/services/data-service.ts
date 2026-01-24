@@ -522,12 +522,19 @@ export function buildConversationTranscript(
   fallbackUserName = '你'
 ): string {
   const name = fallbackUserName || '你';
-  return logs
-    .map((log) => {
-      const speaker = log.role === 'atri' ? 'ATRI' : (log.userName || name);
-      return `${speaker}：${log.content}`;
-    })
-    .join('\n');
+  const lines: string[] = [];
+
+  for (const log of logs) {
+    const speaker = log.role === 'atri' ? 'ATRI' : (log.userName || name);
+    const normalized = String(log.content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    for (const rawLine of normalized.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      lines.push(`${speaker}：${line}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 export async function listDiaryIdsByUser(env: Env, userId: string) {

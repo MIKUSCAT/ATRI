@@ -22,6 +22,7 @@ import me.atri.data.model.AttachmentContract
 import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import kotlin.text.RegexOption
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -42,7 +43,9 @@ import me.atri.data.api.response.ConversationLogItem
 data class ChatResult(
     val reply: String,
     val mood: BioChatResponse.Mood?,
-    val intimacy: Int
+    val intimacy: Int,
+    val replyLogId: String?,
+    val replyTimestamp: Long?
 )
 
 class ChatRepository(
@@ -404,7 +407,9 @@ class ChatRepository(
         return ChatResult(
             reply = reply,
             mood = body?.mood,
-            intimacy = body?.intimacy ?: 0
+            intimacy = body?.intimacy ?: 0,
+            replyLogId = body?.replyLogId?.takeIf { it.isNotBlank() },
+            replyTimestamp = body?.replyTimestamp?.takeIf { it > 0 }
         )
     }
 
@@ -662,7 +667,7 @@ class ChatRepository(
     /**
      * 从服务器拉取远程历史记录并与本地合并
      * - 首次同步：拉取最近30天的完整数据（分页）
-     * - 增量同步：只拉取本地最新时间戳之后的数据
+     * - 增量同步：从本地最新时间戳附近拉取一小段（用于去重/补漏）
      * - tombstones 中的消息从本地删除
      */
     suspend fun syncRemoteHistory(): Result<SyncResult> = withContext(Dispatchers.IO) {
@@ -675,14 +680,53 @@ class ChatRepository(
             val thirtyDaysAgoMs = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
 
             // 决定同步起点：
-            // - 如果本地没有数据或最早数据晚于30天前，从30天前开始拉取
-            // - 否则只做增量同步（从本地最新时间戳开始）
-            val needFullSync = localLatest == 0L || localEarliest > thirtyDaysAgoMs
-            val syncStartTimestamp = if (needFullSync) thirtyDaysAgoMs else localLatest
+            // - 首次同步或尚未做过“历史去重”：从30天前开始拉取
+            // - 否则增量同步：从本地最新时间戳往回看一小段（避免“最后一条重复”这种边界问题）
+            val dedupeDone = preferencesStore.historyDedupeDone.first()
+            val needFullSync = localLatest == 0L || localEarliest > thirtyDaysAgoMs || !dedupeDone
+            val overlapMs = 10L * 60 * 1000
+            val syncStartTimestamp = if (needFullSync) {
+                thirtyDaysAgoMs
+            } else {
+                maxOf(0L, localLatest - overlapMs)
+            }
 
             var insertedCount = 0
             var deletedCount = 0
             var currentAfter = syncStartTimestamp
+
+            val localDuplicateIds = linkedSetOf<String>()
+            val remoteDuplicateIds = linkedSetOf<String>()
+            var previousKeptLog: ConversationLogItem? = null
+
+            fun normalizeContentForDedupe(raw: String): String {
+                return raw.trim().replace(Regex("\\s+"), " ")
+            }
+
+            fun chooseWinner(a: ConversationLogItem, b: ConversationLogItem): ConversationLogItem {
+                val aReply = a.replyTo?.trim().orEmpty()
+                val bReply = b.replyTo?.trim().orEmpty()
+                return when {
+                    aReply.isNotEmpty() && bReply.isEmpty() -> a
+                    aReply.isEmpty() && bReply.isNotEmpty() -> b
+                    else -> a
+                }
+            }
+
+            fun isAtriDuplicate(a: ConversationLogItem, b: ConversationLogItem): Boolean {
+                if (a.role != "atri" || b.role != "atri") return false
+                if (abs(a.timestamp - b.timestamp) > 2000L) return false
+                return normalizeContentForDedupe(a.content) == normalizeContentForDedupe(b.content)
+            }
+
+            fun shouldDeleteRemoteDuplicate(winner: ConversationLogItem, loser: ConversationLogItem): Boolean {
+                if (winner.role != "atri" || loser.role != "atri") return false
+                val winnerReply = winner.replyTo?.trim().orEmpty()
+                val loserReply = loser.replyTo?.trim().orEmpty()
+                if (winnerReply.isEmpty() || loserReply.isNotEmpty()) return false
+                if (abs(winner.timestamp - loser.timestamp) > 2000L) return false
+                return normalizeContentForDedupe(winner.content) == normalizeContentForDedupe(loser.content)
+            }
 
             // 分页拉取，每次最多200条
             while (true) {
@@ -699,15 +743,42 @@ class ChatRepository(
 
                 val body = response.body() ?: break
 
-                if (body.logs.isEmpty()) break
+                if (body.logs.isNotEmpty()) {
+                    val dedupedLogs = mutableListOf<ConversationLogItem>()
+                    for (log in body.logs) {
+                        val prev = previousKeptLog
+                        if (prev != null && isAtriDuplicate(prev, log)) {
+                            val winner = chooseWinner(prev, log)
+                            val loser = if (winner.id == prev.id) log else prev
 
-                // 处理新消息
-                for (log in body.logs) {
-                    val existingMessage = messageDao.getMessageById(log.id)
-                    if (existingMessage == null) {
-                        val entity = log.toMessageEntity()
-                        messageDao.insert(entity)
-                        insertedCount++
+                            localDuplicateIds.add(loser.id)
+                            if (shouldDeleteRemoteDuplicate(winner, loser)) {
+                                remoteDuplicateIds.add(loser.id)
+                            }
+
+                            if (winner.id != prev.id) {
+                                if (dedupedLogs.isNotEmpty() && dedupedLogs.last().id == prev.id) {
+                                    dedupedLogs[dedupedLogs.lastIndex] = winner
+                                } else {
+                                    dedupedLogs.add(winner)
+                                }
+                                previousKeptLog = winner
+                            }
+                            continue
+                        }
+
+                        dedupedLogs.add(log)
+                        previousKeptLog = log
+                    }
+
+                    // 处理新消息（去重后）
+                    for (log in dedupedLogs) {
+                        val existingMessage = messageDao.getMessageById(log.id)
+                        if (existingMessage == null) {
+                            val entity = log.toMessageEntity()
+                            messageDao.insert(entity)
+                            insertedCount++
+                        }
                     }
                 }
 
@@ -724,6 +795,21 @@ class ChatRepository(
 
                 // 更新游标为最后一条消息的时间戳
                 currentAfter = body.logs.maxOfOrNull { it.timestamp } ?: break
+            }
+
+            if (localDuplicateIds.isNotEmpty()) {
+                messageDao.deleteByIds(localDuplicateIds.toList())
+                deletedCount += localDuplicateIds.size
+            }
+
+            if (remoteDuplicateIds.isNotEmpty()) {
+                remoteDuplicateIds.toList().chunked(50).forEach { batch ->
+                    deleteConversationLogs(batch)
+                }
+            }
+
+            if (!dedupeDone) {
+                preferencesStore.setHistoryDedupeDone(true)
             }
 
             Result.success(SyncResult(insertedCount, deletedCount))

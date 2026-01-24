@@ -1,18 +1,20 @@
 name = "atri-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
-account_id = "YOUR_ACCOUNT_ID"
+account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
 
 [vars]
-OPENAI_API_URL = "https://api.openai.com/v1"
-DIARY_API_URL = "https://api.openai.com/v1"
-DIARY_MODEL = "gpt-4o"
+OPENAI_API_URL = "https://mikuscat.zeabur.app/antigravity/v1"
+
+DIARY_API_URL = "https://mikuscat.zeabur.app/antigravity/v1"
+
+DIARY_MODEL = "claude-opus-4-5-thinking"
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
-EMBEDDINGS_MODEL = "BAAI/bge-m3"
+EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 # Tavily 联网搜索（可选）
 # API Key 通过 secret 设置: npx wrangler secret put TAVILY_API_KEY
-# 注册: https://tavily.com
+TAVILY_API_URL = "https://api.tavily.com"
 
 [[vectorize]]
 binding = "VECTORIZE"
@@ -26,10 +28,12 @@ preview_bucket_name = "atri-media"
 [[d1_databases]]
 binding = "ATRI_DB"
 database_name = "atri_diary"
-database_id = "YOUR_DATABASE_ID"
+database_id = "05def668-b70d-40fc-84a4-b5ba21219217"
 
 [triggers]
 crons = ["59 15 * * *"]
 
-# Custom domain (optional): configure in Cloudflare Dashboard
-# Example: api.example.com
+# Custom domain (需要在Cloudflare Dashboard手动添加)
+# Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
+# 添加: mikuscat.qzz.io
+

@@ -180,11 +180,13 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val timestamp = System.currentTimeMillis()
+                    val serverTimestamp = chatResult.replyTimestamp
+                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
                     val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
                     val adjustedTimestamp = latestUser?.let { maxOf(timestamp, it + 1) } ?: timestamp
 
                     val atriMessage = MessageEntity(
+                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
                         content = chatResult.reply,
                         isFromAtri = true,
                         timestamp = adjustedTimestamp
@@ -310,10 +312,14 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
+                    val serverTimestamp = chatResult.replyTimestamp
+                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
+                    val adjustedTimestamp = maxOf(timestamp, userMessage.timestamp + 1)
                     val atriMessage = MessageEntity(
+                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
                         content = chatResult.reply,
                         isFromAtri = true,
-                        timestamp = System.currentTimeMillis()
+                        timestamp = adjustedTimestamp
                     )
                     chatRepository.persistAtriMessage(atriMessage)
                     statusRepository.incrementIntimacy(1)
@@ -364,10 +370,13 @@ class ChatViewModel(
 
                         if (result.isSuccess) {
                             val chatResult = result.getOrThrow()
+                            val serverTimestamp = chatResult.replyTimestamp
+                            val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
                             val atriMessage = MessageEntity(
+                                id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
                                 content = chatResult.reply,
                                 isFromAtri = true,
-                                timestamp = System.currentTimeMillis()
+                                timestamp = timestamp
                             )
                             chatRepository.persistAtriMessage(atriMessage)
                             statusRepository.incrementIntimacy(1)

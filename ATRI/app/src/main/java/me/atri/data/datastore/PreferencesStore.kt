@@ -25,6 +25,7 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
         private val MODEL_NAME = stringPreferencesKey("model_name")
         private val ATRI_AVATAR_PATH = stringPreferencesKey("atri_avatar_path")
         private val LAST_CHAT_DATE = stringPreferencesKey("last_chat_date")
+        private val HISTORY_DEDUPE_DONE = booleanPreferencesKey("history_dedupe_done")
     }
 
     val userId: Flow<String> = dataStore.data.map { it[USER_ID] ?: "" }
@@ -32,12 +33,13 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
     val userBirthday: Flow<String> = dataStore.data.map { it[USER_BIRTHDAY] ?: "" }
     val intimacyPoints: Flow<Int> = dataStore.data.map { it[INTIMACY_POINTS] ?: 0 }
     val isFirstLaunch: Flow<Boolean> = dataStore.data.map { it[IS_FIRST_LAUNCH] ?: true }
-    val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://example.com" }
+    val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://mikuscat.qzz.io" }
     val apiKey: Flow<String> = dataStore.data.map { it[API_KEY] ?: "" }
     val appToken: Flow<String> = dataStore.data.map { it[APP_TOKEN] ?: "" }
-    val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "" }
+    val modelName: Flow<String> = dataStore.data.map { it[MODEL_NAME] ?: "anthropic.claude-sonnet-4" }
     val atriAvatarPath: Flow<String> = dataStore.data.map { it[ATRI_AVATAR_PATH] ?: "" }
     val lastConversationDate: Flow<String> = dataStore.data.map { it[LAST_CHAT_DATE] ?: "" }
+    val historyDedupeDone: Flow<Boolean> = dataStore.data.map { it[HISTORY_DEDUPE_DONE] ?: false }
 
     suspend fun ensureUserId(): String {
         val current = dataStore.data.first()[USER_ID]
@@ -104,5 +106,9 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setLastConversationDate(date: String) {
         dataStore.edit { it[LAST_CHAT_DATE] = date }
+    }
+
+    suspend fun setHistoryDedupeDone(done: Boolean) {
+        dataStore.edit { it[HISTORY_DEDUPE_DONE] = done }
     }
 }

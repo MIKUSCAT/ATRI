@@ -14,7 +14,6 @@ data class ConversationLogRequest(
     val timestamp: Long,
     val attachments: List<ChatRequest.AttachmentPayload> = emptyList(),
     val mood: String? = null,
-    val replyTo: String? = null,
     val userName: String? = null,
     val timeZone: String? = null,
     val date: String? = null
@@ -24,4 +23,10 @@ data class ConversationLogRequest(
 data class ConversationDeleteRequest(
     val userId: String,
     val ids: List<String>
+)
+
+@Serializable
+data class InvalidateMemoryRequest(
+    val userId: String,
+    val date: String
 )
