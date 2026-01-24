@@ -556,7 +556,7 @@ export async function callUpstreamChat(env: Env, params: {
         durationMs: Date.now() - startedAt,
         usage: (data as any)?.usage,
         content: extracted.content ? truncateText(extracted.content, 1200) : null,
-        toolCalls: extracted.toolCalls?.map((c) => ({
+        toolCalls: extracted.toolCalls?.map((c: any) => ({
           id: c.id,
           name: c.function?.name,
           arguments: c.function?.arguments ? truncateText(c.function.arguments, 1200) : ''
@@ -613,7 +613,7 @@ export async function callUpstreamChat(env: Env, params: {
           apiHost,
           durationMs: Date.now() - startedAt,
           content: extracted.content ? truncateText(extracted.content, 1200) : null,
-          toolCalls: extracted.toolCalls?.map((c) => ({
+          toolCalls: extracted.toolCalls?.map((c: any) => ({
             id: c.id,
             name: c.function?.name,
             arguments: c.function?.arguments ? truncateText(c.function.arguments, 1200) : ''
@@ -684,7 +684,7 @@ export async function callUpstreamChat(env: Env, params: {
         apiHost,
         durationMs: Date.now() - startedAt,
         content: extracted.content ? truncateText(extracted.content, 1200) : null,
-        toolCalls: extracted.toolCalls?.map((c) => ({
+        toolCalls: extracted.toolCalls?.map((c: any) => ({
           id: c.id,
           name: c.function?.name,
           arguments: c.function?.arguments ? truncateText(c.function.arguments, 1200) : ''
