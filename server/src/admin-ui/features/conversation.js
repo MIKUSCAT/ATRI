@@ -12,6 +12,12 @@ function fmtTime(ts) {
   }
 }
 
+function fmtCursor(ts) {
+  const n = Number(ts || 0);
+  if (!Number.isFinite(n) || n <= 0) return '尚未建立游标';
+  return `游标：${n}（${fmtTime(n)}）`;
+}
+
 function toDateInputValue(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -64,18 +70,98 @@ function syncModeUi() {
   $('convAfterRow').hidden = mode !== 'after';
 }
 
-function fmtLog(line) {
-  const role = line.role === 'atri' ? 'ATRI' : 'USER';
-  const replyTo = line.replyTo ? ` ↩ ${String(line.replyTo).slice(0, 8)}` : '';
-  const text = String(line.content || '').replace(/\s+/g, ' ').trim();
-  return `[${fmtTime(line.timestamp)}] ${role}${replyTo}: ${text}`;
+function setCursorHint(ts) {
+  setText($('convCursor'), fmtCursor(ts));
 }
 
-function appendOut(lines) {
+function buildConversationCard(line) {
+  const role = line?.role === 'atri' ? 'ATRI' : 'USER';
+  const roleClass = line?.role === 'atri' ? 'conv-role--atri' : 'conv-role--user';
+
+  const card = document.createElement('article');
+  card.className = `conv-item ${line?.role === 'atri' ? 'conv-item--atri' : 'conv-item--user'}`;
+
+  const head = document.createElement('div');
+  head.className = 'conv-item-head';
+
+  const roleEl = document.createElement('span');
+  roleEl.className = `conv-role ${roleClass}`;
+  roleEl.textContent = role;
+  head.appendChild(roleEl);
+
+  const timeEl = document.createElement('span');
+  timeEl.className = 'conv-meta';
+  timeEl.textContent = fmtTime(line?.timestamp);
+  head.appendChild(timeEl);
+
+  const date = String(line?.date || '').trim();
+  if (date) {
+    const dateEl = document.createElement('span');
+    dateEl.className = 'conv-meta';
+    dateEl.textContent = date;
+    head.appendChild(dateEl);
+  }
+
+  const tz = String(line?.timeZone || '').trim();
+  if (tz) {
+    const tzEl = document.createElement('span');
+    tzEl.className = 'conv-meta';
+    tzEl.textContent = tz;
+    head.appendChild(tzEl);
+  }
+
+  const replyTo = String(line?.replyTo || '').trim();
+  if (replyTo) {
+    const replyEl = document.createElement('span');
+    replyEl.className = 'conv-meta';
+    replyEl.textContent = `↩ ${replyTo.slice(0, 8)}`;
+    head.appendChild(replyEl);
+  }
+
+  const attachments = Array.isArray(line?.attachments) ? line.attachments.length : 0;
+  if (attachments > 0) {
+    const attachEl = document.createElement('span');
+    attachEl.className = 'conv-meta';
+    attachEl.textContent = `附件 ${attachments}`;
+    head.appendChild(attachEl);
+  }
+
+  const textEl = document.createElement('div');
+  textEl.className = 'conv-text';
+  textEl.textContent = String(line?.content || '').trim() || '(空内容)';
+
+  card.appendChild(head);
+  card.appendChild(textEl);
+  return card;
+}
+
+function appendOut(logs, { append }) {
   const box = $('convOut');
-  const prev = String(box.textContent || '');
-  const next = (Array.isArray(lines) ? lines : []).filter(Boolean).join('\n');
-  box.textContent = prev && next ? `${prev}\n${next}` : (prev || next);
+  const list = Array.isArray(logs) ? logs : [];
+
+  if (!append) {
+    box.textContent = '';
+  }
+
+  if (!list.length) {
+    if (!append) {
+      const empty = document.createElement('div');
+      empty.className = 'conv-empty';
+      empty.textContent = '该条件下没有记录';
+      box.appendChild(empty);
+    }
+    return;
+  }
+
+  const first = box.querySelector('.conv-empty');
+  if (first) first.remove();
+
+  const fragment = document.createDocumentFragment();
+  for (const line of list) {
+    fragment.appendChild(buildConversationCard(line));
+  }
+  box.appendChild(fragment);
+  box.scrollTop = box.scrollHeight;
 }
 
 function setAfterFromLogs(logs) {
@@ -84,6 +170,7 @@ function setAfterFromLogs(logs) {
   const ts = last && typeof last.timestamp === 'number' ? last.timestamp : null;
   if (typeof ts === 'number' && Number.isFinite(ts) && ts > 0) {
     $('convAfter').value = String(ts);
+    setCursorHint(ts);
   }
 }
 
@@ -127,9 +214,7 @@ async function pullOnce({ append }) {
 
   const data = await api(`/admin/api/conversation/pull?${qs.toString()}`);
   const logs = Array.isArray(data?.logs) ? data.logs : [];
-  if (!append) $('convOut').textContent = '';
-
-  appendOut(logs.map(fmtLog));
+  appendOut(logs, { append });
   setAfterFromLogs(logs);
   if (mode === 'date') {
     const range = normalizeDateRange($('convDateFrom').value, $('convDateTo').value);
@@ -144,6 +229,8 @@ export function initConversationHandlers() {
   const today = toDateInputValue(new Date());
   applyDateRange(today, today);
   $('convMode').value = 'date';
+  $('convAfter').value = '0';
+  setCursorHint(0);
   syncModeUi();
 
   $('convPullBtn')?.addEventListener('click', () => {
@@ -158,9 +245,11 @@ export function initConversationHandlers() {
     $('convOut').textContent = '';
     setText($('convMsg'), '');
     $('convAfter').value = '0';
+    setCursorHint(0);
   });
 
   $('convMode')?.addEventListener('change', () => syncModeUi());
+  $('convAfter')?.addEventListener('input', () => setCursorHint($('convAfter').value));
   $('convTodayBtn')?.addEventListener('click', () => setQuickRange(0));
   $('convYesterdayBtn')?.addEventListener('click', () => setQuickRange(-1));
   $('convLast7Btn')?.addEventListener('click', () => setQuickRange(-6, 0));

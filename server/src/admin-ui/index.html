@@ -406,6 +406,8 @@
             <button id="toggleStreamBtn" class="secondary" type="button">开始实时</button>
             <button id="logsPauseBtn" class="secondary" type="button">暂停滚动</button>
             <button id="logsClearBtn" class="secondary" type="button">清空本地视图</button>
+            <button id="logsCopyBtn" class="secondary" type="button">复制可见日志</button>
+            <button id="logsExportBtn" class="secondary" type="button">导出 JSON</button>
             <span id="logsMsg" class="muted"></span>
           </div>
           <div id="logsBox" class="log log--rich mt-10"></div>
@@ -463,9 +465,10 @@
             <button id="convPullBtn" class="secondary" type="button">拉取</button>
             <button id="convNextBtn" class="secondary" type="button">继续拉取</button>
             <button id="convClearBtn" class="secondary" type="button">清空输出</button>
+            <span id="convCursor" class="muted small"></span>
             <span id="convMsg" class="muted"></span>
           </div>
-          <div id="convOut" class="log mt-10"></div>
+          <div id="convOut" class="log conv-list mt-10" aria-live="polite"></div>
         </div>
       </div>
     </div>
