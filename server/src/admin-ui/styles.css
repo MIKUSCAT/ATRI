@@ -423,6 +423,107 @@ button.sm {
   max-height: 200px;
 }
 
+.log--rich {
+  white-space: normal;
+  word-break: break-word;
+  padding: 0;
+  max-height: 420px;
+}
+
+.log-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 16px;
+}
+
+.log-row {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.log-row:last-child {
+  border-bottom: none;
+}
+
+.log-row-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.log-time {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.log-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+}
+
+.log-level--error {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
+.log-level--warn {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.log-level--info,
+.log-level--debug {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.log-event {
+  color: var(--text-secondary);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 2px 7px;
+}
+
+.log-row-msg {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.log-row-meta {
+  margin-top: 8px;
+}
+
+.log-row-meta summary {
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.log-row-meta pre {
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .log::-webkit-scrollbar {
   width: 6px;
   height: 6px;

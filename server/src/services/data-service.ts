@@ -171,19 +171,7 @@ export async function fetchConversationLogs(env: Env, userId: string, date: stri
     [userId, date]
   );
 
-  return (result.rows || []).map((row: any) => ({
-    id: String(row.id || ''),
-    userId: String(row.userId || ''),
-    date: String(row.date || ''),
-    role: row.role as ConversationRole,
-    content: String(row.content || ''),
-    attachments: parseJson(row.attachments),
-    mood: typeof row.mood === 'string' ? row.mood : undefined,
-    replyTo: typeof row.replyTo === 'string' ? row.replyTo : undefined,
-    timestamp: Number(row.timestamp || 0),
-    userName: typeof row.userName === 'string' ? row.userName : undefined,
-    timeZone: typeof row.timeZone === 'string' ? row.timeZone : undefined
-  }));
+  return (result.rows || []).map(mapConversationLogRow);
 }
 
 export async function fetchConversationLogsAfter(
@@ -231,7 +219,83 @@ export async function fetchConversationLogsAfter(
   binds.push(limit);
 
   const result = await env.db.query(sql, binds);
-  return (result.rows || []).map((row: any) => ({
+  return (result.rows || []).map(mapConversationLogRow);
+}
+
+export async function fetchConversationLogsByDateRange(
+  env: Env,
+  params: {
+    userId: string;
+    dateFrom?: string;
+    dateTo?: string;
+    after?: number;
+    limit?: number;
+    roles?: ConversationRole[];
+  }
+): Promise<ConversationLogRecord[]> {
+  await ensureConversationTables(env);
+
+  const userId = String(params.userId || '').trim();
+  if (!userId) return [];
+
+  const parseDate = (value: unknown) => {
+    const text = String(value || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+  };
+
+  let dateFrom = parseDate(params.dateFrom);
+  let dateTo = parseDate(params.dateTo);
+  if (!dateFrom && !dateTo) return [];
+  if (!dateFrom) dateFrom = dateTo;
+  if (!dateTo) dateTo = dateFrom;
+  if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+
+  const after = typeof params.after === 'number' && Number.isFinite(params.after) ? params.after : 0;
+  const rawLimit = typeof params.limit === 'number' ? params.limit : 100;
+  const limit = Math.min(Math.max(rawLimit, 1), 500);
+  const roles = Array.isArray(params.roles)
+    ? params.roles.filter(role => role === 'user' || role === 'atri')
+    : [];
+
+  let sql = `SELECT logs.id,
+                    logs.user_id as "userId",
+                    logs.date,
+                    logs.role,
+                    logs.content,
+                    logs.attachments,
+                    logs.mood,
+                    logs.reply_to as "replyTo",
+                    logs.timestamp,
+                    logs.user_name as "userName",
+                    logs.time_zone as "timeZone"
+               FROM conversation_logs logs
+               LEFT JOIN conversation_log_tombstones tombstones
+                 ON logs.user_id = tombstones.user_id AND logs.id = tombstones.log_id
+              WHERE logs.user_id = $1
+                AND logs.date >= $2
+                AND logs.date <= $3
+                AND tombstones.log_id IS NULL`;
+  const binds: any[] = [userId, dateFrom, dateTo];
+
+  if (after > 0) {
+    sql += ` AND logs.timestamp > $${binds.length + 1}`;
+    binds.push(after);
+  }
+
+  if (roles.length) {
+    sql += ` AND logs.role = ANY($${binds.length + 1}::text[])`;
+    binds.push(roles);
+  }
+
+  sql += ` ORDER BY logs.date ASC, logs.timestamp ASC LIMIT $${binds.length + 1}`;
+  binds.push(limit);
+
+  const result = await env.db.query(sql, binds);
+  return (result.rows || []).map(mapConversationLogRow);
+}
+
+function mapConversationLogRow(row: any): ConversationLogRecord {
+  return {
     id: String(row.id || ''),
     userId: String(row.userId || ''),
     date: String(row.date || ''),
@@ -243,7 +307,7 @@ export async function fetchConversationLogsAfter(
     timestamp: Number(row.timestamp || 0),
     userName: typeof row.userName === 'string' ? row.userName : undefined,
     timeZone: typeof row.timeZone === 'string' ? row.timeZone : undefined
-  }));
+  };
 }
 
 export async function getConversationLogDate(env: Env, userId: string, logId: string): Promise<string | null> {

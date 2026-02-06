@@ -385,12 +385,30 @@
         <!-- 日志 Tab -->
         <div id="tab-logs" class="card" role="tabpanel" hidden>
           <div class="muted small">应用层错误日志，内存最多 1000 条，支持实时流。</div>
+          <div class="row mt-10">
+            <div class="col">
+              <label for="logsLevelFilter">级别筛选</label>
+              <select id="logsLevelFilter">
+                <option value="all">全部</option>
+                <option value="error">ERROR</option>
+                <option value="warn">WARN</option>
+                <option value="info">INFO</option>
+                <option value="debug">DEBUG</option>
+              </select>
+            </div>
+            <div class="col">
+              <label for="logsKeyword">关键词</label>
+              <input id="logsKeyword" placeholder="按 message / meta 搜索" />
+            </div>
+          </div>
           <div class="inline mt-10">
             <button id="refreshLogsBtn" class="secondary" type="button">刷新</button>
             <button id="toggleStreamBtn" class="secondary" type="button">开始实时</button>
+            <button id="logsPauseBtn" class="secondary" type="button">暂停滚动</button>
+            <button id="logsClearBtn" class="secondary" type="button">清空本地视图</button>
             <span id="logsMsg" class="muted"></span>
           </div>
-          <div id="logsBox" class="log mt-10"></div>
+          <div id="logsBox" class="log log--rich mt-10"></div>
         </div>
 
         <!-- 对话 Tab -->
@@ -408,13 +426,38 @@
           </div>
           <div class="row">
             <div class="col">
-              <label for="convAfter">after（timestamp，毫秒）</label>
-              <input id="convAfter" placeholder="0" />
+              <label for="convMode">拉取方式</label>
+              <select id="convMode">
+                <option value="date">按日期范围（推荐）</option>
+                <option value="after">按时间戳增量（高级）</option>
+              </select>
             </div>
             <div class="col">
               <label for="convLimit">limit</label>
               <input id="convLimit" placeholder="50" />
             </div>
+          </div>
+          <div id="convDateRow" class="row">
+            <div class="col">
+              <label for="convDateFrom">开始日期</label>
+              <input id="convDateFrom" type="date" />
+            </div>
+            <div class="col">
+              <label for="convDateTo">结束日期</label>
+              <input id="convDateTo" type="date" />
+            </div>
+          </div>
+          <div id="convAfterRow" class="row" hidden>
+            <div class="col">
+              <label for="convAfter">after（timestamp，毫秒）</label>
+              <input id="convAfter" placeholder="0" />
+            </div>
+          </div>
+          <div class="inline mt-10">
+            <button id="convTodayBtn" class="secondary" type="button">今天</button>
+            <button id="convYesterdayBtn" class="secondary" type="button">昨天</button>
+            <button id="convLast7Btn" class="secondary" type="button">近 7 天</button>
+            <span class="muted small">按日期拉取时，“继续拉取”会基于上次位置增量续拉。</span>
           </div>
           <div class="inline mt-12">
             <button id="convPullBtn" class="secondary" type="button">拉取</button>

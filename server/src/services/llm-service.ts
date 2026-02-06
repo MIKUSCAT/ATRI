@@ -592,8 +592,7 @@ export async function callUpstreamChat(env: Env, params: {
           headers: {
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
-            'authorization': `Bearer ${apiKey}`,
-            'anthropic-version': String(params.anthropicVersion || '2023-06-01').trim() || '2023-06-01'
+            'authorization': `Bearer ${apiKey}`
           },
           body: JSON.stringify(body),
           signal: controller.signal

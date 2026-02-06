@@ -11,6 +11,7 @@ import {
   deleteDiaryEntriesByUser,
   deleteUserSettingsByUser,
   fetchConversationLogsAfter,
+  fetchConversationLogsByDateRange,
   listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors, embedText } from '../services/memory-service';
@@ -722,17 +723,35 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
     const afterRaw = Number((request.query as any)?.after || '0');
     const limitRaw = Number((request.query as any)?.limit || '50');
     const roleParam = String((request.query as any)?.role || '').trim();
+    const dateRaw = String((request.query as any)?.date || '').trim();
+    const dateFromRaw = String((request.query as any)?.dateFrom || '').trim() || dateRaw;
+    const dateToRaw = String((request.query as any)?.dateTo || '').trim() || dateRaw;
     const roles = roleParam
       ? roleParam.split(',').map((item: string) => item.trim()).filter((r) => r === 'user' || r === 'atri')
       : [];
+    const hasDateRange = Boolean(dateRaw || dateFromRaw || dateToRaw);
+
+    const isIsoDate = (value: string) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (hasDateRange && (!isIsoDate(dateFromRaw) || !isIsoDate(dateToRaw))) {
+      return sendJson(reply, { error: 'invalid_date_format', details: 'date/dateFrom/dateTo 必须为 YYYY-MM-DD' }, 400);
+    }
 
     try {
-      const logs = await fetchConversationLogsAfter(env, {
-        userId,
-        after: Number.isFinite(afterRaw) ? afterRaw : 0,
-        limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
-        roles: roles as Array<'user' | 'atri'>
-      });
+      const logs = hasDateRange
+        ? await fetchConversationLogsByDateRange(env, {
+            userId,
+            dateFrom: dateFromRaw || undefined,
+            dateTo: dateToRaw || undefined,
+            after: Number.isFinite(afterRaw) ? afterRaw : 0,
+            limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
+            roles: roles as Array<'user' | 'atri'>
+          })
+        : await fetchConversationLogsAfter(env, {
+            userId,
+            after: Number.isFinite(afterRaw) ? afterRaw : 0,
+            limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
+            roles: roles as Array<'user' | 'atri'>
+          });
       return sendJson(reply, { logs });
     } catch (error: any) {
       request.log.error({ error, userId }, '[ATRI] admin conversation pull failed');
