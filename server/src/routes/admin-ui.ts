@@ -29,6 +29,10 @@ import {
 const SESSION_COOKIE = 'atri_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const UPDATE_CHECK_TIMEOUT_MS = 15000;
+const UPDATE_CHECK_RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+let adminUpdateCheckTableEnsured = false;
+let ensuringUpdateCheckTable: Promise<void> | null = null;
 
 function timingSafeEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
@@ -300,6 +304,77 @@ type GhcrImageRef = {
   tag: string;
 };
 
+type UpdateCheckSnapshot = {
+  remoteDigest: string;
+  checkedAt: number;
+  changedAt: number | null;
+  changedFromDigest: string | null;
+};
+
+function buildUpdateCheckStateId(ref: GhcrImageRef) {
+  return `${ref.host}/${ref.repo}:${ref.tag}`.toLowerCase();
+}
+
+async function ensureAdminUpdateCheckTable(env: Env) {
+  if (adminUpdateCheckTableEnsured) return;
+  if (ensuringUpdateCheckTable) return ensuringUpdateCheckTable;
+
+  ensuringUpdateCheckTable = (async () => {
+    await env.db.query(
+      `CREATE TABLE IF NOT EXISTS admin_update_check_state (
+        id TEXT PRIMARY KEY,
+        remote_digest TEXT NOT NULL,
+        checked_at BIGINT NOT NULL,
+        changed_at BIGINT,
+        changed_from_digest TEXT
+      )`
+    );
+    adminUpdateCheckTableEnsured = true;
+  })().finally(() => {
+    ensuringUpdateCheckTable = null;
+  });
+
+  return ensuringUpdateCheckTable;
+}
+
+async function loadUpdateCheckSnapshot(env: Env, id: string): Promise<UpdateCheckSnapshot | null> {
+  await ensureAdminUpdateCheckTable(env);
+  const result = await env.db.query(
+    `SELECT remote_digest as "remoteDigest",
+            checked_at as "checkedAt",
+            changed_at as "changedAt",
+            changed_from_digest as "changedFromDigest"
+       FROM admin_update_check_state
+      WHERE id = $1
+      LIMIT 1`,
+    [id]
+  );
+  const row = result.rows?.[0] as any;
+  if (!row) return null;
+  const remoteDigest = normalizeSha256Digest(row.remoteDigest);
+  if (!remoteDigest) return null;
+  return {
+    remoteDigest,
+    checkedAt: Number(row.checkedAt || 0),
+    changedAt: Number.isFinite(Number(row.changedAt)) ? Number(row.changedAt) : null,
+    changedFromDigest: normalizeSha256Digest(row.changedFromDigest)
+  };
+}
+
+async function saveUpdateCheckSnapshot(env: Env, id: string, snapshot: UpdateCheckSnapshot) {
+  await ensureAdminUpdateCheckTable(env);
+  await env.db.query(
+    `INSERT INTO admin_update_check_state (id, remote_digest, checked_at, changed_at, changed_from_digest)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (id) DO UPDATE SET
+       remote_digest = EXCLUDED.remote_digest,
+       checked_at = EXCLUDED.checked_at,
+       changed_at = EXCLUDED.changed_at,
+       changed_from_digest = EXCLUDED.changed_from_digest`,
+    [id, snapshot.remoteDigest, snapshot.checkedAt, snapshot.changedAt, snapshot.changedFromDigest]
+  );
+}
+
 function normalizeSha256Digest(value: unknown): string | null {
   const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!text) return null;
@@ -442,29 +517,116 @@ async function runImageUpdateCheck(env: Env) {
     };
   }
 
+  const stateId = buildUpdateCheckStateId(imageRef);
   const current = readCurrentRuntimeDigest(env);
+  let previous: UpdateCheckSnapshot | null = null;
+  try {
+    previous = await loadUpdateCheckSnapshot(env, stateId);
+  } catch {
+    previous = null;
+  }
+
   try {
     const remote = await fetchGhcrRemoteDigest(imageRef, UPDATE_CHECK_TIMEOUT_MS);
     const checkedAt = Date.now();
+    const previousDigest = previous?.remoteDigest || null;
+
+    const snapshot: UpdateCheckSnapshot = {
+      remoteDigest: remote.digest,
+      checkedAt,
+      changedAt: previous?.changedAt ?? null,
+      changedFromDigest: previous?.changedFromDigest ?? null
+    };
+
+    const changedNow = Boolean(previousDigest && previousDigest !== remote.digest);
+    if (changedNow) {
+      snapshot.changedAt = checkedAt;
+      snapshot.changedFromDigest = previousDigest;
+    }
+
+    try {
+      await saveUpdateCheckSnapshot(env, stateId, snapshot);
+    } catch {
+      // ignore persistence errors
+    }
+
     if (!current.digest) {
+      if (!previousDigest) {
+        return {
+          ok: true,
+          status: 'tracking_started',
+          comparisonMode: 'history',
+          checkedAt,
+          image: imageRef.image,
+          tag: imageRef.tag,
+          registry: imageRef.registry,
+          remoteDigest: remote.digest,
+          remoteLastModifiedAt: remote.lastModifiedAt,
+          currentDigest: null,
+          currentDigestSource: null,
+          details: '已开始追踪远端镜像；后续检测到变更会提示'
+        };
+      }
+
+      if (changedNow) {
+        return {
+          ok: true,
+          status: 'remote_changed',
+          comparisonMode: 'history',
+          checkedAt,
+          image: imageRef.image,
+          tag: imageRef.tag,
+          registry: imageRef.registry,
+          remoteDigest: remote.digest,
+          remoteLastModifiedAt: remote.lastModifiedAt,
+          previousRemoteDigest: previousDigest,
+          changedAt: snapshot.changedAt,
+          currentDigest: null,
+          currentDigestSource: null,
+          details: '检测到远端镜像 digest 变化（基于历史追踪）'
+        };
+      }
+
+      const changedAt = snapshot.changedAt;
+      if (changedAt && checkedAt - changedAt <= UPDATE_CHECK_RECENT_WINDOW_MS) {
+        return {
+          ok: true,
+          status: 'remote_changed_recent',
+          comparisonMode: 'history',
+          checkedAt,
+          image: imageRef.image,
+          tag: imageRef.tag,
+          registry: imageRef.registry,
+          remoteDigest: remote.digest,
+          remoteLastModifiedAt: remote.lastModifiedAt,
+          changedAt,
+          changedFromDigest: snapshot.changedFromDigest,
+          currentDigest: null,
+          currentDigestSource: null,
+          details: '近期检测到远端镜像更新（基于历史追踪）'
+        };
+      }
+
       return {
         ok: true,
-        status: 'cannot_compare',
+        status: 'remote_unchanged',
+        comparisonMode: 'history',
         checkedAt,
         image: imageRef.image,
         tag: imageRef.tag,
         registry: imageRef.registry,
         remoteDigest: remote.digest,
         remoteLastModifiedAt: remote.lastModifiedAt,
+        previousRemoteDigest: previousDigest,
         currentDigest: null,
-        currentDigestSource: null,
-        details: '未发现当前实例的镜像 digest（请注入 CURRENT_IMAGE_DIGEST）'
+        currentDigestSource: null
       };
     }
     if (current.digest === remote.digest) {
       return {
         ok: true,
         status: 'up_to_date',
+        comparisonMode: 'exact',
         checkedAt,
         image: imageRef.image,
         tag: imageRef.tag,
@@ -478,6 +640,7 @@ async function runImageUpdateCheck(env: Env) {
     return {
       ok: true,
       status: 'update_available',
+      comparisonMode: 'exact',
       checkedAt,
       image: imageRef.image,
       tag: imageRef.tag,
@@ -492,6 +655,7 @@ async function runImageUpdateCheck(env: Env) {
       ok: false,
       status: 'check_failed',
       checkedAt: Date.now(),
+      comparisonMode: current.digest ? 'exact' : 'history',
       image: imageRef.image,
       tag: imageRef.tag,
       registry: imageRef.registry,

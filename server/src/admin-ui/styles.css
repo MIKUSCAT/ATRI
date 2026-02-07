@@ -799,6 +799,56 @@ button.sm {
   background: var(--text-dim);
 }
 
+.update-status {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.update-status--idle {
+  color: var(--text-secondary);
+}
+
+.update-status--info {
+  color: var(--primary);
+  background: var(--primary-light);
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
+}
+
+.update-status--ok {
+  color: var(--success);
+  background: var(--success-light);
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
+}
+
+.update-status--warn {
+  color: color-mix(in srgb, var(--warning) 82%, #000 18%);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 36%, var(--border));
+}
+
+.update-status--error {
+  color: var(--danger);
+  background: var(--danger-light);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+}
+
+.update-meta {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* Card groups */
 .card-group {
   background: var(--surface-alt);

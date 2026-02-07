@@ -2,6 +2,8 @@ import { api } from '../lib/api.js';
 import { $ } from '../lib/dom.js';
 import { copyToClipboard, runBusy, setText } from '../lib/ui.js';
 
+let latestImagePageUrl = 'https://github.com/users/mikuscat/packages?repo_name=ATRI';
+
 function fmtList(list) {
   const arr = Array.isArray(list) ? list : [];
   return arr.map((item) => String(item || '').trim()).filter(Boolean);
@@ -23,38 +25,84 @@ function shortDigest(digest) {
   return `${text.slice(0, 19)}…${text.slice(-8)}`;
 }
 
+function setUpdateStatus(text, tone = 'idle') {
+  const el = $('overviewUpdateStatus');
+  if (!el) return;
+  el.classList.remove(
+    'update-status--idle',
+    'update-status--info',
+    'update-status--ok',
+    'update-status--warn',
+    'update-status--error'
+  );
+  const mapped = ['idle', 'info', 'ok', 'warn', 'error'].includes(tone) ? tone : 'idle';
+  el.classList.add(`update-status--${mapped}`);
+  setText(el, String(text || ''));
+}
+
+function buildImagePageUrl(image) {
+  const raw = String(image || '').trim().replace(/^https?:\/\//i, '');
+  if (!raw) return '';
+  const parts = raw.split('/').filter(Boolean);
+  if (parts.length >= 3 && parts[0].toLowerCase() === 'ghcr.io') {
+    const owner = parts[1];
+    const packageName = parts.slice(2).join('/');
+    if (owner && packageName) {
+      return `https://github.com/users/${encodeURIComponent(owner)}/packages/container/package/${encodeURIComponent(packageName)}`;
+    }
+  }
+  return `https://${raw}`;
+}
+
 function renderUpdateResult(result) {
   const status = String(result?.status || '').trim();
   const image = String(result?.image || '').trim();
   const tag = String(result?.tag || '').trim();
   const remoteDigest = shortDigest(result?.remoteDigest);
   const currentDigest = shortDigest(result?.currentDigest);
+  const previousDigest = shortDigest(result?.previousRemoteDigest);
+  const changedFromDigest = shortDigest(result?.changedFromDigest);
   const checkedAt = fmtTs(result?.checkedAt);
   const modifiedAt = fmtTs(result?.remoteLastModifiedAt);
+  const changedAt = fmtTs(result?.changedAt);
+  const comparisonMode = String(result?.comparisonMode || '').trim();
   const details = String(result?.details || '').trim();
 
   if (status === 'up_to_date') {
-    setText($('overviewUpdateStatus'), '当前已是最新镜像');
+    setUpdateStatus('当前实例已是最新镜像', 'ok');
   } else if (status === 'update_available') {
-    setText($('overviewUpdateStatus'), '检测到新镜像，请在 Zeabur 执行更新');
-  } else if (status === 'cannot_compare') {
-    setText($('overviewUpdateStatus'), '镜像可查到，但当前实例 digest 未注入，无法比较');
+    setUpdateStatus('检测到新镜像：当前实例落后', 'warn');
+  } else if (status === 'remote_changed') {
+    setUpdateStatus('检测到远端镜像有更新（历史追踪）', 'warn');
+  } else if (status === 'remote_changed_recent') {
+    setUpdateStatus('近期检测到远端镜像更新（历史追踪）', 'warn');
+  } else if (status === 'remote_unchanged') {
+    setUpdateStatus('远端镜像暂无新变化（历史追踪）', 'ok');
+  } else if (status === 'tracking_started') {
+    setUpdateStatus('已开始追踪远端镜像，后续会自动提示变化', 'info');
   } else if (status === 'misconfigured') {
-    setText($('overviewUpdateStatus'), '镜像检查配置无效');
+    setUpdateStatus('镜像检查配置无效', 'error');
   } else if (status === 'check_failed') {
-    setText($('overviewUpdateStatus'), '镜像检查失败');
+    setUpdateStatus('镜像检查失败', 'error');
   } else {
-    setText($('overviewUpdateStatus'), '状态未知');
+    setUpdateStatus('状态未知', 'info');
   }
 
   const lines = [];
   if (image) lines.push(`镜像：${image}${tag ? `:${tag}` : ''}`);
+  if (comparisonMode === 'history') lines.push('比较方式：历史追踪（免配置）');
+  if (comparisonMode === 'exact') lines.push('比较方式：精确对比（当前实例 digest）');
   if (remoteDigest) lines.push(`远端：${remoteDigest}`);
   if (currentDigest) lines.push(`当前：${currentDigest}`);
+  if (previousDigest) lines.push(`上次远端：${previousDigest}`);
+  if (changedFromDigest) lines.push(`上次变化来源：${changedFromDigest}`);
+  if (changedAt) lines.push(`上次变化时间：${changedAt}`);
   if (modifiedAt) lines.push(`远端时间：${modifiedAt}`);
   if (checkedAt) lines.push(`检查时间：${checkedAt}`);
   if (details) lines.push(`详情：${details}`);
   setText($('overviewUpdateMeta'), lines.join('\n') || '（无）');
+
+  latestImagePageUrl = buildImagePageUrl(image) || latestImagePageUrl;
 }
 
 async function refreshInfo() {
@@ -94,7 +142,7 @@ export async function loadOverviewInfo() {
     setText($('overviewMode'), '（获取失败）');
     setText($('overviewOrigins'), '（获取失败）');
     setText($('overviewBuildInfo'), '（获取失败）');
-    setText($('overviewUpdateStatus'), '（获取失败）');
+    setUpdateStatus('（获取失败）', 'error');
     setText($('overviewUpdateMeta'), '（获取失败）');
     setText($('overviewMsg'), String(e?.message || e));
   }
@@ -122,5 +170,14 @@ export function initOverviewHandlers() {
       () => checkUpdate().catch(e => setText($('overviewMsg'), String(e?.message || e))),
       '检查中...'
     );
+  });
+
+  $('openImagePageBtn')?.addEventListener('click', () => {
+    const target = String(latestImagePageUrl || '').trim();
+    if (!target) {
+      setText($('overviewMsg'), '暂无可打开的镜像地址');
+      return;
+    }
+    window.open(target, '_blank', 'noopener,noreferrer');
   });
 }

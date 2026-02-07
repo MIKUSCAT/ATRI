@@ -275,14 +275,15 @@
           <div class="divider"></div>
           <div class="section-title">自动更新</div>
           <div class="muted small">
-            检查镜像仓库 `latest` 是否有新 digest，可用于提醒你在 Zeabur 手动更新镜像部署。
+            默认追踪 `ghcr.io/mikuscat/atri-server:latest`，未配置当前 digest 也能给出“远端是否有新版本”的提醒。
           </div>
           <div id="overviewBuildInfo" class="muted small mt-10"></div>
-          <div id="overviewUpdateStatus" class="muted small mt-10">尚未检查</div>
-          <div id="overviewUpdateMeta" class="muted small mt-6"></div>
+          <div id="overviewUpdateStatus" class="update-status update-status--idle mt-10">尚未检查</div>
+          <div id="overviewUpdateMeta" class="update-meta mt-6">（无）</div>
 
           <div class="inline mt-12">
             <button id="checkUpdateBtn" class="secondary" type="button">检查更新</button>
+            <button id="openImagePageBtn" class="secondary" type="button">打开镜像页</button>
             <button id="refreshOverviewBtn" class="secondary" type="button">刷新</button>
           </div>
         </div>
