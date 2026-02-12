@@ -17,8 +17,8 @@
 <a href="#-后端部署">
   <img src="https://img.shields.io/badge/Backend-CF%20Workers%20%7C%20VPS-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Backend"/>
 </a>
-<a href="https://platform.openai.com/">
-  <img src="https://img.shields.io/badge/AI-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="AI"/>
+<a href="#️-技术架构">
+  <img src="https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Gemini-412991?style=for-the-badge&logo=openai&logoColor=white" alt="AI"/>
 </a>
 <a href="LICENSE">
   <img src="https://img.shields.io/badge/License-PolyForm%20NC-blue?style=for-the-badge" alt="License"/>
@@ -102,10 +102,10 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 
 | 🤖 传统聊天机器人 | 💝 ATRI 的做法 |
 |:------------------:|:---------------:|
-| 每次对话都是新开始 | 记住所有重要的事，通过日记和向量记忆 |
-| 情绪说变就变 | PAD 三维情绪模型 + 自然衰减，情绪有惯性 |
+| 每次对话都是新开始 | 记住所有重要的事，通过日记 + 向量记忆 + 实时事实 |
+| 情绪说变就变 | 状态胶囊系统 + 亲密度衰减，情绪有惯性 |
 | 千人一面的回复 | 亲密度系统影响说话风格，关系会成长 |
-| 可能乱编记忆 | 工具注册机制，需要时主动查证，不靠感觉补全 |
+| 可能乱编记忆 | 8 个工具注册机制，通过搜索/日记/联网主动查证，不靠感觉补全 |
 
 </div>
 
@@ -131,13 +131,14 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
                          ▼                                                     ▼
         ╔════════════════════════════════╗          ╔════════════════════════════════════╗
         ║    ☁️ Cloudflare Workers       ║    OR    ║      🖥️ VPS / Zeabur 服务器        ║
-        ║    D1 + R2 + Vectorize         ║          ║   PostgreSQL + pgvector + Node     ║
+        ║    D1 + R2 + Vectorize         ║          ║  Fastify + PostgreSQL + pgvector   ║
         ╚════════════════════════════════╝          ╚════════════════════════════════════╝
                                                     ║
                                                     ▼
                     ╔═══════════════════════════════════════════════════════════════════╗
-                    ║                      🧠 AI 模型服务（可切换）                       ║
-                    ║          OpenAI • Claude • Gemini • DeepSeek • 本地模型           ║
+                    ║                   🧠 AI 模型服务（原生多格式适配）                   ║
+                    ║     OpenAI • Claude • Gemini • DeepSeek • 本地模型                 ║
+                    ║     （自动适配 OpenAI / Anthropic / Gemini API 格式）              ║
                     ╚═══════════════════════════════════════════════════════════════════╝
 ```
 
@@ -156,7 +157,7 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 | 方案 | 适合人群 | 特点 |
 |:----:|:--------:|:-----|
 | ☁️ **Cloudflare Workers** | 🌱 新手、低成本 | 无服务器、有免费额度、部署简单 |
-| 🖥️ **VPS / Zeabur** | 🔧 进阶用户 | 网页管理后台、PostgreSQL、更多控制 |
+| 🖥️ **VPS / Zeabur** | 🔧 进阶用户 | 网页管理后台、PostgreSQL、兼容 API、更多控制 |
 
 </div>
 
@@ -311,7 +312,7 @@ docker-compose up -d
 
 ### 💭 上下文记忆
 
-<sub>当天对话自动融入<br/>后续回复</sub>
+<sub>今天+昨天对话自动<br/>融入后续回复</sub>
 
 </td>
 <td align="center" width="20%">
@@ -325,7 +326,7 @@ docker-compose up -d
 
 ### 🧠 长期记忆
 
-<sub>日记转化为向量记忆<br/>需要时自动唤醒</sub>
+<sub>向量记忆 + 实时事实<br/>需要时自动唤醒</sub>
 
 </td>
 <td align="center" width="20%">
@@ -347,11 +348,13 @@ docker-compose up -d
 
 | 特性 | 说明 |
 |:----:|:-----|
-| 🎭 **PAD 情绪模型** | 三维情绪坐标（愉悦度/兴奋度/掌控度）+ 自然衰减 |
+| 🎨 **状态胶囊** | 动态心情状态：文案 + 颜色，模型通过 `set_status` 工具自主更新 |
 | 💕 **亲密度系统** | 关系温度影响回复风格，不维护会慢慢淡 |
-| 🔧 **工具注册机制** | 模型主动查证记忆，不靠感觉乱编 |
+| 🔧 **8 个注册工具** | `search_memory` `read_diary` `read_conversation` `web_search` `set_status` `update_intimacy` `remember_fact` `forget_fact` |
+| 🌐 **原生多格式** | 原生支持 OpenAI、Anthropic (Claude)、Gemini 三种 API 格式 |
 | 🔀 **分流架构** | 聊天和日记可以用不同上游，互不影响 |
-| 🌐 **网页管理后台** | （仅 VPS）通过浏览器配置一切 |
+| 🌐 **网页管理后台** | （VPS）运行时配置、提示词编辑、加密密钥管理 |
+| 🔌 **兼容 API** | （VPS）提供 OpenAI / Anthropic / Gemini 兼容端点，第三方客户端可直接接入 |
 
 </div>
 
@@ -403,12 +406,12 @@ docker-compose up -d
 
 ```
 .
-├── 📱 ATRI/                    # Android 应用
+├── 📱 ATRI/                    # Android 应用 (Kotlin / Jetpack Compose)
 │   ├── app/src/main/
 │   │   ├── java/me/atri/
-│   │   │   ├── 📊 data/        # 数据层（API、DB、Repository）
-│   │   │   ├── 💉 di/          # 依赖注入
-│   │   │   ├── 🎨 ui/          # UI 层（Compose）
+│   │   │   ├── 📊 data/        # 数据层（API、DB、Repository、DataStore）
+│   │   │   ├── 💉 di/          # 依赖注入（Koin）
+│   │   │   ├── 🎨 ui/          # UI 层（Compose 界面 & 组件）
 │   │   │   └── 🔧 utils/       # 工具类
 │   │   └── 📦 res/             # 资源文件
 │   └── build.gradle.kts
@@ -421,12 +424,17 @@ docker-compose up -d
 │   ├── 🗄️ db/schema.sql        # 数据库结构
 │   └── ⚙️ wrangler.toml        # Worker 配置
 │
-├── 🖥️ server/                  # VPS 后端（Node.js + PostgreSQL）
+├── 🖥️ server/                  # VPS 后端（Fastify + PostgreSQL + pgvector）
 │   ├── src/
-│   │   ├── 🛤️ routes/          # API 路由
-│   │   ├── ⚙️ services/        # 核心服务
-│   │   └── 🌐 admin-ui/        # 网页管理后台
-│   ├── 🗄️ db/init.sql          # 数据库结构
+│   │   ├── 🛤️ routes/          # API 路由（chat, diary, conversation, media, admin, admin-ui, models, compat）
+│   │   ├── ⚙️ services/        # 核心服务（agent, LLM, memory, diary, profile, runtime-settings）
+│   │   ├── ⏰ jobs/            # 定时任务（diary-cron, diary-scheduler, memory-rebuild）
+│   │   ├── 🔧 runtime/        # 环境与类型
+│   │   ├── 📋 admin/          # 管理日志缓冲
+│   │   ├── 📝 config/         # 默认提示词
+│   │   ├── 🔧 utils/          # 工具函数（鉴权、签名、附件、清洗）
+│   │   └── 📜 scripts/        # 构建与导入脚本
+│   ├── 🌐 admin-ui/           # 网页管理后台（静态资源）
 │   ├── 🐳 docker-compose.yml
 │   ├── 🐳 Dockerfile
 │   └── ☁️ zeabur.yaml          # Zeabur 部署配置

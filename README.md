@@ -12,7 +12,7 @@
 
 [![Android](https://img.shields.io/badge/Android-Kotlin%20%7C%20Jetpack%20Compose-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
 [![Backend](https://img.shields.io/badge/Backend-CF%20Workers%20%7C%20VPS-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](#-backend-deployment)
-[![AI](https://img.shields.io/badge/AI-OpenAI%20Compatible-412991?style=for-the-badge&logo=openai&logoColor=white)](https://platform.openai.com/)
+[![AI](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Gemini-412991?style=for-the-badge&logo=openai&logoColor=white)](#-architecture)
 [![License](https://img.shields.io/badge/License-PolyForm%20NC-blue?style=for-the-badge)](LICENSE)
 
 <br/>
@@ -84,10 +84,10 @@
 
 | 🤖 Traditional Chatbots | 💖 ATRI's Approach |
 |:----------------------:|:------------------:|
-| Every conversation starts fresh | Remembers everything important via diary + vector memory |
-| Emotions change instantly | PAD 3D emotion model + natural decay, emotions have inertia |
+| Every conversation starts fresh | Remembers everything important via diary + vector memory + real-time facts |
+| Emotions change instantly | Status capsule system + intimacy decay, moods have inertia |
 | One-size-fits-all responses | Intimacy system affects speaking style, relationships grow |
-| May fabricate memories | Tool registration mechanism, actively verifies when needed |
+| May fabricate memories | Tool registration mechanism with 8 tools, actively verifies via search/diary/web |
 
 </div>
 
@@ -111,13 +111,14 @@
     ▼                                             ▼
 ┌───────────────────────┐         ┌───────────────────────────────┐
 │  ☁️ Cloudflare Workers │   OR    │   🖥️ VPS / Zeabur Server      │
-│  D1 + R2 + Vectorize  │         │  PostgreSQL + pgvector + Node │
+│  D1 + R2 + Vectorize  │         │  Fastify + PostgreSQL/pgvector│
 └───────────────────────┘         └───────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  🤖 AI Model Service (Swappable)                │
-│        OpenAI • Claude • Gemini • DeepSeek • Local Models       │
+│              🤖 AI Model Service (Native Multi-Format)          │
+│     OpenAI • Claude • Gemini • DeepSeek • Local Models          │
+│     (OpenAI / Anthropic / Gemini API format auto-adapt)         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -136,7 +137,7 @@
 | | Option | Best For | Features |
 |:--:|:------:|:---------|:---------|
 | ☁️ | **Cloudflare Workers** | Beginners, low cost | Serverless, free tier, simple setup |
-| 🖥️ | **VPS / Zeabur** | Advanced users | Web admin panel, PostgreSQL, more control |
+| 🖥️ | **VPS / Zeabur** | Advanced users | Web admin panel, PostgreSQL, compat API, more control |
 
 </div>
 
@@ -273,7 +274,7 @@ docker-compose up -d
 <br/>
 💬<br/><br/>
 <b>Context Memory</b><br/>
-<sub>Today's conversations<br/>inform responses</sub>
+<sub>Today + yesterday's chats<br/>inform responses</sub>
 <br/><br/>
 </td>
 <td align="center" width="20%">
@@ -287,7 +288,7 @@ docker-compose up -d
 <br/>
 🧠<br/><br/>
 <b>Long-term Memory</b><br/>
-<sub>Vector-stored memories<br/>awakened when needed</sub>
+<sub>Vector-stored memories<br/>+ real-time facts</sub>
 <br/><br/>
 </td>
 <td align="center" width="20%">
@@ -310,11 +311,13 @@ docker-compose up -d
 
 | Feature | Description |
 |:-------:|:------------|
-| 🎨 **PAD Emotion Model** | 3D emotion coordinates (Pleasure/Arousal/Dominance) + natural decay |
+| 🎨 **Status Capsule** | Dynamic mood status with label text + color, model-driven updates via `set_status` tool |
 | 💕 **Intimacy System** | Relationship temperature affects reply style, fades without maintenance |
-| 🔧 **Tool Registration** | Model actively verifies memories, doesn't fabricate |
+| 🔧 **8 Registered Tools** | `search_memory` `read_diary` `read_conversation` `web_search` `set_status` `update_intimacy` `remember_fact` `forget_fact` |
+| 🌐 **Native Multi-Format** | Natively supports OpenAI, Anthropic (Claude), and Gemini API formats |
 | 🔀 **Split Architecture** | Chat and diary can use different upstreams independently |
-| 🌐 **Web Admin Panel** | (VPS only) Configure everything via browser |
+| 🌐 **Web Admin Panel** | (VPS) Runtime config, prompt editing, encrypted secrets management |
+| 🔌 **Compat API** | (VPS) OpenAI / Anthropic / Gemini compatible endpoints for third-party clients |
 
 </div>
 
@@ -365,12 +368,12 @@ docker-compose up -d
 
 ```
 .
-├── 📱 ATRI/                 # Android App
+├── 📱 ATRI/                 # Android App (Kotlin / Jetpack Compose)
 │   ├── app/src/main/
 │   │   ├── java/me/atri/
-│   │   │   ├── data/        # Data layer (API, DB, Repository)
-│   │   │   ├── di/          # Dependency Injection
-│   │   │   ├── ui/          # UI layer (Compose)
+│   │   │   ├── data/        # Data layer (API, DB, Repository, DataStore)
+│   │   │   ├── di/          # Dependency Injection (Koin)
+│   │   │   ├── ui/          # UI layer (Compose screens & components)
 │   │   │   └── utils/       # Utilities
 │   │   └── res/             # Resources
 │   └── build.gradle.kts
@@ -383,12 +386,17 @@ docker-compose up -d
 │   ├── db/schema.sql        # Database schema
 │   └── wrangler.toml        # Worker config
 │
-├── 🖥️ server/               # VPS Backend (Node.js + PostgreSQL)
+├── 🖥️ server/               # VPS Backend (Fastify + PostgreSQL + pgvector)
 │   ├── src/
-│   │   ├── routes/          # API routes
-│   │   ├── services/        # Core services
-│   │   └── admin-ui/        # Web admin panel
-│   ├── db/init.sql          # Database schema
+│   │   ├── routes/          # API routes (chat, diary, conversation, media, admin, admin-ui, models, compat)
+│   │   ├── services/        # Core services (agent, LLM, memory, diary, profile, runtime-settings)
+│   │   ├── jobs/            # Scheduled jobs (diary-cron, diary-scheduler, memory-rebuild)
+│   │   ├── runtime/         # Environment & types
+│   │   ├── admin/           # Admin log buffer
+│   │   ├── config/          # Default prompts
+│   │   ├── utils/           # Utilities (auth, media-signature, attachments, sanitize)
+│   │   └── scripts/         # Build & import scripts
+│   ├── admin-ui/            # Web admin panel (static assets)
 │   ├── docker-compose.yml
 │   ├── Dockerfile
 │   └── zeabur.yaml          # Zeabur deployment config
@@ -425,7 +433,7 @@ docker-compose up -d
 
 <div align="center">
 
-**Contributions are welcome!** 
+**Contributions are welcome!**
 
 Feel free to open issues or submit pull requests.
 
