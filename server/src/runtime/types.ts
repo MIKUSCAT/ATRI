@@ -62,7 +62,7 @@ export interface BioChatRequest {
 
 export interface BioChatResponse {
   reply: string;
-  mood: { p: number; a: number; d: number };
+  status: { label: string; pillColor: string; textColor: string };
   action: string | null;
   intimacy: number;
   replyLogId?: string;

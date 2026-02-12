@@ -11,7 +11,6 @@ export type ConversationLogInput = {
   content: string;
   timestamp?: number;
   attachments?: unknown[];
-  mood?: string;
   replyTo?: string;
   userName?: string;
   timeZone?: string;
@@ -25,7 +24,6 @@ export type ConversationLogRecord = {
   role: ConversationRole;
   content: string;
   attachments: unknown[];
-  mood?: string;
   replyTo?: string;
   timestamp: number;
   userName?: string;
@@ -58,11 +56,13 @@ export type UserProfileRecord = {
   updatedAt: number;
 };
 
-export type PadValues = [number, number, number];
-
 export type UserStateRecord = {
   userId: string;
-  padValues: PadValues;
+  statusLabel: string;
+  statusPillColor: string;
+  statusTextColor: string;
+  statusReason: string | null;
+  statusUpdatedAt: number;
   intimacy: number;
   lastInteractionAt: number;
   updatedAt: number;
@@ -115,15 +115,14 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
 
   const result = await env.db.query(
     `INSERT INTO conversation_logs
-        (id, user_id, date, role, content, attachments, mood, reply_to, timestamp, user_name, time_zone, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        (id, user_id, date, role, content, attachments, reply_to, timestamp, user_name, time_zone, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO UPDATE SET
        user_id = EXCLUDED.user_id,
        date = EXCLUDED.date,
        role = EXCLUDED.role,
        content = EXCLUDED.content,
        attachments = EXCLUDED.attachments,
-       mood = EXCLUDED.mood,
        reply_to = COALESCE(EXCLUDED.reply_to, conversation_logs.reply_to),
        timestamp = EXCLUDED.timestamp,
        user_name = EXCLUDED.user_name,
@@ -136,7 +135,6 @@ export async function saveConversationLog(env: Env, payload: ConversationLogInpu
       payload.role,
       payload.content,
       JSON.stringify(attachments),
-      payload.mood ?? null,
       replyTo,
       timestamp,
       payload.userName ?? null,
@@ -158,7 +156,6 @@ export async function fetchConversationLogs(env: Env, userId: string, date: stri
             logs.role,
             logs.content,
             logs.attachments,
-            logs.mood,
             logs.reply_to as "replyTo",
             logs.timestamp,
             logs.user_name as "userName",
@@ -201,7 +198,6 @@ export async function fetchConversationLogsAfter(
                     logs.role,
                     logs.content,
                     logs.attachments,
-                    logs.mood,
                     logs.reply_to as "replyTo",
                     logs.timestamp,
                     logs.user_name as "userName",
@@ -263,7 +259,6 @@ export async function fetchConversationLogsByDateRange(
                     logs.role,
                     logs.content,
                     logs.attachments,
-                    logs.mood,
                     logs.reply_to as "replyTo",
                     logs.timestamp,
                     logs.user_name as "userName",
@@ -302,7 +297,6 @@ function mapConversationLogRow(row: any): ConversationLogRecord {
     role: row.role as ConversationRole,
     content: String(row.content || ''),
     attachments: parseJson(row.attachments),
-    mood: typeof row.mood === 'string' ? row.mood : undefined,
     replyTo: typeof row.replyTo === 'string' ? row.replyTo : undefined,
     timestamp: Number(row.timestamp || 0),
     userName: typeof row.userName === 'string' ? row.userName : undefined,
@@ -595,7 +589,11 @@ export async function deleteUserSettingsByUser(env: Env, userId: string) {
 export async function getUserState(env: Env, userId: string): Promise<UserStateRecord> {
   const result = await env.db.query(
     `SELECT user_id as "userId",
-            pad_values as "padValues",
+            status_label as "statusLabel",
+            status_pill_color as "statusPillColor",
+            status_text_color as "statusTextColor",
+            status_reason as "statusReason",
+            status_updated_at as "statusUpdatedAt",
             intimacy,
             last_interaction_at as "lastInteractionAt",
             updated_at as "updatedAt"
@@ -610,41 +608,34 @@ export async function getUserState(env: Env, userId: string): Promise<UserStateR
   if (!row) {
     return {
       userId,
-      padValues: [...DEFAULT_PAD_VALUES],
+      statusLabel: DEFAULT_STATUS_LABEL,
+      statusPillColor: DEFAULT_STATUS_PILL_COLOR,
+      statusTextColor: DEFAULT_STATUS_TEXT_COLOR,
+      statusReason: null,
+      statusUpdatedAt: now,
       intimacy: 0,
       lastInteractionAt: now,
       updatedAt: now
     };
   }
 
-  const rawPad = parsePadValues(row.padValues);
   const lastInteraction = Number.isFinite(Number(row.lastInteractionAt)) ? Number(row.lastInteractionAt) : now;
-  const decayedPad = applyMoodDecay(rawPad, lastInteraction, now);
   const rawIntimacy = Number.isFinite(Number(row.intimacy)) ? Number(row.intimacy) : 0;
   const decayedIntimacy = applyIntimacyDecay(rawIntimacy, lastInteraction, now);
 
   return {
     userId: String(row.userId || userId),
-    padValues: decayedPad,
+    statusLabel: normalizeStatusLabel(row.statusLabel),
+    statusPillColor: normalizeStatusColor(row.statusPillColor, DEFAULT_STATUS_PILL_COLOR),
+    statusTextColor: normalizeStatusColor(row.statusTextColor, DEFAULT_STATUS_TEXT_COLOR),
+    statusReason: normalizeStatusReason(row.statusReason),
+    statusUpdatedAt: Number.isFinite(Number(row.statusUpdatedAt))
+      ? Number(row.statusUpdatedAt)
+      : now,
     intimacy: decayedIntimacy,
     lastInteractionAt: lastInteraction,
     updatedAt: Number.isFinite(Number(row.updatedAt)) ? Number(row.updatedAt) : now
   };
-}
-
-function applyMoodDecay(pad: PadValues, lastInteractionAt: number, now: number): PadValues {
-  const hoursSince = (now - lastInteractionAt) / 3600000;
-  if (hoursSince < 0.5) return pad;
-
-  const decayRate = 0.92;
-  const cappedHours = Math.min(hoursSince, 48);
-  const factor = Math.pow(decayRate, cappedHours);
-
-  return [
-    clampPad(pad[0] * factor),
-    clampPad(pad[1] * factor),
-    clampPad(pad[2] * factor)
-  ];
 }
 
 function applyIntimacyDecay(intimacy: number, lastInteractionAt: number, now: number) {
@@ -666,16 +657,25 @@ function applyIntimacyDecay(intimacy: number, lastInteractionAt: number, now: nu
 export async function saveUserState(env: Env, state: UserStateRecord) {
   const payload = normalizeUserState(state);
   await env.db.query(
-    `INSERT INTO user_states (user_id, pad_values, intimacy, last_interaction_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5)
+    `INSERT INTO user_states
+        (user_id, status_label, status_pill_color, status_text_color, status_reason, status_updated_at, intimacy, last_interaction_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (user_id) DO UPDATE SET
-       pad_values = EXCLUDED.pad_values,
+       status_label = EXCLUDED.status_label,
+       status_pill_color = EXCLUDED.status_pill_color,
+       status_text_color = EXCLUDED.status_text_color,
+       status_reason = EXCLUDED.status_reason,
+       status_updated_at = EXCLUDED.status_updated_at,
        intimacy = EXCLUDED.intimacy,
        last_interaction_at = EXCLUDED.last_interaction_at,
        updated_at = EXCLUDED.updated_at`,
     [
       payload.userId,
-      JSON.stringify(payload.padValues),
+      payload.statusLabel,
+      payload.statusPillColor,
+      payload.statusTextColor,
+      payload.statusReason,
+      payload.statusUpdatedAt,
       payload.intimacy,
       payload.lastInteractionAt,
       payload.updatedAt
@@ -683,34 +683,36 @@ export async function saveUserState(env: Env, state: UserStateRecord) {
   );
 }
 
-export async function updateMoodState(env: Env, params: {
+export async function updateStatusState(env: Env, params: {
   userId: string;
-  pleasureDelta: number;
-  arousalDelta: number;
-  dominanceDelta?: number;
-  touchedAt?: number;
+  label?: string;
+  pillColor?: string;
+  textColor?: string;
   reason?: string;
+  touchedAt?: number;
   currentState?: UserStateRecord;
 }) {
   const current = params.currentState ?? await getUserState(env, params.userId);
   const now = typeof params.touchedAt === 'number' ? params.touchedAt : Date.now();
-  const nextPad: PadValues = [
-    clampPad(current.padValues[0] + safeNumber(params.pleasureDelta)),
-    clampPad(current.padValues[1] + safeNumber(params.arousalDelta)),
-    clampPad(current.padValues[2] + safeNumber(params.dominanceDelta))
-  ];
-
   const next: UserStateRecord = {
     ...current,
-    padValues: nextPad,
+    statusLabel: normalizeStatusLabel(params.label, current.statusLabel),
+    statusPillColor: normalizeStatusColor(params.pillColor, current.statusPillColor),
+    statusTextColor: normalizeStatusColor(params.textColor, current.statusTextColor),
+    statusReason: normalizeStatusReason(params.reason, current.statusReason),
+    statusUpdatedAt: now,
     lastInteractionAt: now,
     updatedAt: now
   };
 
   await saveUserState(env, next);
-  if (params.reason) {
-    console.log('[ATRI] mood updated', { userId: params.userId, padValues: nextPad, reason: params.reason });
-  }
+  console.log('[ATRI] status updated', {
+    userId: params.userId,
+    statusLabel: next.statusLabel,
+    statusPillColor: next.statusPillColor,
+    statusTextColor: next.statusTextColor,
+    statusReason: next.statusReason
+  });
   return next;
 }
 
@@ -902,35 +904,9 @@ export async function deleteConversationLogsByIds(env: Env, userId: string, ids:
   return Number(result.rowCount || 0);
 }
 
-const DEFAULT_PAD_VALUES: PadValues = [0.2, 0.3, 0];
-
-function parsePadValues(value: string | null | undefined): PadValues {
-  if (!value) {
-    return [...DEFAULT_PAD_VALUES];
-  }
-  try {
-    const arr = JSON.parse(value);
-    if (Array.isArray(arr) && arr.length === 3) {
-      return [
-        clampPad(Number(arr[0] ?? 0)),
-        clampPad(Number(arr[1] ?? 0)),
-        clampPad(Number(arr[2] ?? 0))
-      ];
-    }
-  } catch (error) {
-    console.warn('[ATRI] parsePadValues failed', error);
-  }
-  return [...DEFAULT_PAD_VALUES];
-}
-
-function clampPad(value: number) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(-1, Math.min(1, value));
-}
-
-function safeNumber(value: any) {
-  return Number.isFinite(value) ? Number(value) : 0;
-}
+const DEFAULT_STATUS_LABEL = '陪着你';
+const DEFAULT_STATUS_PILL_COLOR = '#7E8EA3';
+const DEFAULT_STATUS_TEXT_COLOR = '#FFFFFF';
 
 function safeInt(value: any) {
   if (!Number.isFinite(value)) return 0;
@@ -962,13 +938,40 @@ function normalizeUserState(state: UserStateRecord): UserStateRecord {
   const now = Date.now();
   return {
     userId: state.userId,
-    padValues: [
-      clampPad(state.padValues?.[0] ?? 0),
-      clampPad(state.padValues?.[1] ?? 0),
-      clampPad(state.padValues?.[2] ?? 0)
-    ],
+    statusLabel: normalizeStatusLabel(state.statusLabel),
+    statusPillColor: normalizeStatusColor(state.statusPillColor, DEFAULT_STATUS_PILL_COLOR),
+    statusTextColor: normalizeStatusColor(state.statusTextColor, DEFAULT_STATUS_TEXT_COLOR),
+    statusReason: normalizeStatusReason(state.statusReason),
+    statusUpdatedAt: Number.isFinite(state.statusUpdatedAt) ? Number(state.statusUpdatedAt) : now,
     intimacy: clampIntimacy(state.intimacy),
     lastInteractionAt: Number.isFinite(state.lastInteractionAt) ? Number(state.lastInteractionAt) : now,
     updatedAt: Number.isFinite(state.updatedAt) ? Number(state.updatedAt) : now
   };
+}
+
+function normalizeStatusLabel(value: unknown, fallback = DEFAULT_STATUS_LABEL) {
+  const raw = String(value || '').trim();
+  if (raw) {
+    return raw.slice(0, 40);
+  }
+  const fallbackText = String(fallback || '').trim();
+  return fallbackText ? fallbackText.slice(0, 40) : DEFAULT_STATUS_LABEL;
+}
+
+function normalizeStatusColor(value: unknown, fallback: string) {
+  const raw = String(value || '').trim();
+  if (raw) {
+    return raw.slice(0, 32);
+  }
+  const fallbackText = String(fallback || '').trim();
+  return fallbackText || '#7E8EA3';
+}
+
+function normalizeStatusReason(value: unknown, fallback: string | null = null) {
+  const raw = String(value || '').trim();
+  if (raw) {
+    return raw.slice(0, 120);
+  }
+  const fallbackText = String(fallback || '').trim();
+  return fallbackText ? fallbackText.slice(0, 120) : null;
 }

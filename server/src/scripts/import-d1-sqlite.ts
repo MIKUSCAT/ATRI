@@ -75,21 +75,20 @@ async function main() {
 
     if (tableExists('conversation_logs')) {
       const rows = readAll(
-        `SELECT id, user_id, date, role, content, attachments, mood, timestamp, user_name, time_zone, created_at
+        `SELECT id, user_id, date, role, content, attachments, timestamp, user_name, time_zone, created_at
            FROM conversation_logs`
       );
       for (const row of rows) {
         await client.query(
           `INSERT INTO conversation_logs
-              (id, user_id, date, role, content, attachments, mood, timestamp, user_name, time_zone, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              (id, user_id, date, role, content, attachments, timestamp, user_name, time_zone, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
            ON CONFLICT (id) DO UPDATE SET
              user_id = EXCLUDED.user_id,
              date = EXCLUDED.date,
              role = EXCLUDED.role,
              content = EXCLUDED.content,
              attachments = EXCLUDED.attachments,
-             mood = EXCLUDED.mood,
              timestamp = EXCLUDED.timestamp,
              user_name = EXCLUDED.user_name,
              time_zone = EXCLUDED.time_zone`,
@@ -100,7 +99,6 @@ async function main() {
             safeText(row.role),
             safeText(row.content),
             safeText(row.attachments),
-            safeText(row.mood) || null,
             safeInt(row.timestamp, Date.now()),
             safeText(row.user_name) || null,
             safeText(row.time_zone) || null,
@@ -147,22 +145,30 @@ async function main() {
 
     if (tableExists('user_states')) {
       const rows = readAll(
-        `SELECT user_id, pad_values, intimacy, last_interaction_at, updated_at
+        `SELECT user_id, intimacy, last_interaction_at, updated_at
            FROM user_states`
       );
       for (const row of rows) {
         await client.query(
           `INSERT INTO user_states
-              (user_id, pad_values, intimacy, last_interaction_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5)
+              (user_id, status_label, status_pill_color, status_text_color, status_reason, status_updated_at, intimacy, last_interaction_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
            ON CONFLICT (user_id) DO UPDATE SET
-             pad_values = EXCLUDED.pad_values,
+             status_label = EXCLUDED.status_label,
+             status_pill_color = EXCLUDED.status_pill_color,
+             status_text_color = EXCLUDED.status_text_color,
+             status_reason = EXCLUDED.status_reason,
+             status_updated_at = EXCLUDED.status_updated_at,
              intimacy = EXCLUDED.intimacy,
              last_interaction_at = EXCLUDED.last_interaction_at,
              updated_at = EXCLUDED.updated_at`,
           [
             safeText(row.user_id),
-            safeText(row.pad_values) || '[0.2,0.3,0]',
+            '陪着你',
+            '#7E8EA3',
+            '#FFFFFF',
+            null,
+            safeInt(row.updated_at, Date.now()),
             safeInt(row.intimacy, 0),
             safeInt(row.last_interaction_at, Date.now()),
             safeInt(row.updated_at, Date.now())

@@ -175,7 +175,6 @@ export function registerChatRoutes(app: FastifyInstance, env: Env) {
       const replyLogId = randomUUID();
       const replyTimestamp =
         typeof anchorTimestamp === 'number' ? Math.max(Date.now(), anchorTimestamp + 1) : Date.now();
-      const moodPayload = result.mood ? JSON.stringify(result.mood) : undefined;
 
       const shouldSkip = replyTo
         ? await isConversationLogDeleted(env, parsed.userId, replyTo)
@@ -189,7 +188,6 @@ export function registerChatRoutes(app: FastifyInstance, env: Env) {
             role: 'atri',
             content: result.reply,
             attachments: [],
-            mood: moodPayload,
             replyTo,
             timestamp: replyTimestamp,
             userName: parsed.userName,

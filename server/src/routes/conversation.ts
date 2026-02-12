@@ -57,7 +57,6 @@ export function registerConversationRoutes(app: FastifyInstance, env: Env) {
         role: role as 'user' | 'atri',
         content: cleanedContent,
         attachments: Array.isArray(body?.attachments) ? body.attachments : undefined,
-        mood: typeof body?.mood === 'string' ? body.mood : undefined,
         replyTo,
         timestamp: typeof body?.timestamp === 'number' ? body.timestamp : undefined,
         userName: typeof body?.userName === 'string' ? body.userName : undefined,

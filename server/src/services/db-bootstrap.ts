@@ -15,7 +15,6 @@ async function runSchemaBootstrap(env: Env) {
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       attachments TEXT,
-      mood TEXT,
       reply_to TEXT,
       timestamp BIGINT NOT NULL,
       user_name TEXT,
@@ -32,6 +31,7 @@ async function runSchemaBootstrap(env: Env) {
       ON conversation_logs(user_id, timestamp)`
   );
   await env.db.query(`ALTER TABLE conversation_logs ADD COLUMN IF NOT EXISTS reply_to TEXT`);
+  await env.db.query(`ALTER TABLE conversation_logs DROP COLUMN IF EXISTS mood`);
   await env.db.query(
     `CREATE INDEX IF NOT EXISTS idx_conversation_user_reply_to
       ON conversation_logs(user_id, reply_to)`
@@ -53,12 +53,46 @@ async function runSchemaBootstrap(env: Env) {
   await env.db.query(
     `CREATE TABLE IF NOT EXISTS user_states (
       user_id TEXT PRIMARY KEY,
-      pad_values TEXT NOT NULL,
+      status_label TEXT NOT NULL,
+      status_pill_color TEXT NOT NULL,
+      status_text_color TEXT NOT NULL,
+      status_reason TEXT,
+      status_updated_at BIGINT NOT NULL,
       intimacy INTEGER DEFAULT 0,
       last_interaction_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     )`
   );
+  await env.db.query(`ALTER TABLE user_states ADD COLUMN IF NOT EXISTS status_label TEXT`);
+  await env.db.query(`ALTER TABLE user_states ADD COLUMN IF NOT EXISTS status_pill_color TEXT`);
+  await env.db.query(`ALTER TABLE user_states ADD COLUMN IF NOT EXISTS status_text_color TEXT`);
+  await env.db.query(`ALTER TABLE user_states ADD COLUMN IF NOT EXISTS status_reason TEXT`);
+  await env.db.query(`ALTER TABLE user_states ADD COLUMN IF NOT EXISTS status_updated_at BIGINT`);
+  await env.db.query(
+    `UPDATE user_states
+        SET status_label = '陪着你'
+      WHERE status_label IS NULL OR btrim(status_label) = ''`
+  );
+  await env.db.query(
+    `UPDATE user_states
+        SET status_pill_color = '#7E8EA3'
+      WHERE status_pill_color IS NULL OR btrim(status_pill_color) = ''`
+  );
+  await env.db.query(
+    `UPDATE user_states
+        SET status_text_color = '#FFFFFF'
+      WHERE status_text_color IS NULL OR btrim(status_text_color) = ''`
+  );
+  await env.db.query(
+    `UPDATE user_states
+        SET status_updated_at = COALESCE(status_updated_at, updated_at, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)`
+  );
+  await env.db.query(`ALTER TABLE user_states ALTER COLUMN status_label SET NOT NULL`);
+  await env.db.query(`ALTER TABLE user_states ALTER COLUMN status_pill_color SET NOT NULL`);
+  await env.db.query(`ALTER TABLE user_states ALTER COLUMN status_text_color SET NOT NULL`);
+  await env.db.query(`ALTER TABLE user_states ALTER COLUMN status_updated_at SET NOT NULL`);
+  await env.db.query(`ALTER TABLE user_states DROP COLUMN IF EXISTS status_category`);
+  await env.db.query(`ALTER TABLE user_states DROP COLUMN IF EXISTS pad_values`);
 
   await env.db.query(
     `CREATE TABLE IF NOT EXISTS diary_entries (

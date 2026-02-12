@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   attachments TEXT,
-  mood TEXT,
   reply_to TEXT,
   timestamp BIGINT NOT NULL,
   user_name TEXT,
@@ -37,7 +36,11 @@ CREATE INDEX IF NOT EXISTS idx_conversation_tombstone_user
 
 CREATE TABLE IF NOT EXISTS user_states (
   user_id TEXT PRIMARY KEY,
-  pad_values TEXT NOT NULL,
+  status_label TEXT NOT NULL,
+  status_pill_color TEXT NOT NULL,
+  status_text_color TEXT NOT NULL,
+  status_reason TEXT,
+  status_updated_at BIGINT NOT NULL,
   intimacy INTEGER DEFAULT 0,
   last_interaction_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
