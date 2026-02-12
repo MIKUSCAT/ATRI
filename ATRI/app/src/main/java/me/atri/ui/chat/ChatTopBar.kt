@@ -113,7 +113,7 @@ private fun StatusPill(status: AtriStatus) {
                     .height(8.dp)
                     .width(8.dp),
                 shape = CircleShape,
-                color = pillColor,
+                color = textColor,
                 tonalElevation = 0.dp
             ) {}
             AnimatedContent(
