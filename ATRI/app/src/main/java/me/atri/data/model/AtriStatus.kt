@@ -1,39 +1,32 @@
 package me.atri.data.model
 
 sealed class AtriStatus(open val text: String) {
-    data class MoodStatus(
-        val p: Double,
-        val a: Double,
-        val d: Double,
-        override val text: String
-    ) : AtriStatus(text)
+    data class LiveStatus(
+        val label: String,
+        val pillColor: String,
+        val textColor: String
+    ) : AtriStatus(label)
 
-    object Thinking : AtriStatus("我整理一下")
+    data class Thinking(override val text: String) : AtriStatus(text)
 
     companion object {
-        fun fromMood(
-            mood: me.atri.data.api.response.BioChatResponse.Mood?,
-            intimacy: Int = 0
-        ): AtriStatus {
-            val p = mood?.p ?: 0.0
-            val a = mood?.a ?: 0.0
-            val d = mood?.d ?: 0.0
+        private val thinkingPhrases = listOf(
+            "我整理一下…",
+            "让我想想",
+            "嗯…稍等一下",
+            "等我一下嘛",
+            "思考中…"
+        )
 
-            val moodText = buildMoodText(p, a, d)
-            return MoodStatus(p, a, d, moodText)
+        fun thinking(): AtriStatus = Thinking(thinkingPhrases.random())
+
+        fun fromStatus(status: me.atri.data.api.response.BioChatResponse.Status?): AtriStatus {
+            val label = status?.label?.takeIf { it.isNotBlank() } ?: "陪着你"
+            val pillColor = status?.pillColor?.takeIf { it.isNotBlank() } ?: "#7E8EA3"
+            val textColor = status?.textColor?.takeIf { it.isNotBlank() } ?: "#FFFFFF"
+            return LiveStatus(label = label, pillColor = pillColor, textColor = textColor)
         }
 
-        private fun buildMoodText(p: Double, a: Double, d: Double): String {
-            return when {
-                p > 0.3 && a > 0.3 -> "想聊天！"
-                p > 0.3 && a <= 0.3 -> "心情好~"
-                p < -0.3 && a > 0.3 -> "有点炸"
-                p < -0.3 && a <= -0.2 -> "有点丧"
-                p <= 0.3 && p >= -0.3 && a < -0.2 -> "放松~"
-                else -> "陪着你"
-            }
-        }
-
-        fun idle(): AtriStatus = MoodStatus(0.0, 0.0, 0.0, "等你~")
+        fun idle(): AtriStatus = LiveStatus("等你~", "#7E8EA3", "#FFFFFF")
     }
 }

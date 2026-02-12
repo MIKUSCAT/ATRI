@@ -168,7 +168,7 @@ class ChatViewModel(
             val selectedReferenceAttachments = referenceSnapshot
                 ?.attachments?.filter { it.selected }?.map { it.attachment }.orEmpty()
 
-            updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+            updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
 
             try {
                 val result = chatRepository.sendMessage(
@@ -191,9 +191,9 @@ class ChatViewModel(
                         isFromAtri = true,
                         timestamp = adjustedTimestamp
                     )
-                    chatRepository.persistAtriMessage(atriMessage)
+                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                     statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
 
                     if (referenceSnapshot != null) clearReferencedAttachments()
                 } else {
@@ -301,7 +301,7 @@ class ChatViewModel(
                     all[index]
                 }
 
-                updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
                 deleteMessagesAfter(userMessage.id)
                 delay(300)
                 val result = chatRepository.regenerateResponse(
@@ -321,9 +321,9 @@ class ChatViewModel(
                         isFromAtri = true,
                         timestamp = adjustedTimestamp
                     )
-                    chatRepository.persistAtriMessage(atriMessage)
+                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                     statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
                 } else {
                     val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                     updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
@@ -361,7 +361,7 @@ class ChatViewModel(
                         deleteMessagesAfter(editedId)
                         delay(300)
 
-                        updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                        updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
                         val result = chatRepository.regenerateResponse(
                             userMessageId = editedMessage.id,
                             userContent = editedMessage.content,
@@ -378,9 +378,9 @@ class ChatViewModel(
                                 isFromAtri = true,
                                 timestamp = timestamp
                             )
-                            chatRepository.persistAtriMessage(atriMessage)
+                            chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                             statusRepository.incrementIntimacy(1)
-                            updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                            updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
                         } else {
                             val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                             updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
