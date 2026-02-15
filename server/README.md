@@ -107,6 +107,44 @@ OpenAI / Anthropic / Gemini<br/>
 </tr>
 </table>
 
+### 📬 主动消息（Proactive，可选）
+
+服务启动后，会按间隔自动评估是否需要“主动找你说句话”。默认每 60 分钟检查一次，规则和开关都在 `/admin` 里配置，保存即生效（无需重启）。
+
+- 主动消息使用 `/admin` 的“默认聊天模型”（和主对话一致）
+- 模型决定“不打搅”时会输出 `[SKIP]`，不会发任何消息
+- 需要外部通知（邮件/企业微信）时，模型会调用 `send_notification({content})` 工具；否则不会对外发送
+
+**开启步骤**
+1. 打开 `/admin` → 运行时配置：启用“主动消息”，按需设置间隔、安静时段、每日上限、冷却时间
+2. 配置“通知渠道/通知目标”（可选）：只想应用内主动消息就选 `none`
+3. 打开 `/admin` → 提示词：在 `proactive.system` 里写清楚“想他了就发一条，但别打搅”，并要求不需要就输出 `[SKIP]`
+
+提示词最小示例：
+```text
+如果我想他了，就给他发一条消息，不过不能打搅他。
+当你决定需要对外通知时，调用 send_notification，把要发送的一句话放在 content 里。
+如果不需要，就只输出 [SKIP]。
+```
+
+**邮件通知（Resend）部署流程**
+1. 在 Resend 创建 API Key（建议先准备一个已验证域名的发件人地址）
+2. 在 `.env` 添加：
+   ```env
+   EMAIL_API_KEY=re_xxx
+   EMAIL_FROM=ATRI <atri@your-domain.com>
+   ```
+3. `/admin` → 运行时配置：
+   - 通知渠道：`email`
+   - 通知目标：你的收件邮箱（例如 `you@example.com`）
+4. 等待下一次检查触发即可（需要快速验证时，把“检查间隔”临时调小）
+
+**企业微信通知（群机器人 Webhook）**
+1. 企业微信群里添加“群机器人”，拿到 Webhook（必须是 `https://qyapi.weixin.qq.com/...`）
+2. `/admin` → 运行时配置：
+   - 通知渠道：`wechat_work`
+   - 通知目标：粘贴 Webhook URL
+
 ---
 
 ## 🛠️ 技术栈
@@ -219,6 +257,8 @@ crontab -e
 | `TAVILY_API_KEY` | Tavily 搜索 API | - |
 | `DIARY_API_URL` | 日记生成 API（可独立配置） | 同 `OPENAI_API_URL` |
 | `DIARY_MODEL` | 日记生成模型 | - |
+| `EMAIL_API_KEY` | Resend 邮件通知 API Key（主动消息通知用） | - |
+| `EMAIL_FROM` | 邮件发件人（例如 `ATRI <atri@your-domain.com>`） | - |
 
 > ⚠️ **安全提示**：不要将 `.env` 文件提交到 Git 仓库
 

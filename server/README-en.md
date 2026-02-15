@@ -107,6 +107,44 @@ Switch AI providers freely
 </tr>
 </table>
 
+### 📬 Proactive Messages (Optional)
+
+After the server starts, it periodically evaluates whether ATRI should send a short proactive message. Default check interval is 60 minutes. All rules and switches are configured in `/admin` and take effect immediately (no restart).
+
+- Uses the `/admin` "default chat model" (same as main chat)
+- If it decides not to bother you, it outputs `[SKIP]` and sends nothing
+- External notifications (email / WeChat Work) are sent only when the model calls the `send_notification` tool
+
+**Enable**
+1. Open `/admin` → Runtime Config: enable proactive messaging, then set interval, quiet hours, max daily, cooldown
+2. Configure "Notification channel / target" (optional): choose `none` for in-app only
+3. Open `/admin` → Prompt Editor: update `proactive.system` and require `[SKIP]` when no message is needed
+
+Minimal prompt example:
+```text
+If I miss him, send him one message, but do not disturb him.
+When you decide an external notification is needed, call send_notification and put the one-line message into content.
+If not needed, output [SKIP] only.
+```
+
+**Email (Resend) Setup**
+1. Create a Resend API key (use a verified sender address if possible)
+2. Add to `.env`:
+   ```env
+   EMAIL_API_KEY=re_xxx
+   EMAIL_FROM=ATRI <atri@your-domain.com>
+   ```
+3. `/admin` → Runtime Config:
+   - Notification channel: `email`
+   - Notification target: receiver email (e.g. `you@example.com`)
+4. Wait for the next check (to verify quickly, temporarily reduce the interval)
+
+**WeChat Work (WeCom) Webhook**
+1. Create a group bot and get the webhook (must be `https://qyapi.weixin.qq.com/...`)
+2. `/admin` → Runtime Config:
+   - Notification channel: `wechat_work`
+   - Notification target: paste the webhook URL
+
 ---
 
 ## 🛠️ Tech Stack
@@ -219,6 +257,8 @@ crontab -e
 | `TAVILY_API_KEY` | Tavily search API | - |
 | `DIARY_API_URL` | Diary generation API (independent config) | Same as `OPENAI_API_URL` |
 | `DIARY_MODEL` | Diary generation model | - |
+| `EMAIL_API_KEY` | Resend email API key (for proactive notifications) | - |
+| `EMAIL_FROM` | Email sender (e.g. `ATRI <atri@your-domain.com>`) | - |
 
 > ⚠️ **Security Note**: Never commit `.env` file to Git repository
 
