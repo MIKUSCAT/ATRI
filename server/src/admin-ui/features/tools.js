@@ -22,6 +22,14 @@ async function testOpenaiModels() {
   setToolsOut(JSON.stringify(data, null, 2));
 }
 
+async function testDiary() {
+  setText($('toolsMsg'), '');
+  setToolsOut('');
+  const data = await api('/admin/api/tools/diary');
+  setText($('toolsMsg'), '日记上游 OK');
+  setToolsOut(JSON.stringify(data, null, 2));
+}
+
 async function testEmbeddings() {
   setText($('toolsMsg'), '');
   setToolsOut('');
@@ -39,6 +47,9 @@ export function initToolsHandlers() {
   });
   $('testOpenaiBtn').addEventListener('click', () => {
     runBusy($('testOpenaiBtn'), () => testOpenaiModels().catch(e => setText($('toolsMsg'), String(e?.message || e))), '测试中...');
+  });
+  $('testDiaryBtn').addEventListener('click', () => {
+    runBusy($('testDiaryBtn'), () => testDiary().catch(e => setText($('toolsMsg'), String(e?.message || e))), '测试中...');
   });
   $('testEmbeddingsBtn').addEventListener('click', () => {
     runBusy($('testEmbeddingsBtn'), () => testEmbeddings().catch(e => setText($('toolsMsg'), String(e?.message || e))), '测试中...');

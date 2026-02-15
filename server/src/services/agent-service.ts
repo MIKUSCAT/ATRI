@@ -254,7 +254,8 @@ function buildHistoryMessagesFromLogs(logs: ConversationLogRecord[]) {
         typeof log?.timestamp === 'number' && Number.isFinite(log.timestamp)
           ? formatTimeInZone(log.timestamp, zone)
           : '--:--';
-      const timePrefix = `[${timeText}] `;
+      const dateText = typeof log?.date === 'string' ? log.date.trim() : '';
+      const timePrefix = dateText ? `[${dateText} ${timeText}] ` : `[${timeText}] `;
       const attachments = normalizeAttachmentList(log.attachments).filter(att => att.type !== 'image');
       const parts = buildHistoryContentParts(log?.content, attachments);
       if (!parts.length) return null;

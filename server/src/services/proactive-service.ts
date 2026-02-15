@@ -9,7 +9,6 @@ import {
   ConversationLogRecord,
   fetchConversationLogsAfter,
   getProactiveUserState,
-  getUserModelPreference,
   getUserProfile,
   getUserState,
   saveConversationLog,
@@ -84,9 +83,10 @@ function buildHistoryMessages(logs: ConversationLogRecord[]) {
       const role = log.role === 'atri' ? 'assistant' : 'user';
       const zone = String(log.timeZone || '').trim() || 'Asia/Shanghai';
       const time = formatTimeInZone(log.timestamp, zone);
+      const dateText = typeof log.date === 'string' ? log.date.trim() : '';
       const text = sanitizeText(log.content || '').trim();
       if (!text) return null;
-      return { role, content: `[${time}] ${text}` };
+      return { role, content: dateText ? `[${dateText} ${time}] ${text}` : `[${time}] ${text}` };
     })
     .filter(Boolean) as Array<{ role: 'assistant' | 'user'; content: string }>;
 }
@@ -112,6 +112,103 @@ function extractMessageText(message: any): string {
   return String(content ?? '');
 }
 
+const PROACTIVE_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'send_notification',
+      description: '向用户发送一条外部通知（渠道/目标由 /admin 配置决定）。只有你真的想联系、且不会打搅对方时才用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: '要通知的内容（建议与要发出的那句话一致）' }
+        },
+        required: ['content']
+      }
+    }
+  }
+];
+
+async function runProactiveToolLoop(env: Env, params: {
+  messages: any[];
+  format: 'openai' | 'anthropic' | 'gemini';
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  timeoutMs: number;
+  trace?: { scope?: string; userId?: string };
+  notification: { requested: boolean; content: string | null; attempted: boolean; sent: boolean; error: string | null };
+}) {
+  const notification = params.notification;
+
+  for (let i = 0; i < 3; i++) {
+    const result = await callUpstreamChat(env, {
+      format: params.format,
+      apiUrl: params.apiUrl,
+      apiKey: params.apiKey,
+      model: params.model,
+      messages: params.messages,
+      tools: PROACTIVE_TOOLS,
+      temperature: params.temperature,
+      maxTokens: params.maxTokens,
+      timeoutMs: params.timeoutMs,
+      trace: params.trace
+    });
+
+    const message = result.message;
+    const toolCalls: any[] = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+    if (toolCalls.length === 0) {
+      return message;
+    }
+
+    params.messages.push({
+      role: 'assistant',
+      content: message?.content || null,
+      tool_calls: toolCalls
+    });
+
+    for (const call of toolCalls) {
+      const name = String(call?.function?.name || '').trim();
+      const toolCallId = String(call?.id || '').trim() || `tool_${Date.now()}`;
+
+      let output = '';
+      if (name !== 'send_notification') {
+        output = `unknown_tool:${name || 'empty'}`;
+      } else if (notification.requested) {
+        output = 'ignored:already_requested';
+      } else {
+        let args: any = {};
+        try {
+          args = JSON.parse(String(call?.function?.arguments || '') || '{}');
+        } catch {
+          args = {};
+        }
+        const content = String(args?.content || '').trim();
+        if (!content) {
+          output = 'invalid_content';
+        } else if (content.toUpperCase().includes('[SKIP]')) {
+          output = 'invalid_content_skip';
+        } else {
+          notification.requested = true;
+          notification.content = content.slice(0, 1000);
+          output = 'queued';
+        }
+      }
+
+      params.messages.push({
+        role: 'tool',
+        tool_call_id: toolCallId,
+        name,
+        content: output
+      });
+    }
+  }
+
+  return null;
+}
+
 function renderProactiveSystemPrompt(template: string, params: {
   now: number;
   timeZone: string;
@@ -134,8 +231,8 @@ async function runProactiveAgent(env: Env, params: {
   intimacy: number;
   hoursSince: number;
   settings: EffectiveRuntimeSettings;
-}): Promise<string | null> {
-  const model = (await getUserModelPreference(env, params.userId)) || params.settings.defaultChatModel;
+}): Promise<{ reply: string | null; notification: { attempted: boolean; sent: boolean; error: string | null } }> {
+  const model = params.settings.defaultChatModel;
   const profile = await getUserProfile(env, params.userId);
   const profileSnippet = buildUserProfileSnippet(profile?.content || '');
   const logs = await fetchConversationLogsAfter(env, {
@@ -176,24 +273,46 @@ async function runProactiveAgent(env: Env, params: {
     content: '请只输出你现在想发的一句话；如果不该打扰，请只输出 [SKIP]。'
   });
 
-  const result = await callUpstreamChat(env, {
+  const notification = {
+    requested: false,
+    content: null as string | null,
+    attempted: false,
+    sent: false,
+    error: null as string | null
+  };
+  const finalMessage = await runProactiveToolLoop(env, {
+    messages,
     format: params.settings.chatApiFormat,
     apiUrl: params.settings.openaiApiUrl,
     apiKey: params.settings.openaiApiKey,
     model,
-    messages,
     temperature: params.settings.agentTemperature,
     maxTokens: 256,
     timeoutMs: 90000,
-    trace: { scope: 'proactive', userId: params.userId }
+    trace: { scope: 'proactive', userId: params.userId },
+    notification
   });
 
-  const raw = extractMessageText(result.message).trim();
-  if (!raw) return null;
-  if (raw.toUpperCase().includes('[SKIP]')) return null;
+  const raw = extractMessageText(finalMessage).trim();
+  if (!raw) return { reply: null, notification };
+  if (raw.toUpperCase().includes('[SKIP]')) return { reply: null, notification };
   const reply = sanitizeAssistantReply(raw).trim();
-  if (!reply) return null;
-  return reply.slice(0, 600);
+  if (!reply) return { reply: null, notification };
+
+  if (notification.requested && !notification.attempted) {
+    notification.attempted = true;
+    const content = (notification.content || reply).trim().slice(0, 1000);
+    const r = await sendNotification(env, {
+      channel: params.settings.proactiveNotificationChannel,
+      target: params.settings.proactiveNotificationTarget,
+      content,
+      userId: params.userId
+    });
+    notification.sent = r.sent;
+    notification.error = r.error || null;
+  }
+
+  return { reply: reply.slice(0, 600), notification };
 }
 
 export async function evaluateProactiveForUser(env: Env, params: ProactiveEvaluateParams): Promise<ProactiveEvaluateResult> {
@@ -242,6 +361,9 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     : 24;
 
   let proactiveReply = '';
+  let notificationAttempted = false;
+  let notificationSent = false;
+  let notificationError: string | null = null;
   try {
     const generated = await runProactiveAgent(env, {
       userId,
@@ -251,7 +373,10 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
       hoursSince,
       settings
     });
-    proactiveReply = String(generated || '').trim();
+    proactiveReply = String(generated.reply || '').trim();
+    notificationAttempted = Boolean(generated.notification?.attempted);
+    notificationSent = Boolean(generated.notification?.sent);
+    notificationError = generated.notification?.error || null;
   } catch (error: any) {
     pushAppLog('warn', 'proactive_agent_failed', {
       event: 'proactive_agent_failed',
@@ -276,13 +401,7 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     timeZone
   });
 
-  const notificationChannel = settings.proactiveNotificationChannel;
-  const notifyResult = await sendNotification(env, {
-    channel: notificationChannel,
-    target: settings.proactiveNotificationTarget,
-    content: proactiveReply,
-    userId
-  });
+  const notificationChannel = notificationAttempted ? settings.proactiveNotificationChannel : 'none';
 
   const triggerContext = JSON.stringify({
     intimacy: userState.intimacy,
@@ -299,8 +418,8 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     triggerContext,
     status: 'pending',
     notificationChannel,
-    notificationSent: notifyResult.sent,
-    notificationError: notifyResult.error || null,
+    notificationSent: notificationSent,
+    notificationError: notificationError,
     createdAt: now,
     expiresAt: now + 72 * 3600000
   });
@@ -317,9 +436,9 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     event: 'proactive_message_created',
     userId,
     messageId: savedLog.id,
-    notificationSent: notifyResult.sent,
+    notificationSent: notificationSent,
     notificationChannel,
-    reason: notifyResult.error || 'ok'
+    reason: notificationError || 'ok'
   });
 
   return { triggered: true, reason: 'sent', messageId: savedLog.id };

@@ -15,6 +15,7 @@ import {
   listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors, embedText } from '../services/memory-service';
+import { generateDiaryFromConversation } from '../services/diary-generator';
 import { callUpstreamChat } from '../services/llm-service';
 import {
   getEffectiveRuntimeSettings,
@@ -25,6 +26,7 @@ import {
   updatePromptsOverride,
   updateRuntimeConfig
 } from '../services/runtime-settings';
+import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 
 const SESSION_COOKIE = 'atri_admin_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1196,6 +1198,43 @@ export function registerAdminUiRoutes(app: FastifyInstance, env: Env) {
       const isApi = error?.status && typeof error.status === 'number';
       const details = isApi ? String(error?.details || '') : String(error?.message || error);
       return sendJson(reply, { error: 'upstream_test_failed', details: details.slice(0, 2000) }, 502);
+    }
+  });
+
+  app.get('/admin/api/tools/diary', async (request, reply) => {
+    const guard = requireAdmin(request, env);
+    if (guard) return sendJson(reply, guard.body, guard.status);
+    const settings = await getEffectiveRuntimeSettings(env);
+
+    const apiUrl = String(settings.diaryApiUrl || settings.openaiApiUrl || '').trim();
+    const apiKey = String(settings.diaryApiKey || settings.openaiApiKey || '').trim();
+    if (!apiUrl || !apiKey) {
+      return sendJson(reply, { error: 'missing_api_config' }, 400);
+    }
+
+    const now = Date.now();
+    const date = formatDateInZone(now, DEFAULT_TIMEZONE);
+    try {
+      const result = await generateDiaryFromConversation(env, {
+        conversation: '你：今天有点累。\n亚托莉：辛苦了，先休息一下吧。',
+        userId: 'admin',
+        userName: '你',
+        date,
+        daysSinceLastChat: 0,
+        modelKey: null
+      });
+      return sendJson(reply, {
+        ok: true,
+        provider: settings.diaryApiFormat,
+        model: String(settings.diaryModel || settings.defaultChatModel || '').trim() || 'default',
+        mood: result.mood,
+        highlights: result.highlights,
+        diaryPreview: String(result.content || '').trim().slice(0, 400)
+      });
+    } catch (error: any) {
+      const isApi = error?.status && typeof error.status === 'number';
+      const details = isApi ? String(error?.details || '') : String(error?.message || error);
+      return sendJson(reply, { error: 'diary_test_failed', details: details.slice(0, 2000) }, 502);
     }
   });
 

@@ -6,7 +6,6 @@ import {
   saveDiaryEntry,
   getLastConversationDate,
   calculateDaysBetween,
-  getUserModelPreference,
   getUserProfile,
   saveUserProfile
 } from '../services/data-service';
@@ -34,20 +33,13 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
       const lastDate = await getLastConversationDate(env, user.userId, date);
       const daysSince = lastDate ? calculateDaysBetween(lastDate, date) : null;
 
-      let preferredModel: string | null = null;
-      try {
-        preferredModel = await getUserModelPreference(env, user.userId);
-      } catch (err) {
-        console.warn('[ATRI] load user model preference failed', { userId: user.userId, err });
-      }
-
       const diary = await generateDiaryFromConversation(env, {
         conversation: transcript,
         userId: user.userId,
         userName: user.userName || '这个人',
         date,
         daysSinceLastChat: daysSince,
-        modelKey: preferredModel
+        modelKey: null
       });
       const summaryText = diary.highlights.length
         ? diary.highlights.join('；')
@@ -82,7 +74,7 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
           date,
           userName: user.userName || '这个人',
           previousProfile: previousProfile?.content || '',
-          modelKey: preferredModel
+          modelKey: null
         });
         await saveUserProfile(env, { userId: user.userId, content: profile.raw });
       } catch (err) {

@@ -6,7 +6,7 @@ import { sanitizeText } from '../utils/sanitize';
 import { requireAppToken } from '../utils/auth';
 import { sendJson } from '../utils/reply';
 import { runAgentChat } from '../services/agent-service';
-import { deleteConversationLogsByIds, isConversationLogDeleted, saveConversationLog, saveUserModelPreference } from '../services/data-service';
+import { deleteConversationLogsByIds, isConversationLogDeleted, saveConversationLog } from '../services/data-service';
 import { getEffectiveRuntimeSettings } from '../services/runtime-settings';
 
 interface ChatRequestBody {
@@ -89,16 +89,8 @@ export function registerChatRoutes(app: FastifyInstance, env: Env) {
         return sendJson(reply, { error: 'invalid_request', message: 'content cannot be empty' }, 400);
       }
 
-      if (parsed.modelKey) {
-        try {
-          await saveUserModelPreference(env, parsed.userId, parsed.modelKey);
-        } catch (err) {
-          request.log.warn({ err, userId: parsed.userId }, '[ATRI] save user model preference failed');
-        }
-      }
-
       const settings = await getEffectiveRuntimeSettings(env);
-      const modelToUse = parsed.modelKey?.trim() ? parsed.modelKey.trim() : settings.defaultChatModel || CHAT_MODEL;
+      const modelToUse = settings.defaultChatModel || CHAT_MODEL;
 
       const replyTo = typeof parsed.logId === 'string' && parsed.logId.trim() ? parsed.logId.trim() : undefined;
       let anchorTimestamp: number | null = null;

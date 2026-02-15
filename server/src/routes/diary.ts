@@ -8,7 +8,6 @@ import {
   fetchConversationLogs,
   getDiaryEntry,
   getLastConversationDate,
-  getUserModelPreference,
   getUserProfile,
   listDiaryEntries,
   saveDiaryEntry,
@@ -75,20 +74,13 @@ export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
       const lastDate = await getLastConversationDate(env, userId, date);
       const daysSince = lastDate ? calculateDaysBetween(lastDate, date) : null;
 
-      let preferredModel: string | null = null;
-      try {
-        preferredModel = await getUserModelPreference(env, userId);
-      } catch (err) {
-        request.log.warn({ err, userId }, '[ATRI] load user model preference failed');
-      }
-
       const diary = await generateDiaryFromConversation(env, {
         conversation: transcript,
         userId,
         userName: detectedUserName || '这个人',
         date,
         daysSinceLastChat: daysSince,
-        modelKey: preferredModel
+        modelKey: null
       });
 
       const summaryText = diary.highlights.length
@@ -125,7 +117,7 @@ export function registerDiaryRoutes(app: FastifyInstance, env: Env) {
           date,
           userName: detectedUserName || '这个人',
           previousProfile: previousProfile?.content || '',
-          modelKey: preferredModel
+          modelKey: null
         });
         await saveUserProfile(env, { userId, content: profile.raw });
       } catch (err) {
