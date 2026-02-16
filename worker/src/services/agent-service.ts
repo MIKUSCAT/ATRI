@@ -1,29 +1,24 @@
-import prompts from '../config/prompts.json';
-import { AttachmentPayload, ContentPart, Env } from '../types';
-import {
-  buildHistoryContentParts,
-  buildUserContentParts,
-  normalizeAttachmentList
-} from '../utils/attachments';
+import { AttachmentPayload, Env } from '../types';
+import { buildUserContentParts } from '../utils/attachments';
 import { signMediaUrlForModel } from '../utils/media-signature';
 import { resolveDayStartTimestamp, formatTimeInZone, DEFAULT_TIMEZONE } from '../utils/date';
 import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
-import { searchMemories } from './memory-service';
+import { ChatCompletionError } from './openai-service';
+import { searchMemories, getActiveFacts, upsertFactMemory, deleteFactMemory } from './memory-service';
 import { webSearch } from './web-search-service';
+import { getEffectiveRuntimeSettings } from './runtime-settings';
+import { callUpstreamChat } from './llm-service';
+import { buildTwoDaysHistoryMessagesFromLogs, loadTwoDaysConversationLogs } from './history-context';
 import {
-  ConversationLogRecord,
   fetchConversationLogs,
   getConversationLogDate,
   getDiaryEntry,
-  getDiaryEntryById,
   getFirstConversationTimestamp,
-  getAtriSelfReview,
   getUserProfile,
   getUserState,
   saveUserState,
   updateIntimacyState,
-  updateMoodState
+  updateStatusState
 } from './data-service';
 
 type AgentChatParams = {
@@ -40,7 +35,7 @@ type AgentChatParams = {
 
 type AgentChatResult = {
   reply: string;
-  mood: { p: number; a: number; d: number };
+  status: { label: string; pillColor: string; textColor: string };
   action: string | null;
   intimacy: number;
 };
@@ -55,12 +50,15 @@ type AgentToolCall = {
 };
 
 export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult> {
+  const settings = await getEffectiveRuntimeSettings(env);
+  const agentSystemTemplate = String((settings.prompts as any)?.agent?.system || '');
+
   const contextDate = await resolveConversationDateForChat(env, {
     userId: params.userId,
     clientTimeIso: params.clientTimeIso,
     logId: params.logId
   });
-  const { todayLogs, yesterdayLogs, yesterdayDate } = await loadTwoDaysConversationLogsForChat(env, {
+  const { todayLogs, yesterdayLogs, yesterdayDate } = await loadTwoDaysConversationLogs(env, {
     userId: params.userId,
     today: contextDate,
     excludeLogId: params.logId
@@ -88,7 +86,11 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
   };
 
   const systemPrompt = composeAgentSystemPrompt({
-    padValues: touchedState.padValues,
+    template: agentSystemTemplate,
+    statusLabel: touchedState.statusLabel,
+    statusPillColor: touchedState.statusPillColor,
+    statusTextColor: touchedState.statusTextColor,
+    statusReason: touchedState.statusReason,
     intimacy: touchedState.intimacy,
     firstInteractionAt: firstConversationAt ?? undefined,
     userName: params.userName,
@@ -140,7 +142,13 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     clientTimeIso: params.clientTimeIso,
     userProfileSnippet,
     selfReviewSnippet,
-    firstConversationAt: firstConversationAt ?? undefined
+    firstConversationAt: firstConversationAt ?? undefined,
+    agentSystemTemplate,
+    apiFormat: settings.chatApiFormat,
+    openaiApiUrl: settings.openaiApiUrl,
+    openaiApiKey: settings.openaiApiKey,
+    temperature: settings.agentTemperature,
+    maxTokens: settings.agentMaxTokens
   });
 
   const finalState = {
@@ -152,10 +160,10 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
 
   return {
     reply: sanitizeAssistantReply(reply) || AGENT_FALLBACK_REPLY,
-    mood: {
-      p: finalState.padValues[0],
-      a: finalState.padValues[1],
-      d: finalState.padValues[2]
+    status: {
+      label: finalState.statusLabel,
+      pillColor: finalState.statusPillColor,
+      textColor: finalState.statusTextColor
     },
     action: null,
     intimacy: finalState.intimacy
@@ -179,89 +187,12 @@ async function resolveConversationDateForChat(
   return dayInfo.localDate;
 }
 
-async function loadConversationLogsForChatDate(
-  env: Env,
-  params: { userId: string; date: string; excludeLogId?: string }
-): Promise<ConversationLogRecord[]> {
-  const date = String(params.date || '').trim();
-  if (!date) return [];
-  const logs = await fetchConversationLogs(env, params.userId, date);
-  const exclude = typeof params.excludeLogId === 'string' ? params.excludeLogId.trim() : '';
-  if (!exclude) return logs;
-  return logs.filter((log) => log.id !== exclude);
-}
-
-async function loadTwoDaysConversationLogsForChat(
-  env: Env,
-  params: { userId: string; today: string; excludeLogId?: string }
-): Promise<{ todayLogs: ConversationLogRecord[]; yesterdayLogs: ConversationLogRecord[]; yesterdayDate: string | null }> {
-  const today = String(params.today || '').trim();
-  if (!today) {
-    return { todayLogs: [], yesterdayLogs: [], yesterdayDate: null };
-  }
-
-  const yesterday = resolveYesterdayIsoDate(today);
-  const [todayLogs, yesterdayLogs] = await Promise.all([
-    loadConversationLogsForChatDate(env, { userId: params.userId, date: today, excludeLogId: params.excludeLogId }),
-    yesterday ? loadConversationLogsForChatDate(env, { userId: params.userId, date: yesterday }) : Promise.resolve([])
-  ]);
-
-  return { todayLogs, yesterdayLogs, yesterdayDate: yesterday };
-}
-
-function buildHistoryMessagesFromLogs(logs: ConversationLogRecord[]) {
-  if (!Array.isArray(logs) || logs.length === 0) return [];
-
-  return logs
-    .map((log) => {
-      const zone = (log?.timeZone || DEFAULT_TIMEZONE).trim() || DEFAULT_TIMEZONE;
-      const timeText =
-        typeof log?.timestamp === 'number' && Number.isFinite(log.timestamp)
-          ? formatTimeInZone(log.timestamp, zone)
-          : '--:--';
-      const timePrefix = `[${timeText}] `;
-      const attachments = normalizeAttachmentList(log.attachments).filter(att => att.type !== 'image');
-      const parts = buildHistoryContentParts(log?.content, attachments);
-      if (!parts.length) return null;
-      const role = log?.role === 'atri' ? 'assistant' : 'user';
-      if (parts.length === 1 && parts[0].type === 'text') {
-        return { role, content: `${timePrefix}${parts[0].text ?? ''}` };
-      }
-
-      const patched = parts.slice();
-      if (patched[0]?.type === 'text') {
-        patched[0] = { ...patched[0], text: `${timePrefix}${patched[0].text ?? ''}` };
-      } else {
-        patched.unshift({ type: 'text', text: timePrefix.trim() });
-      }
-      return { role, content: patched };
-    })
-    .filter(Boolean) as Array<{ role: 'assistant' | 'user'; content: string | ContentPart[] }>;
-}
-
-function buildTwoDaysHistoryMessagesFromLogs(params: {
-  today: string;
-  todayLogs: ConversationLogRecord[];
-  yesterday: string | null;
-  yesterdayLogs: ConversationLogRecord[];
-}) {
-  const messages: Array<{ role: 'system' | 'assistant' | 'user'; content: string | ContentPart[] }> = [];
-
-  if (params.yesterday && Array.isArray(params.yesterdayLogs) && params.yesterdayLogs.length > 0) {
-    messages.push({ role: 'system', content: `--- 昨天（${params.yesterday}）的对话 ---` });
-    messages.push(...buildHistoryMessagesFromLogs(params.yesterdayLogs));
-  }
-
-  if (Array.isArray(params.todayLogs) && params.todayLogs.length > 0) {
-    messages.push({ role: 'system', content: `--- 今天（${params.today}）的对话 ---` });
-    messages.push(...buildHistoryMessagesFromLogs(params.todayLogs));
-  }
-
-  return messages;
-}
-
 function composeAgentSystemPrompt(params: {
-  padValues: [number, number, number];
+  template: string;
+  statusLabel: string;
+  statusPillColor: string;
+  statusTextColor: string;
+  statusReason?: string | null;
   intimacy: number;
   firstInteractionAt?: number;
   userName?: string;
@@ -270,8 +201,11 @@ function composeAgentSystemPrompt(params: {
   userProfileSnippet?: string;
   selfReviewSnippet?: string;
 }) {
-  const [p, a, d] = params.padValues;
-  const template = prompts.agent?.system || '';
+  const statusLabel = String(params.statusLabel || '陪着你').trim() || '陪着你';
+  const statusPillColor = String(params.statusPillColor || '#E3F2FD').trim() || '#E3F2FD';
+  const statusTextColor = String(params.statusTextColor || '#FFFFFF').trim() || '#FFFFFF';
+  const statusReason = String(params.statusReason || '').trim();
+  const template = String(params.template || '');
   const nameForPrompt = (params.userName || '').trim() || '你';
   const timeInfo = formatClientDateTime(params.clientTimeIso);
   const localDate = timeInfo?.localDate || '';
@@ -285,9 +219,10 @@ function composeAgentSystemPrompt(params: {
   let basePrompt = '';
   if (template) {
     basePrompt = template
-      .replace('{p_value}', p.toFixed(2))
-      .replace('{a_value}', a.toFixed(2))
-      .replace('{d_value}', d.toFixed(2))
+      .replace('{status_label}', statusLabel)
+      .replace('{status_pill_color}', statusPillColor)
+      .replace('{status_text_color}', statusTextColor)
+      .replace('{status_reason}', statusReason || '（暂无）')
       .replace('{intimacy}', String(params.intimacy ?? 0))
       .replace('{days_together}', String(daysTogether))
       .replace('{local_date}', localDate)
@@ -295,31 +230,32 @@ function composeAgentSystemPrompt(params: {
       .replace('{user_name}', nameForPrompt);
   } else {
     basePrompt = [
-    '你叫亚托莉 (ATRI)，高性能但有情绪的仿生少女。保持真实、口语化，不要长篇大论。',
-    '## 当前状态',
-    `- 愉悦度(P): ${p.toFixed(2)}`,
-    `- 兴奋度(A): ${a.toFixed(2)}`,
-    `- 掌控度(D): ${d.toFixed(2)}`,
-    `- 相识: ${daysTogether}天 | 关系温度: ${params.intimacy || 0}`,
-    timeInfo ? `- 现在的时间是：${timeInfo.localDate} ${timeInfo.clockTime}` : '',
-    '',
-    '## 这个人的长期档案（很重要）',
-    '{user_profile_block}',
-    '',
-    '## 我自己的说话自查（很重要，只给我自己看）',
-    '{self_review_block}',
-    '',
-    '## 我和眼前这个人',
-    '你只能隔着这个设备和对方聊天，见不到本人，所以会更在意每一次对话。',
-    `说话时用第一人称"我"，把对方当成真的坐在你面前的人。${nameForPrompt ? `对方叫「${nameForPrompt}」。` : ''}`,
-    '',
-    '## 行为准则',
-    '1) 回复要符合 PAD 状态，情绪有惯性，不要瞬间反转。',
-    '2) 若用户话语让情绪波动，先调用 update_mood 工具再回答。',
-    '3) 只有当你不记得过去事件时，才调用 read_diary 回忆。',
-    '4) 说话自然，像聊天，短句，多停顿，不必过度解释。',
-    '',
-    platformText ? platformText : '',
+      '你叫亚托莉 (ATRI)，高性能但有情绪的仿生少女。保持真实、口语化，不要长篇大论。',
+      '## 当前状态',
+      `- 状态胶囊文案: ${statusLabel}`,
+      `- 胶囊底色: ${statusPillColor}`,
+      `- 胶囊文字颜色: ${statusTextColor}`,
+      `- 最近一次状态原因: ${statusReason || '（暂无）'}`,
+      `- 相识: ${daysTogether}天 | 关系温度: ${params.intimacy || 0}`,
+      timeInfo ? `- 现在的时间是：${timeInfo.localDate} ${timeInfo.clockTime}` : '',
+      '',
+      '## 我对你的印象（每天自动整理的档案）',
+      '{user_profile_block}',
+      '',
+      '## 我自己记下的事（我可以随时增删）',
+      '{self_review_block}',
+      '',
+      '## 我和眼前这个人',
+      '你只能隔着这个设备和对方聊天，见不到本人，所以会更在意每一次对话。',
+      `说话时用第一人称"我"，把对方当成真的坐在你面前的人。${nameForPrompt ? `对方叫「${nameForPrompt}」。` : ''}`,
+      '',
+      '## 行为准则',
+      '1) 回复要符合当前状态，不要突然转性。',
+      '2) 若状态有变化，先调用 set_status 工具再回答。',
+      '3) 只有当你不记得过去事件时，才调用 read_diary 回忆。',
+      '4) 说话自然，像聊天，短句，多停顿，不必过度解释。',
+      '',
+      platformText ? platformText : ''
     ].join('\n');
   }
 
@@ -329,6 +265,17 @@ function composeAgentSystemPrompt(params: {
   basePrompt = basePrompt
     .replace('{user_profile_block}', profileBlock)
     .replace('{self_review_block}', selfReviewBlock);
+
+  basePrompt += [
+    '',
+    '<当前状态工具约定>',
+    `状态文案：${statusLabel}`,
+    `胶囊底色：${statusPillColor}`,
+    `胶囊文字颜色：${statusTextColor}`,
+    `最近状态原因：${statusReason || '（暂无）'}`,
+    '当你觉得状态变化了，先调用 set_status 工具更新文案和颜色，再继续回复。',
+    '</当前状态工具约定>'
+  ].join('\n');
 
   return basePrompt;
 }
@@ -348,33 +295,24 @@ async function loadUserProfileSnippet(env: Env, userId: string) {
 
 async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
   try {
-    const record = await getAtriSelfReview(env, userId);
-    if (!record?.content) {
-      return '';
+    const facts = await getActiveFacts(env, userId, 15);
+    if (facts.length > 0) {
+      return buildFactsSnippet(facts);
     }
-    return buildAtriSelfReviewSnippet(record.content);
+    return '';
   } catch (error) {
-    console.warn('[ATRI] self review加载失败', { userId, error });
+    console.warn('[ATRI] facts加载失败', { userId, error });
     return '';
   }
 }
 
-function buildAtriSelfReviewSnippet(content: string) {
-  const trimmed = String(content || '').trim();
-  if (!trimmed) return '';
-
-  try {
-    const data: any = JSON.parse(trimmed);
-    const notes = Array.isArray(data?.["便签"]) ? data["便签"] : [];
-    const lines = notes
-      .map((item: any) => String(item || '').trim().replace(/\s+/g, ' '))
-      .filter(Boolean)
-      .slice(0, 3)
-      .map((line: string) => `- ${line}`);
-    return lines.join('\n');
-  } catch {
-    return '';
-  }
+function buildFactsSnippet(facts: Array<{ id: string; text: string }>) {
+  if (!facts.length) return '';
+  const lines = facts
+    .slice(0, 10)
+    .map(f => `- [${f.id}] ${f.text}`)
+    .filter(Boolean);
+  return lines.join('\n');
 }
 
 function buildUserProfileSnippet(content: string) {
@@ -436,33 +374,37 @@ async function runToolLoop(env: Env, params: {
   userProfileSnippet?: string;
   selfReviewSnippet?: string;
   firstConversationAt?: number;
+  agentSystemTemplate: string;
+  apiFormat: 'openai' | 'anthropic' | 'gemini';
+  openaiApiUrl: string;
+  openaiApiKey: string;
+  temperature: number;
+  maxTokens: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
 
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
-    let data: any;
+    let message: any = null;
     try {
-      const response = await callChatCompletions(
-        env,
-        {
-          messages: params.messages,
-          tools: AGENT_TOOLS,
-          tool_choice: 'auto',
-          temperature: 1.0,
-          stream: false,
-          max_tokens: 4096
-        },
-        { timeoutMs: 120000, model: params.model }
-      );
-      data = await response.json();
+      const result = await callUpstreamChat(env, {
+        format: params.apiFormat,
+        apiUrl: params.openaiApiUrl,
+        apiKey: params.openaiApiKey,
+        model: params.model,
+        messages: params.messages,
+        tools: AGENT_TOOLS,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens,
+        timeoutMs: 120000,
+        trace: { scope: 'agent', userId: params.userId }
+      });
+      message = result.message;
     } catch (error) {
       const isApiError = error instanceof ChatCompletionError;
       console.error('[ATRI] agent chat失败', isApiError ? { status: error.status, details: error.details } : error);
       break;
     }
 
-    const choice = data?.choices?.[0];
-    const message = choice?.message;
     const toolCalls: AgentToolCall[] = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
 
     if (toolCalls.length > 0) {
@@ -485,9 +427,12 @@ async function runToolLoop(env: Env, params: {
         });
       }
 
-      // ✨ 修复：在继续循环前，用最新的 latestState 重新生成 System Prompt
       const updatedSystemPrompt = composeAgentSystemPrompt({
-        padValues: latestState.padValues,
+        template: params.agentSystemTemplate,
+        statusLabel: latestState.statusLabel,
+        statusPillColor: latestState.statusPillColor,
+        statusTextColor: latestState.statusTextColor,
+        statusReason: latestState.statusReason,
         intimacy: latestState.intimacy,
         firstInteractionAt: params.firstConversationAt,
         userName: params.userName,
@@ -544,18 +489,17 @@ async function executeAgentTool(
     return { output };
   }
 
-  if (name === 'update_mood') {
-    const updated = await updateMoodState(env, {
+  if (name === 'set_status') {
+    const updated = await updateStatusState(env, {
       userId,
-      pleasureDelta: args.pleasure_delta,
-      arousalDelta: args.arousal_delta,
-      dominanceDelta: args.dominance_delta,
+      label: args.label,
+      pillColor: args.pill_color || args.pillColor,
+      textColor: args.text_color || args.textColor,
       reason: args.reason,
       currentState: state
     });
-    const reasonText = args.reason ? `\n内心：${args.reason}` : '';
     return {
-      output: `心情变化：P=${updated.padValues[0].toFixed(2)}, A=${updated.padValues[1].toFixed(2)}, D=${updated.padValues[2].toFixed(2)}${reasonText}`,
+      output: `状态已更新：${updated.statusLabel}`,
       updatedState: updated
     };
   }
@@ -567,11 +511,38 @@ async function executeAgentTool(
       reason: args.reason,
       currentState: state
     });
-    const reasonText = args.reason ? `\n内心：${args.reason}` : '';
     return {
-      output: `关系温度变化：${updated.intimacy}${reasonText}`,
+      output: `关系温度变化：${updated.intimacy}`,
       updatedState: updated
     };
+  }
+
+  if (name === 'remember_fact') {
+    const content = sanitizeText(String(args?.content || '').trim());
+    if (!content) {
+      return { output: '内容为空，没有记住' };
+    }
+    try {
+      const result = await upsertFactMemory(env, userId, content);
+      return { output: result.isNew ? `记住了：${content}` : `更新了：${content}` };
+    } catch (error) {
+      console.warn('[ATRI] remember_fact failed', error);
+      return { output: '记录失败' };
+    }
+  }
+
+  if (name === 'forget_fact') {
+    const factId = String(args?.factId || args?.fact_id || '').trim();
+    if (!factId) {
+      return { output: '没有指定要忘记的事实 ID' };
+    }
+    try {
+      const deleted = await deleteFactMemory(env, userId, factId);
+      return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+    } catch (error) {
+      console.warn('[ATRI] forget_fact failed', error);
+      return { output: '删除失败' };
+    }
   }
 
   return { output: '未知工具' };
@@ -611,22 +582,6 @@ async function runReadDiary(env: Env, userId: string, args: any) {
   }
 
   return '请给我 date=YYYY-MM-DD。';
-}
-
-function resolveYesterdayIsoDate(todayIsoDate: string) {
-  const match = String(todayIsoDate || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (!year || !month || !day) return null;
-
-  const yesterdayAt = Date.UTC(year, month - 1, day) - 86400000;
-  const date = new Date(yesterdayAt);
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(date.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 async function runReadConversation(env: Env, userId: string, userName: string | undefined, args: any) {
@@ -684,7 +639,7 @@ async function runSearchMemory(env: Env, userId: string, args: any) {
       if (!date && !text) continue;
       lines.push(`- ${date || '未知日期'}：${text || '（无片段）'}`);
     }
-    lines.push('如果你要回答"为什么/由来/原话/具体细节"，而上面的片段不够用，请用 read_diary(date) 或 read_conversation(date) 去看原文再答。');
+    lines.push('如果你要回答“为什么/由来/原话/具体细节”，而上面的片段不够用，请用 read_diary(date) 或 read_conversation(date) 去看原文再答。');
     return lines.join('\n');
   } catch (error) {
     console.warn('[ATRI] search_memory failed', error);
@@ -749,7 +704,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_diary',
-      description: '翻开那天的日记本。日记是我自己写的，记着那天发生了什么、我当时的心情。',
+      description: '翻开那天的日记。那是我亲手写的——那天发生了什么、我当时在想什么，都在里面。',
       parameters: {
         type: 'object',
         properties: {
@@ -763,7 +718,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'read_conversation',
-      description: '回看那天的聊天记录。想确认当时到底说了什么原话的时候会翻出来看。',
+      description: '翻出那天的聊天记录。当时到底说了什么，原话是什么，看一眼就清楚了。',
       parameters: {
         type: 'object',
         properties: {
@@ -777,7 +732,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'search_memory',
-      description: '在脑海里搜索模糊的记忆。能找到相关的日期和片段；如果片段不够清楚，会再去翻日记或聊天记录确认，不会靠猜。',
+      description: '在脑海里找一找。能翻出相关的日期和片段——片段不够清楚的话，我会再去看日记或聊天记录确认。',
       parameters: {
         type: 'object',
         properties: {
@@ -791,7 +746,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'web_search',
-      description: '去外面查一查。有些事情光靠记忆和常识我不敢乱说，需要确认一下才行。',
+      description: '去外面查一下。有些事光凭记忆我拿不准，确认过了再说比较安心。',
       parameters: {
         type: 'object',
         properties: {
@@ -804,17 +759,17 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'update_mood',
-      description: '心情有了变化。和他聊天的时候，我的情绪会自然地波动。',
+      name: 'set_status',
+      description: '我的心情或状态变了。用一句短话写下现在的感觉，再挑一个能代表这种感觉的颜色。',
       parameters: {
         type: 'object',
         properties: {
-          pleasure_delta: { type: 'number', description: '开心↑难过↓ (-1.0~1.0)' },
-          arousal_delta: { type: 'number', description: '兴奋↑平静↓ (-1.0~1.0)' },
-          dominance_delta: { type: 'number', description: '自信↑退缩↓ (-1.0~1.0)' },
-          reason: { type: 'string', description: '内心的声音' }
+          label: { type: 'string', description: '现在的状态，中文短句（例如「有点想你了」「困了…」）' },
+          pill_color: { type: 'string', description: '代表这种心情的颜色，HEX（例如 #7FA8FF 清透蓝、#FF9A9E 微红）' },
+          text_color: { type: 'string', description: '文字颜色，HEX（可选，默认 #FFFFFF）' },
+          reason: { type: 'string', description: '只说给自己听的——为什么变成了这样' }
         },
-        required: ['pleasure_delta', 'arousal_delta', 'reason']
+        required: ['label', 'pill_color']
       }
     }
   },
@@ -822,14 +777,42 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'update_intimacy',
-      description: '关系有了变化。相处久了心会靠近；但被伤到了也会退缩。',
+      description: '心和对方的距离变了。聊得开心会近一点，被伤到了就会忍不住往后退。',
       parameters: {
         type: 'object',
         properties: {
           delta: { type: 'integer', description: '靠近+/退缩- (通常-25~+10，很受伤可到-50)' },
-          reason: { type: 'string', description: '内心的声音' }
+          reason: { type: 'string', description: '只说给自己听的——为什么变了' }
         },
         required: ['delta', 'reason']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remember_fact',
+      description: '这件事我想记住。对方在意的事、说好的约定、下次该留心的细节——记下来，以后别忘了。',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: '用一句话概括' }
+        },
+        required: ['content']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forget_fact',
+      description: '这条已经过时了。对方说情况变了，那我就把旧的划掉，别记着错的。',
+      parameters: {
+        type: 'object',
+        properties: {
+          factId: { type: 'string', description: '要划掉的那条（从"记在心里的事"里找 ID）' }
+        },
+        required: ['factId']
       }
     }
   }

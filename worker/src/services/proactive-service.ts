@@ -1,6 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import { pushAppLog } from '../admin/log-buffer';
-import { Env } from '../runtime/types';
+import { Env } from '../types';
 import { formatDateInZone, formatTimeInZone } from '../utils/date';
 import { sanitizeAssistantReply } from '../utils/sanitize';
 import { callUpstreamChat } from './llm-service';
@@ -366,11 +364,7 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     notificationSent = Boolean(generated.notification?.sent);
     notificationError = generated.notification?.error || null;
   } catch (error: any) {
-    pushAppLog('warn', 'proactive_agent_failed', {
-      event: 'proactive_agent_failed',
-      userId,
-      error: String(error?.message || error)
-    });
+    console.warn('[ATRI] proactive_agent_failed', { userId, error: String(error?.message || error) });
     return { triggered: false, reason: 'agent_failed' };
   }
 
@@ -378,7 +372,7 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     return { triggered: false, reason: 'agent_skip' };
   }
 
-  const messageId = randomUUID();
+  const messageId = crypto.randomUUID();
   const savedLog = await saveConversationLog(env, {
     id: messageId,
     userId,
@@ -420,11 +414,10 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     updatedAt: now
   });
 
-  pushAppLog('info', 'proactive_message_created', {
-    event: 'proactive_message_created',
+  console.log('[ATRI] proactive_message_created', {
     userId,
     messageId: savedLog.id,
-    notificationSent: notificationSent,
+    notificationSent,
     notificationChannel,
     reason: notificationError || 'ok'
   });
