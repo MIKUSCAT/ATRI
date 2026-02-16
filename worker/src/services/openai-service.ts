@@ -1,11 +1,13 @@
 import { CHAT_MODEL, Env } from '../types';
 
 export class ChatCompletionError extends Error {
+  provider: string;
   status: number;
   details: string;
 
-  constructor(status: number, details: string) {
-    super(`Chat Completions API error: ${status}`);
+  constructor(provider: string, status: number, details: string) {
+    super(`LLM API error (${provider}): ${status}`);
+    this.provider = provider;
     this.status = status;
     this.details = details;
   }
@@ -21,7 +23,7 @@ export async function callChatCompletions(
   const apiUrl = (options?.apiUrl || env.OPENAI_API_URL || '').trim();
   const apiKey = (options?.apiKey || env.OPENAI_API_KEY || '').trim();
   if (!apiUrl || !apiKey) {
-    throw new ChatCompletionError(500, 'missing_api_config');
+    throw new ChatCompletionError('openai', 500, 'missing_api_config');
   }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -42,13 +44,13 @@ export async function callChatCompletions(
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new ChatCompletionError(response.status, errorText);
+      throw new ChatCompletionError('openai', response.status, errorText);
     }
 
     return response;
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      throw new ChatCompletionError(504, `Request timeout after ${timeoutMs}ms`);
+      throw new ChatCompletionError('openai', 504, `Request timeout after ${timeoutMs}ms`);
     }
     throw error;
   } finally {

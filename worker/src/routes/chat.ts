@@ -4,7 +4,14 @@ import { jsonResponse } from '../utils/json-response';
 import { normalizeAttachmentList } from '../utils/attachments';
 import { sanitizeText } from '../utils/sanitize';
 import { runAgentChat } from '../services/agent-service';
-import { saveUserModelPreference } from '../services/data-service';
+import { getEffectiveRuntimeSettings } from '../services/runtime-settings';
+import {
+  deleteConversationLogsByIds,
+  getConversationLogTimestamp,
+  isConversationLogDeleted,
+  listConversationReplyIds,
+  saveConversationLog
+} from '../services/data-service';
 import { requireAppToken } from '../utils/auth';
 
 interface ChatRequestBody {
@@ -17,6 +24,7 @@ interface ChatRequestBody {
   modelKey?: string;
   imageUrl?: string;
   attachments?: AttachmentPayload[];
+  timeZone?: string;
 }
 
 function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null {
@@ -44,7 +52,8 @@ function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null
     clientTimeIso: getString(body, ['clientTimeIso', 'client_time']),
     modelKey: getString(body, ['modelKey', 'model']),
     imageUrl,
-    attachments
+    attachments,
+    timeZone: getString(body, ['timeZone', 'time_zone'])
   };
 }
 
@@ -87,12 +96,40 @@ export function registerChatRoutes(router: Router) {
         return jsonResponse({ error: 'invalid_request', message: 'content cannot be empty' }, 400);
       }
 
-      // 记录用户当前使用的对话模型，供 Cron 的日记/档案/自查任务复用
-      if (parsed.modelKey) {
+      const settings = await getEffectiveRuntimeSettings(env);
+      const modelToUse = settings.defaultChatModel || CHAT_MODEL;
+
+      const replyTo = typeof parsed.logId === 'string' && parsed.logId.trim() ? parsed.logId.trim() : undefined;
+      let anchorTimestamp: number | null = null;
+
+      if (replyTo) {
         try {
-          await saveUserModelPreference(env, parsed.userId, parsed.modelKey);
+          await isConversationLogDeleted(env, parsed.userId, replyTo);
+          anchorTimestamp = await getConversationLogTimestamp(env, parsed.userId, replyTo);
+
+          const replyIdsToDelete = await listConversationReplyIds(env, parsed.userId, [replyTo]);
+          if (replyIdsToDelete.length) {
+            await deleteConversationLogsByIds(env, parsed.userId, replyIdsToDelete);
+          }
+
+          if (typeof anchorTimestamp === 'number') {
+            const staleResult = await env.ATRI_DB.prepare(
+              `SELECT id
+                 FROM conversation_logs
+                WHERE user_id = ?
+                  AND timestamp > ?`
+            )
+              .bind(parsed.userId, anchorTimestamp)
+              .all<{ id: string }>();
+            const staleIds = (staleResult.results || [])
+              .map((row) => String(row?.id || '').trim())
+              .filter(Boolean);
+            if (staleIds.length) {
+              await deleteConversationLogsByIds(env, parsed.userId, staleIds);
+            }
+          }
         } catch (err) {
-          console.warn('[ATRI] save user model preference failed', { userId: parsed.userId, err });
+          console.warn('[ATRI] prune logs before chat failed', { userId: parsed.userId, logId: replyTo, err });
         }
       }
 
@@ -104,10 +141,42 @@ export function registerChatRoutes(router: Router) {
         messageText,
         attachments: parsed.attachments || [],
         inlineImage: parsed.imageUrl,
-        model: resolveModelKey(parsed.modelKey),
+        model: modelToUse,
         logId: parsed.logId
       });
-      return jsonResponse(result);
+
+      const replyLogId = crypto.randomUUID();
+      const replyTimestamp =
+        typeof anchorTimestamp === 'number' ? Math.max(Date.now(), anchorTimestamp + 1) : Date.now();
+
+      const shouldSkip = replyTo
+        ? await isConversationLogDeleted(env, parsed.userId, replyTo)
+        : false;
+
+      if (!shouldSkip) {
+        try {
+          await saveConversationLog(env, {
+            id: replyLogId,
+            userId: parsed.userId,
+            role: 'atri',
+            content: result.reply,
+            attachments: [],
+            replyTo,
+            timestamp: replyTimestamp,
+            userName: parsed.userName,
+            timeZone: parsed.timeZone
+          });
+        } catch (err) {
+          console.warn('[ATRI] reply log failed', { userId: parsed.userId, err });
+        }
+      }
+
+      return jsonResponse({
+        ...result,
+        replyLogId,
+        replyTimestamp,
+        replyTo
+      });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       const errStack = error instanceof Error ? error.stack : undefined;
@@ -115,11 +184,4 @@ export function registerChatRoutes(router: Router) {
       return jsonResponse({ error: 'bio_chat_failed', details: errMsg }, 500);
     }
   });
-}
-
-function resolveModelKey(modelKey?: string | null): string {
-  if (typeof modelKey === 'string' && modelKey.trim().length > 0) {
-    return modelKey.trim();
-  }
-  return CHAT_MODEL;
 }

@@ -1,9 +1,8 @@
-import prompts from '../config/prompts.json';
-import { Env, CHAT_MODEL } from '../types';
+import { CHAT_MODEL, Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
-
-const diaryPrompts = prompts.diary;
+import { ChatCompletionError } from './openai-service';
+import { callUpstreamChat } from './llm-service';
+import { getEffectiveRuntimeSettings } from './runtime-settings';
 
 export type DiaryGenerationResult = {
   content: string;
@@ -33,18 +32,21 @@ async function withRetry<T>(
 
 export async function generateDiaryFromConversation(env: Env, params: {
   conversation: string;
+  userId?: string;
   userName?: string;
   date?: string;
   timestamp?: number;
   daysSinceLastChat?: number | null;
   modelKey?: string | null;
 }) {
+  const settings = await getEffectiveRuntimeSettings(env);
+  const diaryPrompts: any = (settings.prompts as any).diary || {};
+
   const cleanedConversation = sanitizeText(params.conversation).trim();
   if (!cleanedConversation) {
     throw new Error('empty_conversation');
   }
 
-  // 移除 4000 字符限制，允许读取完整对话
   const limitedConversation = cleanedConversation;
 
   const timestamp = typeof params.timestamp === 'number' ? params.timestamp : Date.now();
@@ -64,45 +66,38 @@ export async function generateDiaryFromConversation(env: Env, params: {
     daysSinceInfo = `\n\n距离上次对话已经过了 ${params.daysSinceLastChat} 天。`;
   }
 
-  const userPrompt = diaryPrompts.userTemplate
+  const userPrompt = String(diaryPrompts.userTemplate || '')
     .replace(/\{timestamp\}/g, formattedDate)
     .replace(/\{userName\}/g, params.userName || '这个人')
     .replace(/\{conversation\}/g, limitedConversation)
     .replace(/\{daysSinceInfo\}/g, daysSinceInfo);
-  try {
-    const diaryApiUrl = typeof env.DIARY_API_URL === 'string' ? env.DIARY_API_URL.trim() : '';
-    const diaryApiKey = typeof env.DIARY_API_KEY === 'string' ? env.DIARY_API_KEY.trim() : '';
-    // 如果配置了专用的日记 API，则不使用用户偏好模型，避免模型与 API 不匹配
-    const useCustomDiaryApi = !!(diaryApiUrl && diaryApiKey);
-    const model = useCustomDiaryApi
-      ? resolveDiaryModel(env, null)  // 专用 API 时忽略用户偏好
-      : resolveDiaryModel(env, params.modelKey);
-    const response = await withRetry(() => callChatCompletions(
-      env,
-      {
-        messages: [
-          { role: 'system', content: diaryPrompts.system },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 4096
-      },
-      {
-        model,
-        apiUrl: diaryApiUrl || undefined,
-        apiKey: diaryApiKey || undefined,
-        timeoutMs: 120000
-      }
-    ));
 
-    const data = await response.json();
-    const rawContent = data.choices?.[0]?.message?.content || '';
+  try {
+    const apiUrl = String(settings.diaryApiUrl || settings.openaiApiUrl || '').trim();
+    const apiKey = String(settings.diaryApiKey || settings.openaiApiKey || '').trim();
+    const model = resolveDiaryModel(settings, params.modelKey);
+    const result = await withRetry(() => callUpstreamChat(env, {
+      format: settings.diaryApiFormat,
+      apiUrl,
+      apiKey,
+      model,
+      messages: [
+        { role: 'system', content: String(diaryPrompts.system || '') },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: settings.diaryTemperature,
+      maxTokens: settings.diaryMaxTokens,
+      timeoutMs: 120000,
+      trace: { scope: 'diary', userId: params.userId }
+    }));
+
+    const content = result.message?.content;
+    const rawContent = typeof content === 'string' ? content : String(content || '');
     const parsed = parseDiaryResponse(rawContent);
 
-    // 兜底逻辑：如果解析不到日记内容，说明 JSON 格式有问题或被截断
     let finalContent = parsed.diary?.trim();
     if (!finalContent) {
-      const trimmedRaw = rawContent.trim();
+      const trimmedRaw = String(rawContent || '').trim();
       const looksLikeStructured =
         /"diary"\s*:/.test(trimmedRaw) ||
         trimmedRaw.startsWith('{') ||
@@ -115,7 +110,6 @@ export async function generateDiaryFromConversation(env: Env, params: {
       }
     }
 
-    // 兜底逻辑：如果解析不到心情，留空（不再做正则匹配）
     const finalMood = parsed.mood || '';
 
     return {
@@ -132,10 +126,11 @@ export async function generateDiaryFromConversation(env: Env, params: {
   }
 }
 
-function resolveDiaryModel(env: Env, modelKey?: string | null) {
+function resolveDiaryModel(settings: { diaryModel?: string; defaultChatModel?: string }, modelKey?: string | null) {
   const trimmed = typeof modelKey === 'string' ? modelKey.trim() : '';
-  const envModel = typeof env.DIARY_MODEL === 'string' ? env.DIARY_MODEL.trim() : '';
-  return trimmed || envModel || CHAT_MODEL;
+  const configured = typeof settings.diaryModel === 'string' ? settings.diaryModel.trim() : '';
+  const fallback = typeof settings.defaultChatModel === 'string' ? settings.defaultChatModel.trim() : '';
+  return configured || trimmed || fallback || CHAT_MODEL;
 }
 
 function formatDiaryDate(timestamp: number) {
@@ -163,14 +158,12 @@ function formatDiaryDateFromIsoDate(dateStr: string) {
 }
 
 function parseDiaryResponse(raw: string): { diary?: string; highlights?: string[]; mood?: string } {
-  const trimmed = raw.trim();
+  const trimmed = String(raw || '').trim();
   if (!trimmed) {
     return {};
   }
 
-  // 首先尝试标准 JSON 解析
   try {
-    // 移除可能存在的 Markdown 代码块标记
     let jsonText = trimmed;
     if (jsonText.startsWith('```json')) {
       jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
@@ -192,32 +185,26 @@ function parseDiaryResponse(raw: string): { diary?: string; highlights?: string[
       };
     }
   } catch (err) {
-    // JSON 解析失败，尝试部分提取
     console.warn('[ATRI] JSON parse failed, attempting partial extraction:', err);
   }
 
-  // 如果标准解析失败，尝试用正则提取 diary 字段（应对 JSON 截断）
   const result: { diary?: string; highlights?: string[]; mood?: string } = {};
 
-  // 提取 diary 字段
   const diaryMatch = trimmed.match(/"diary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (diaryMatch) {
     try {
-      // 尝试还原转义字符
       result.diary = JSON.parse(`"${diaryMatch[1]}"`);
     } catch {
       result.diary = diaryMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
     }
   }
 
-  // 提取 highlights 数组
   const highlightsMatch = trimmed.match(/"highlights"\s*:\s*\[(.*?)\]/s);
   if (highlightsMatch) {
     try {
       const highlightsJson = `[${highlightsMatch[1]}]`;
       result.highlights = JSON.parse(highlightsJson);
     } catch {
-      // 手动提取字符串
       const items = highlightsMatch[1].match(/"([^"]*)"/g);
       if (items) {
         result.highlights = items.map(item => item.slice(1, -1));
@@ -225,7 +212,6 @@ function parseDiaryResponse(raw: string): { diary?: string; highlights?: string[
     }
   }
 
-  // 提取 mood 字段
   const moodMatch = trimmed.match(/"mood"\s*:\s*"([^"]*)"/);
   if (moodMatch) {
     result.mood = moodMatch[1];

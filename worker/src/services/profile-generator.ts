@@ -1,9 +1,8 @@
-import prompts from '../config/prompts.json';
-import { Env, CHAT_MODEL } from '../types';
+import { CHAT_MODEL, Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { callChatCompletions, ChatCompletionError } from './openai-service';
-
-const profilePrompts: any = (prompts as any).profile || {};
+import { ChatCompletionError } from './openai-service';
+import { callUpstreamChat } from './llm-service';
+import { getEffectiveRuntimeSettings } from './runtime-settings';
 
 export type UserProfilePayload = {
   "事实": string[];
@@ -19,6 +18,7 @@ export type UserProfileGenerationResult = {
 };
 
 export async function generateUserProfile(env: Env, params: {
+  userId?: string;
   transcript: string;
   diaryContent: string;
   date: string;
@@ -26,6 +26,9 @@ export async function generateUserProfile(env: Env, params: {
   previousProfile?: string;
   modelKey?: string | null;
 }): Promise<UserProfileGenerationResult> {
+  const settings = await getEffectiveRuntimeSettings(env);
+  const profilePrompts: any = (settings.prompts as any).profile || {};
+
   const transcript = sanitizeText(params.transcript || '').trim();
   const diary = sanitizeText(params.diaryContent || '').trim();
   const previous = sanitizeText(params.previousProfile || '').trim() || '(无旧档案)';
@@ -43,34 +46,28 @@ export async function generateUserProfile(env: Env, params: {
     .replace(/\{transcript\}/g, transcript || '(无对话记录)')
     .replace(/\{diary\}/g, diary || '(无日记内容)');
 
-  const diaryApiUrl = typeof env.DIARY_API_URL === 'string' ? env.DIARY_API_URL.trim() : '';
-  const diaryApiKey = typeof env.DIARY_API_KEY === 'string' ? env.DIARY_API_KEY.trim() : '';
-  // 如果配置了专用的日记 API，则不使用用户偏好模型，避免模型与 API 不匹配
-  const useCustomDiaryApi = !!(diaryApiUrl && diaryApiKey);
-  const model = useCustomDiaryApi
-    ? resolveProfileModel(env, null)
-    : resolveProfileModel(env, params.modelKey);
+  const apiUrl = String(settings.diaryApiUrl || settings.openaiApiUrl || '').trim();
+  const apiKey = String(settings.diaryApiKey || settings.openaiApiKey || '').trim();
+  const model = resolveProfileModel(settings, params.modelKey);
 
   try {
-    const response = await callChatCompletions(
-      env,
-      {
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.2
-      },
-      {
-        model,
-        apiUrl: diaryApiUrl || undefined,
-        apiKey: diaryApiKey || undefined,
-        timeoutMs: 90000
-      }
-    );
+    const result = await callUpstreamChat(env, {
+      format: settings.diaryApiFormat,
+      apiUrl,
+      apiKey,
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: settings.profileTemperature,
+      maxTokens: 1024,
+      timeoutMs: 90000,
+      trace: { scope: 'profile', userId: params.userId }
+    });
 
-    const data = await response.json();
-    const rawText = extractMessageContent(data?.choices?.[0]);
+    const content = result.message?.content;
+    const rawText = typeof content === 'string' ? content : String(content || '');
     const trimmed = rawText.trim();
 
     if (!trimmed) {
@@ -89,10 +86,11 @@ export async function generateUserProfile(env: Env, params: {
   }
 }
 
-function resolveProfileModel(env: Env, modelKey?: string | null) {
+function resolveProfileModel(settings: { diaryModel?: string; defaultChatModel?: string }, modelKey?: string | null) {
   const trimmed = typeof modelKey === 'string' ? modelKey.trim() : '';
-  const envModel = typeof env.DIARY_MODEL === 'string' ? env.DIARY_MODEL.trim() : '';
-  return trimmed || envModel || CHAT_MODEL;
+  const configured = typeof settings.diaryModel === 'string' ? settings.diaryModel.trim() : '';
+  const fallback = typeof settings.defaultChatModel === 'string' ? settings.defaultChatModel.trim() : '';
+  return configured || trimmed || fallback || CHAT_MODEL;
 }
 
 function parseProfileJson(raw: string): any {
@@ -138,29 +136,4 @@ function emptyPayload(): UserProfilePayload {
     "说话风格": [],
     "关系进展": []
   };
-}
-
-function extractMessageContent(choice: any): string {
-  if (!choice || !choice.message) {
-    return '';
-  }
-  const content = choice.message.content;
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part;
-        if (part && typeof part === 'object') {
-          if (typeof part.text === 'string') return part.text;
-          if (part.text && typeof part.text.value === 'string') return part.text.value;
-          if (typeof part.content === 'string') return part.content;
-        }
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n');
-  }
-  return '';
 }

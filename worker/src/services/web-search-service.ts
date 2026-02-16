@@ -1,4 +1,5 @@
 import { Env } from '../types';
+import { getEffectiveRuntimeSettings } from './runtime-settings';
 
 type TavilySearchResponse = {
   results?: Array<{
@@ -54,7 +55,8 @@ export async function webSearch(
   env: Env,
   params: { query: string; maxResults?: number; timeoutMs?: number }
 ): Promise<WebSearchItem[]> {
-  const apiKey = String(env.TAVILY_API_KEY || '').trim();
+  const settings = await getEffectiveRuntimeSettings(env);
+  const apiKey = String(settings.tavilyApiKey || '').trim();
   if (!apiKey) {
     throw new Error('TAVILY_API_KEY is missing');
   }
@@ -103,4 +105,3 @@ export async function webSearch(
     .filter((item) => item.title || item.snippet)
     .slice(0, maxResults);
 }
-
