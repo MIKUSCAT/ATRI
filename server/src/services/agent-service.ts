@@ -405,6 +405,7 @@ async function runToolLoop(env: Env, params: {
   maxTokens: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
+  let toolInvoked = false;
 
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     let message: any = null;
@@ -431,20 +432,35 @@ async function runToolLoop(env: Env, params: {
     const toolCalls: AgentToolCall[] = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
 
     if (toolCalls.length > 0) {
+      toolInvoked = true;
       params.messages.push({
         role: 'assistant',
         content: message?.content || null,
         tool_calls: toolCalls
       });
 
-      for (const call of toolCalls) {
-        const toolName = call.function?.name || '';
+      for (let toolIndex = 0; toolIndex < toolCalls.length; toolIndex++) {
+        const call = toolCalls[toolIndex];
+        const toolCallId = String(call?.id || '').trim() || `tool_${Date.now()}_${toolIndex}`;
+        const toolName = String(call?.function?.name || (call as any)?.function_call?.name || '').trim();
+        const rawArguments = call?.function?.arguments ?? (call as any)?.function_call?.arguments ?? '{}';
+        const toolArguments =
+          typeof rawArguments === 'string'
+            ? rawArguments
+            : (() => {
+                try {
+                  return JSON.stringify(rawArguments ?? {});
+                } catch {
+                  return '{}';
+                }
+              })();
+
         pushAppLog('info', 'tool_call', {
           event: 'tool_call',
           userId: params.userId,
-          toolCallId: call.id,
+          toolCallId,
           tool: toolName,
-          arguments: call.function?.arguments || ''
+          arguments: toolArguments
         });
 
         const toolStartedAt = Date.now();
@@ -454,15 +470,15 @@ async function runToolLoop(env: Env, params: {
         }
         params.messages.push({
           role: 'tool',
-          tool_call_id: call.id,
-          name: call.function?.name,
+          tool_call_id: toolCallId,
+          name: toolName || call.function?.name,
           content: result.output
         });
 
         pushAppLog('info', 'tool_result', {
           event: 'tool_result',
           userId: params.userId,
-          toolCallId: call.id,
+          toolCallId,
           tool: toolName,
           durationMs: Date.now() - toolStartedAt,
           output: result.output
@@ -489,6 +505,20 @@ async function runToolLoop(env: Env, params: {
     }
 
     const finalText = extractMessageText(message);
+    if (finalText.trim()) {
+      return { reply: finalText, state: latestState };
+    }
+    if (toolInvoked && i < MAX_AGENT_LOOPS - 1) {
+      params.messages.push({
+        role: 'assistant',
+        content: message?.content || null
+      });
+      params.messages.push({
+        role: 'user',
+        content: '请直接给用户一句自然、简短的中文回复，不要再调用工具。'
+      });
+      continue;
+    }
     return { reply: finalText || AGENT_FALLBACK_REPLY, state: latestState };
   }
 
@@ -503,12 +533,17 @@ async function executeAgentTool(
   state: any,
   contextDate: string
 ) {
-  const name = call.function?.name;
+  const name = String(call?.function?.name || (call as any)?.function_call?.name || '').trim();
+  const rawArguments = call?.function?.arguments ?? (call as any)?.function_call?.arguments ?? '{}';
   let args: any = {};
-  try {
-    args = JSON.parse(call.function?.arguments || '{}');
-  } catch (error) {
-    console.warn('[ATRI] tool args parse failed', error);
+  if (typeof rawArguments === 'string') {
+    try {
+      args = JSON.parse(rawArguments || '{}');
+    } catch (error) {
+      console.warn('[ATRI] tool args parse failed', error);
+    }
+  } else if (rawArguments && typeof rawArguments === 'object') {
+    args = rawArguments;
   }
 
   if (name === 'read_diary') {
