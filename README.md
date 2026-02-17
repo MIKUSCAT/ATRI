@@ -314,6 +314,7 @@ docker-compose up -d
 | 🎨 **Status Capsule** | Dynamic mood status with label text + color, model-driven updates via `set_status` tool |
 | 💕 **Intimacy System** | Relationship temperature affects reply style, fades without maintenance |
 | 🔧 **8 Registered Tools** | `search_memory` `read_diary` `read_conversation` `web_search` `set_status` `update_intimacy` `remember_fact` `forget_fact` |
+| 📬 **Proactive Messages** | ATRI can initiate conversations on her own; supports Email / WeChat Work notifications |
 | 🌐 **Native Multi-Format** | Natively supports OpenAI, Anthropic (Claude), and Gemini API formats |
 | 🔀 **Split Architecture** | Chat and diary can use different upstreams independently |
 | 🌐 **Web Admin Panel** | (VPS) Runtime config, prompt editing, encrypted secrets management |

@@ -351,6 +351,7 @@ docker-compose up -d
 | 🎨 **状态胶囊** | 动态心情状态：文案 + 颜色，模型通过 `set_status` 工具自主更新 |
 | 💕 **亲密度系统** | 关系温度影响回复风格，不维护会慢慢淡 |
 | 🔧 **8 个注册工具** | `search_memory` `read_diary` `read_conversation` `web_search` `set_status` `update_intimacy` `remember_fact` `forget_fact` |
+| 📬 **主动消息** | 亚托莉可以主动开口说话；支持 Email / 企业微信外部通知 |
 | 🌐 **原生多格式** | 原生支持 OpenAI、Anthropic (Claude)、Gemini 三种 API 格式 |
 | 🔀 **分流架构** | 聊天和日记可以用不同上游，互不影响 |
 | 🌐 **网页管理后台** | （VPS）运行时配置、提示词编辑、加密密钥管理 |

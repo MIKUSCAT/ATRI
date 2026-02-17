@@ -172,6 +172,7 @@
 • <code>/admin/*</code>：管理后台 API + 静态页面<br/>
 • <code>/v1/chat/completions</code> / <code>/v1/messages</code> / <code>/v1beta/models/*</code>：兼容 API<br/>
 • <strong>Cron</strong>：每天自动生成日记/用户档案，并写向量记忆<br/>
+• <strong>主动消息</strong>：定时评估是否主动说话，支持 Email/企业微信外部通知<br/>
 • <strong>Memory Rebuild</strong>：启动时可选重建向量记忆
 </td>
 </tr>
@@ -281,7 +282,9 @@ Server 读"今天聊天记录"时，可能把刚写入的这一条也读到历�
 
 ### 🔄 3.4 两天上下文窗口
 
-Server 在构造聊天上下文时，会加载**今天 + 昨天**两天的对话日志作为历史（见 `loadTwoDaysConversationLogsForChat`）。这让模型能自然地延续跨天话题，同时控制上下文长度。
+Server 在构造聊天上下文时，会加载**今天 + 昨天**两天的对话日志作为历史（见 [`server/src/services/history-context.ts`](server/src/services/history-context.ts) 的 `loadTwoDaysConversationLogs`）。这让模型能自然地延续跨天话题，同时控制上下文长度。
+
+> 📌 这个逻辑已抽取为独立模块 `history-context.ts`，被主对话（`agent-service.ts`）和主动消息（`proactive-service.ts`）共用，保证两者看到的上下文完全一致。
 
 ---
 
@@ -1266,7 +1269,63 @@ VPS 后端额外提供三组兼容端点，让第三方客户端（如 ChatGPT �
 </tr>
 <tr>
 <td><code>prompts_json</code></td>
-<td>覆盖的提示词 JSON（agent/diary/profile 的 system 和 userTemplate）</td>
+<td>覆盖的提示词 JSON（agent/diary/profile/proactive 的 system 和 userTemplate）</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<th colspan="2">proactive_messages（主动消息记录）</th>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>主键：<code>pm:&lt;logId&gt;</code></td>
+</tr>
+<tr>
+<td><code>user_id</code></td>
+<td>用户 id</td>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>主动消息文本</td>
+</tr>
+<tr>
+<td><code>trigger_context</code></td>
+<td>触发上下文 JSON（intimacy/hoursSince/localHour 等）</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>pending|delivered|expired</code></td>
+</tr>
+<tr>
+<td><code>notification_channel</code></td>
+<td><code>none|email|wechat_work</code></td>
+</tr>
+<tr>
+<td><code>notification_sent</code></td>
+<td>外部通知是否已发送</td>
+</tr>
+<tr>
+<td><code>expires_at</code></td>
+<td>过期时间（默认 72 小时后）</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<th colspan="2">proactive_user_states（主动消息用户状态）</th>
+</tr>
+<tr>
+<td><code>user_id</code></td>
+<td>用户 id</td>
+</tr>
+<tr>
+<td><code>last_proactive_at</code></td>
+<td>上次主动消息时间戳</td>
+</tr>
+<tr>
+<td><code>daily_count</code> / <code>daily_count_date</code></td>
+<td>当日已发送数量与对应日期</td>
 </tr>
 </table>
 
@@ -1312,6 +1371,8 @@ MEDIA_ROOT/
 | 📋 改用户档案结构 | [`shared/prompts.json`](shared/prompts.json) 的 `profile` + [`server/src/services/profile-generator.ts`](server/src/services/profile-generator.ts) |
 | 🔧 加一个新工具 | [`server/src/services/agent-service.ts`](server/src/services/agent-service.ts)（AGENT_TOOLS + executeAgentTool） |
 | 🧠 改向量记忆策略 | [`server/src/services/memory-service.ts`](server/src/services/memory-service.ts) |
+| 📬 改主动消息逻辑 | [`server/src/services/proactive-service.ts`](server/src/services/proactive-service.ts) |
+| 📜 改上下文构建 | [`server/src/services/history-context.ts`](server/src/services/history-context.ts)（主对话+主动消息共用） |
 | 🔐 改附件安全/签名 | [`server/src/utils/media-signature.ts`](server/src/utils/media-signature.ts) + [`server/src/routes/media.ts`](server/src/routes/media.ts) |
 | 🌐 改 LLM 格式适配 | [`server/src/services/llm-service.ts`](server/src/services/llm-service.ts) |
 | ⚙️ 改运行时配置系统 | [`server/src/services/runtime-settings.ts`](server/src/services/runtime-settings.ts) |
@@ -1341,14 +1402,34 @@ MEDIA_ROOT/
 
 **已实现**：`llm-service.ts` 支持 OpenAI、Anthropic、Gemini 三种原生 API 格式，通过 `chatApiFormat` / `diaryApiFormat` 配置切换。
 
-### 💬 12.2 主动消息（ATRI 先开口）
+### ✅ 12.2 已完成：主动消息（ATRI 先开口）
 
-**现状**：严格的 request/response：用户发一句才有一句回。
+**已实现**：后端定时评估是否应该主动说话，并生成 `role=atri` 的消息写入 `conversation_logs`。
 
-**要做主动消息，一般需要**：
-- 后端定时/事件触发生成一条 `role=atri` 的日志（写入 `conversation_logs`）
-- App 侧增加"拉取未读消息"的接口与本地落库策略（避免重复、保证顺序）
-- 可能需要通知（推送）或轮询策略
+**核心机制**（[`server/src/services/proactive-service.ts`](server/src/services/proactive-service.ts)）：
+
+| 项目 | 说明 |
+|------|------|
+| 触发方式 | 后端定时调度（默认每 60 分钟检查一次） |
+| 上下文 | 与主对话一致的两天历史窗口（共用 `history-context.ts`） |
+| 判断逻辑 | 模型自主决定——认为该说就说，不该打扰就输出 `[SKIP]` |
+| 消息落库 | 写入 `conversation_logs`（role=atri）+ `proactive_messages` 表 |
+| 外部通知 | 模型可调用 `send_notification` 工具，支持 Email（Resend）和企业微信 Webhook |
+| 频率控制 | 安静时段、每日上限、冷却时间、亲密度门槛、最近活跃过滤 |
+
+**配置方式**（全部在 `/admin` 管理后台，无需重启）：
+
+1. **Runtime Config** → 开启主动消息，设置检查间隔、安静时段、每日上限、冷却小时数
+2. **通知渠道**（可选）→ 选 `none` 则仅应用内消息，选 `email` / `wechat_work` 则需要配置相应凭据
+3. **Prompt Editor** → 编辑 `proactive.system`，可用占位符：`{clock_time}` `{hours_since}` `{intimacy}` `{user_profile_snippet}`
+
+**Email 通知需要额外环境变量**：
+```env
+EMAIL_API_KEY=re_xxx
+EMAIL_FROM=ATRI <atri@your-domain.com>
+```
+
+> 📌 主动消息的上下文与主对话完全对齐（两天历史窗口），保证主动消息的语境连贯性。
 
 ### 🔊 12.3 SSE 流式输出
 
