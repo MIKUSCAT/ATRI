@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -25,6 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -82,18 +86,26 @@ fun SettingsScreen(
             var userName by rememberSaveable { mutableStateOf("") }
             var modelName by rememberSaveable { mutableStateOf("") }
             var appToken by rememberSaveable { mutableStateOf("") }
+            var backendType by rememberSaveable { mutableStateOf("worker") }
             var importUserId by remember { mutableStateOf("") }
             val availableModels = uiState.availableModels
             var modelsExpanded by remember { mutableStateOf(false) }
             var initialized by rememberSaveable { mutableStateOf(false) }
 
-            LaunchedEffect(uiState.apiUrl, uiState.userName, uiState.modelName, uiState.appToken) {
+            LaunchedEffect(uiState.apiUrl, uiState.userName, uiState.modelName, uiState.appToken, uiState.backendType) {
                 if (!initialized && uiState.apiUrl.isNotEmpty()) {
                     apiUrl = uiState.apiUrl
                     userName = uiState.userName
                     modelName = uiState.modelName
                     appToken = uiState.appToken
+                    backendType = uiState.backendType
                     initialized = true
+                }
+            }
+
+            LaunchedEffect(uiState.backendType) {
+                if (initialized) {
+                    backendType = uiState.backendType
                 }
             }
 
@@ -112,11 +124,18 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    BackendTypeSelector(
+                        selectedType = backendType,
+                        onTypeChange = { type ->
+                            backendType = type
+                            viewModel.updateBackendType(type)
+                        }
+                    )
                     OutlinedTextField(
                         value = apiUrl,
                         onValueChange = { apiUrl = it },
-                        label = { Text("Worker URL") },
-                        placeholder = { Text("https://atri-worker.2441248911.workers.dev") },
+                        label = { Text("API 地址") },
+                        placeholder = { Text("https://your-server.example.com") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -125,13 +144,13 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !uiState.isLoading
                     ) {
-                        Text(if (uiState.isLoading) "保存中..." else "保存 Worker URL")
+                        Text(if (uiState.isLoading) "保存中..." else "保存 API 地址")
                     }
                     OutlinedTextField(
                         value = appToken,
                         onValueChange = { appToken = it },
                         label = { Text("鉴权 Token (X-App-Token)") },
-                        placeholder = { Text("填入与你的 Worker 配置一致的 Token") },
+                        placeholder = { Text("填入与你的 API 配置一致的 Token") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -142,23 +161,31 @@ fun SettingsScreen(
                     ) {
                         Text("保存 Token")
                     }
-            ModelSelector(
-                modelName = modelName,
-                models = availableModels,
-                expanded = modelsExpanded,
-                modelsLoading = uiState.modelsLoading,
-                onToggle = { modelsExpanded = it },
-                onRefresh = { viewModel.refreshModelCatalog() },
-                onSelect = {
-                    modelName = it
-                    modelsExpanded = false
-                }
-            )
-                    Button(
-                        onClick = { viewModel.updateModelName(modelName) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !uiState.modelsLoading && modelName != uiState.modelName
-                    ) { Text("保存模型") }
+                    if (backendType == "worker") {
+                        ModelSelector(
+                            modelName = modelName,
+                            models = availableModels,
+                            expanded = modelsExpanded,
+                            modelsLoading = uiState.modelsLoading,
+                            onToggle = { modelsExpanded = it },
+                            onRefresh = { viewModel.refreshModelCatalog() },
+                            onSelect = {
+                                modelName = it
+                                modelsExpanded = false
+                            }
+                        )
+                        Button(
+                            onClick = { viewModel.updateModelName(modelName) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !uiState.modelsLoading && modelName != uiState.modelName
+                        ) { Text("保存模型") }
+                    } else {
+                        ServerModelDisplay(
+                            currentModel = uiState.serverCurrentModel,
+                            isLoading = uiState.serverModelLoading,
+                            onRefresh = { viewModel.fetchServerCurrentModel() }
+                        )
+                    }
                 }
             }
 
@@ -194,7 +221,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = uiState.userId,
                         onValueChange = {},
-                        label = { Text("当前账号 ID") },
+                        label = { Text("当前 UID") },
                         modifier = Modifier.fillMaxWidth(),
                         readOnly = true,
                         trailingIcon = {
@@ -208,8 +235,8 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = importUserId,
                         onValueChange = { importUserId = it },
-                        label = { Text("导入旧账号 ID") },
-                        placeholder = { Text("粘贴之前备份的 ID") },
+                        label = { Text("导入旧 UID") },
+                        placeholder = { Text("粘贴之前备份的 UID") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -218,7 +245,37 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = importUserId.isNotBlank()
                     ) {
-                        Text("使用这个 ID")
+                        Text("使用这个 UID")
+                    }
+                }
+            }
+
+            Surface(
+                shape = MaterialTheme.shapes.extraLarge,
+                tonalElevation = 1.dp,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "数据同步",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "从服务器拉取最近 30 天的聊天记录到本地，可在侧边栏按日期浏览。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { viewModel.syncHistory() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !uiState.isSyncing
+                    ) {
+                        Text(if (uiState.isSyncing) "同步中..." else "一键同步聊天记录")
                     }
                 }
             }
@@ -398,6 +455,68 @@ private fun ModelSelector(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackendTypeSelector(
+    selectedType: String,
+    onTypeChange: (String) -> Unit
+) {
+    val options = listOf("worker" to "Worker 端", "vps" to "VPS 端")
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = "后端类型",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, (key, label) ->
+                SegmentedButton(
+                    selected = selectedType == key,
+                    onClick = { onTypeChange(key) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                ) {
+                    Text(label)
+                }
+            }
+        }
+        Text(
+            text = if (selectedType == "vps") "模型由服务器 /admin 面板配置" else "模型由客户端选择",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+private fun ServerModelDisplay(
+    currentModel: String,
+    isLoading: Boolean,
+    onRefresh: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = if (isLoading) "获取中..." else currentModel.ifBlank { "未获取" },
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text("服务器当前模型") },
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onRefresh, enabled = !isLoading) {
+                Icon(
+                    imageVector = Icons.Outlined.Refresh,
+                    contentDescription = "刷新服务器模型"
+                )
             }
         }
     }

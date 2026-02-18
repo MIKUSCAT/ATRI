@@ -11,6 +11,7 @@ import me.atri.data.api.AtriApiService
 import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
+import me.atri.data.api.request.InvalidateMemoryRequest
 import me.atri.data.db.dao.MessageDao
 import me.atri.data.db.dao.MessageVersionDao
 import me.atri.data.db.entity.MessageEntity
@@ -21,6 +22,7 @@ import me.atri.data.model.AttachmentContract
 import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import kotlin.text.RegexOption
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -36,11 +38,14 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 import me.atri.data.model.LastConversationInfo
 import me.atri.data.api.response.BioChatResponse
+import me.atri.data.api.response.ConversationLogItem
 
 data class ChatResult(
     val reply: String,
-    val mood: BioChatResponse.Mood?,
-    val intimacy: Int
+    val status: BioChatResponse.Status?,
+    val intimacy: Int,
+    val replyLogId: String?,
+    val replyTimestamp: Long?
 )
 
 class ChatRepository(
@@ -148,23 +153,27 @@ class ChatRepository(
 
             val chatResult = executeChatRequest(request)
             Result.success(chatResult)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun persistAtriMessage(finalMessage: MessageEntity, mood: BioChatResponse.Mood? = null) = withContext(Dispatchers.IO) {
+    suspend fun persistAtriMessage(finalMessage: MessageEntity, status: BioChatResponse.Status? = null) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
-        // 将 PAD 状态转换为 JSON 字符串存储
-        val moodJson = if (mood != null) {
-            """{"p":${mood.p},"a":${mood.a},"d":${mood.d}}"""
+        val statusJson = if (status != null) {
+            val label = status.label?.replace("\"", "") ?: ""
+            val pillColor = status.pillColor?.replace("\"", "") ?: ""
+            val textColor = status.textColor?.replace("\"", "") ?: ""
+            """{"label":"$label","pillColor":"$pillColor","textColor":"$textColor"}"""
         } else {
             null
         }
         val sanitized = finalMessage.copy(
             content = cleanedContent,
             attachments = finalMessage.attachments,
-            mood = moodJson
+            mood = statusJson
         )
         val existing = messageDao.getMessageById(sanitized.id)
 
@@ -176,7 +185,7 @@ class ChatRepository(
                 message = existing,
                 newContent = sanitized.content,
                 newAttachments = sanitized.attachments,
-                mood = moodJson
+                mood = statusJson
             )
         }
 
@@ -270,6 +279,24 @@ class ChatRepository(
         }
     }
 
+    suspend fun invalidateMemoryForDates(dates: Set<String>) = withContext(Dispatchers.IO) {
+        if (dates.isEmpty()) return@withContext
+        val userId = preferencesStore.ensureUserId()
+        for (date in dates) {
+            runCatching {
+                val response = apiService.invalidateMemory(
+                    InvalidateMemoryRequest(userId = userId, date = date)
+                )
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("invalidate memory failed: ${response.code()}")
+                }
+                response.body()?.close()
+            }.onFailure {
+                println("记忆失效失败 ($date): ${it.message}")
+            }
+        }
+    }
+
     private suspend fun saveMessageVersion(
         message: MessageEntity,
         newContent: String,
@@ -348,7 +375,12 @@ class ChatRepository(
     ): ChatRequest {
         val ensuredUserId = userId ?: preferencesStore.ensureUserId()
         val userName = preferencesStore.userName.first()
-        val preferredModel = preferencesStore.modelName.first().takeIf { it.isNotBlank() }
+        val backendType = preferencesStore.backendType.first()
+        val preferredModel = if (backendType == "vps") {
+            null
+        } else {
+            preferencesStore.modelName.first().takeIf { it.isNotBlank() }
+        }
         val requestContent = content
         val compatImage = attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url
         val resolvedInlineImage = inlineImageDataUrl?.takeIf { it.isNotBlank() }
@@ -383,8 +415,10 @@ class ChatRepository(
         }
         return ChatResult(
             reply = reply,
-            mood = body?.mood,
-            intimacy = body?.intimacy ?: 0
+            status = body?.status,
+            intimacy = body?.intimacy ?: 0,
+            replyLogId = body?.replyLogId?.takeIf { it.isNotBlank() },
+            replyTimestamp = body?.replyTimestamp?.takeIf { it > 0 }
         )
     }
 
@@ -638,7 +672,197 @@ class ChatRepository(
             LastConversationInfo(stored, diff)
         }.getOrNull()
     }
+
+    /**
+     * 从服务器拉取远程历史记录并与本地合并
+     * - 首次同步：拉取最近30天的完整数据（分页）
+     * - 增量同步：从本地最新时间戳附近拉取一小段（用于去重/补漏）
+     * - tombstones 中的消息从本地删除
+     */
+    suspend fun syncRemoteHistory(): Result<SyncResult> = withContext(Dispatchers.IO) {
+        try {
+            val userId = preferencesStore.ensureUserId()
+            val localLatest = messageDao.getLatestTimestamp() ?: 0L
+            val localEarliest = messageDao.getEarliestTimestamp() ?: Long.MAX_VALUE
+
+            // 计算30天前的时间戳
+            val thirtyDaysAgoMs = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+
+            // 决定同步起点：
+            // - 首次同步或尚未做过“历史去重”：从30天前开始拉取
+            // - 否则增量同步：从本地最新时间戳往回看一小段（避免“最后一条重复”这种边界问题）
+            val dedupeDone = preferencesStore.historyDedupeDone.first()
+            val needFullSync = localLatest == 0L || localEarliest > thirtyDaysAgoMs || !dedupeDone
+            val overlapMs = 10L * 60 * 1000
+            val syncStartTimestamp = if (needFullSync) {
+                thirtyDaysAgoMs
+            } else {
+                maxOf(0L, localLatest - overlapMs)
+            }
+
+            var insertedCount = 0
+            var deletedCount = 0
+            var currentAfter = syncStartTimestamp
+
+            val localDuplicateIds = linkedSetOf<String>()
+            val remoteDuplicateIds = linkedSetOf<String>()
+            var previousKeptLog: ConversationLogItem? = null
+
+            fun normalizeContentForDedupe(raw: String): String {
+                return raw.trim().replace(Regex("\\s+"), " ")
+            }
+
+            fun chooseWinner(a: ConversationLogItem, b: ConversationLogItem): ConversationLogItem {
+                val aReply = a.replyTo?.trim().orEmpty()
+                val bReply = b.replyTo?.trim().orEmpty()
+                return when {
+                    aReply.isNotEmpty() && bReply.isEmpty() -> a
+                    aReply.isEmpty() && bReply.isNotEmpty() -> b
+                    else -> a
+                }
+            }
+
+            fun isAtriDuplicate(a: ConversationLogItem, b: ConversationLogItem): Boolean {
+                if (a.role != "atri" || b.role != "atri") return false
+                if (abs(a.timestamp - b.timestamp) > 2000L) return false
+                return normalizeContentForDedupe(a.content) == normalizeContentForDedupe(b.content)
+            }
+
+            fun shouldDeleteRemoteDuplicate(winner: ConversationLogItem, loser: ConversationLogItem): Boolean {
+                if (winner.role != "atri" || loser.role != "atri") return false
+                val winnerReply = winner.replyTo?.trim().orEmpty()
+                val loserReply = loser.replyTo?.trim().orEmpty()
+                if (winnerReply.isEmpty() || loserReply.isNotEmpty()) return false
+                if (abs(winner.timestamp - loser.timestamp) > 2000L) return false
+                return normalizeContentForDedupe(winner.content) == normalizeContentForDedupe(loser.content)
+            }
+
+            // 分页拉取，每次最多200条
+            while (true) {
+                val response = apiService.pullConversation(
+                    userId = userId,
+                    after = currentAfter,
+                    limit = 200,
+                    tombstones = true
+                )
+
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("pull conversation failed: ${response.code()}"))
+                }
+
+                val body = response.body() ?: break
+
+                if (body.logs.isNotEmpty()) {
+                    val dedupedLogs = mutableListOf<ConversationLogItem>()
+                    for (log in body.logs) {
+                        val prev = previousKeptLog
+                        if (prev != null && isAtriDuplicate(prev, log)) {
+                            val winner = chooseWinner(prev, log)
+                            val loser = if (winner.id == prev.id) log else prev
+
+                            localDuplicateIds.add(loser.id)
+                            if (shouldDeleteRemoteDuplicate(winner, loser)) {
+                                remoteDuplicateIds.add(loser.id)
+                            }
+
+                            if (winner.id != prev.id) {
+                                if (dedupedLogs.isNotEmpty() && dedupedLogs.last().id == prev.id) {
+                                    dedupedLogs[dedupedLogs.lastIndex] = winner
+                                } else {
+                                    dedupedLogs.add(winner)
+                                }
+                                previousKeptLog = winner
+                            }
+                            continue
+                        }
+
+                        dedupedLogs.add(log)
+                        previousKeptLog = log
+                    }
+
+                    // 处理新消息（去重后）
+                    for (log in dedupedLogs) {
+                        val existingMessage = messageDao.getMessageById(log.id)
+                        if (existingMessage == null) {
+                            val entity = log.toMessageEntity()
+                            messageDao.insert(entity)
+                            insertedCount++
+                        }
+                    }
+                }
+
+                // 处理 tombstones（删除的消息）
+                val tombstones = body.tombstones
+                if (!tombstones.isNullOrEmpty()) {
+                    val idsToDelete = tombstones.map { it.logId }
+                    messageDao.deleteByIds(idsToDelete)
+                    deletedCount += idsToDelete.size
+                }
+
+                // 如果返回数据少于200条，说明已经拉完
+                if (body.logs.size < 200) break
+
+                // 更新游标为最后一条消息的时间戳
+                currentAfter = body.logs.maxOfOrNull { it.timestamp } ?: break
+            }
+
+            if (localDuplicateIds.isNotEmpty()) {
+                messageDao.deleteByIds(localDuplicateIds.toList())
+                deletedCount += localDuplicateIds.size
+            }
+
+            if (remoteDuplicateIds.isNotEmpty()) {
+                remoteDuplicateIds.toList().chunked(50).forEach { batch ->
+                    deleteConversationLogs(batch)
+                }
+            }
+
+            if (!dedupeDone) {
+                preferencesStore.setHistoryDedupeDone(true)
+            }
+
+            Result.success(SyncResult(insertedCount, deletedCount))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun ConversationLogItem.toMessageEntity(): MessageEntity {
+        val attachmentList = attachments.map { att ->
+            Attachment(
+                type = when (att.type) {
+                    AttachmentContract.TYPE_IMAGE -> AttachmentType.IMAGE
+                    AttachmentContract.TYPE_DOCUMENT -> AttachmentType.DOCUMENT
+                    else -> AttachmentType.DOCUMENT
+                },
+                url = att.url,
+                mime = att.mime ?: "",
+                name = att.name ?: "",
+                sizeBytes = att.sizeBytes
+            )
+        }
+
+        return MessageEntity(
+            id = id,
+            content = content,
+            isFromAtri = role == "atri",
+            timestamp = timestamp,
+            attachments = attachmentList,
+            mood = mood,
+            isDeleted = false,
+            isImportant = false,
+            currentVersionIndex = 0,
+            totalVersions = 1
+        )
+    }
 }
+
+data class SyncResult(
+    val insertedCount: Int,
+    val deletedCount: Int
+)
 
 
 

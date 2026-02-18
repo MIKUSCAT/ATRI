@@ -45,7 +45,16 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getMessageById(id: String): MessageEntity?
 
-    // 新增：按时间范围查询消息（升序），用于“问时即取”按日检索
+    // 新增：按时间范围查询消息（升序），用于"问时即取"按日检索
     @Query("SELECT * FROM messages WHERE isDeleted = 0 AND timestamp BETWEEN :startMs AND :endMs ORDER BY timestamp ASC")
     suspend fun getMessagesInRange(startMs: Long, endMs: Long): List<MessageEntity>
+
+    @Query("SELECT MAX(timestamp) FROM messages WHERE isDeleted = 0")
+    suspend fun getLatestTimestamp(): Long?
+
+    @Query("SELECT MIN(timestamp) FROM messages WHERE isDeleted = 0")
+    suspend fun getEarliestTimestamp(): Long?
+
+    @Query("DELETE FROM messages WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 }

@@ -3,12 +3,15 @@ package me.atri.data.api
 import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
+import me.atri.data.api.request.InvalidateMemoryRequest
 import me.atri.data.api.request.DiaryRegenerateRequest
+import me.atri.data.api.response.CurrentModelResponse
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
 import me.atri.data.api.response.BioChatResponse
 import me.atri.data.api.response.ModelListResponse
+import me.atri.data.api.response.PullConversationResponse
 import me.atri.data.api.response.UploadResponse
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -29,6 +32,9 @@ interface AtriApiService {
 
     @POST("/conversation/delete")
     suspend fun deleteConversationLogs(@Body request: ConversationDeleteRequest): Response<ResponseBody>
+
+    @POST("/conversation/invalidate-memory")
+    suspend fun invalidateMemory(@Body request: InvalidateMemoryRequest): Response<ResponseBody>
 
     @Streaming
     @POST("/upload")
@@ -66,4 +72,15 @@ interface AtriApiService {
 
     @GET("/models")
     suspend fun fetchModelList(): Response<ModelListResponse>
+
+    @GET("/current-model")
+    suspend fun fetchCurrentModel(): Response<CurrentModelResponse>
+
+    @GET("/conversation/pull")
+    suspend fun pullConversation(
+        @Query("userId") userId: String,
+        @Query("after") after: Long = 0,
+        @Query("limit") limit: Int = 200,
+        @Query("tombstones") tombstones: Boolean = false
+    ): Response<PullConversationResponse>
 }

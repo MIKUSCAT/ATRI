@@ -24,3 +24,9 @@ data class ConversationDeleteRequest(
     val userId: String,
     val ids: List<String>
 )
+
+@Serializable
+data class InvalidateMemoryRequest(
+    val userId: String,
+    val date: String
+)

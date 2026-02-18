@@ -11,6 +11,7 @@ import me.atri.data.UserDataManager
 import me.atri.data.api.AtriApiService
 import me.atri.data.api.response.ModelInfoResponse
 import me.atri.data.datastore.PreferencesStore
+import me.atri.data.repository.ChatRepository
 
 data class SettingsUiState(
     val apiUrl: String = "",
@@ -18,8 +19,12 @@ data class SettingsUiState(
     val modelName: String = "",
     val userId: String = "",
     val appToken: String = "",
+    val backendType: String = "worker",
+    val serverCurrentModel: String = "",
+    val serverModelLoading: Boolean = false,
     val isLoading: Boolean = false,
     val isClearing: Boolean = false,
+    val isSyncing: Boolean = false,
     val statusMessage: String? = null,
     val availableModels: List<ModelOption> = emptyList(),
     val modelsLoading: Boolean = false,
@@ -36,7 +41,8 @@ data class SettingsUiState(
 class SettingsViewModel(
     private val preferencesStore: PreferencesStore,
     private val userDataManager: UserDataManager,
-    private val apiService: AtriApiService
+    private val apiService: AtriApiService,
+    private val chatRepository: ChatRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -73,13 +79,18 @@ class SettingsViewModel(
                 _uiState.update { it.copy(appToken = token) }
             }
         }
+        viewModelScope.launch {
+            preferencesStore.backendType.collect { type ->
+                _uiState.update { it.copy(backendType = type) }
+            }
+        }
     }
 
     fun updateApiUrl(url: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, statusMessage = null) }
             preferencesStore.setApiUrl(url)
-            _uiState.update { it.copy(isLoading = false, statusMessage = "已更新 Worker URL") }
+            _uiState.update { it.copy(isLoading = false, statusMessage = "已更新 API 地址") }
         }
     }
 
@@ -101,6 +112,41 @@ class SettingsViewModel(
         viewModelScope.launch {
             preferencesStore.setAppToken(token.trim())
             _uiState.update { it.copy(statusMessage = "已保存鉴权 Token") }
+        }
+    }
+
+    fun updateBackendType(type: String) {
+        viewModelScope.launch {
+            preferencesStore.setBackendType(type)
+            _uiState.update { it.copy(backendType = type) }
+            if (type == "vps") {
+                fetchServerCurrentModel()
+            }
+        }
+    }
+
+    fun fetchServerCurrentModel() {
+        if (_uiState.value.serverModelLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(serverModelLoading = true) }
+            runCatching {
+                val response = apiService.fetchCurrentModel()
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("请求失败：${response.code()}")
+                }
+                response.body()?.model ?: "未知"
+            }.onSuccess { model ->
+                _uiState.update {
+                    it.copy(serverCurrentModel = model, serverModelLoading = false)
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        serverModelLoading = false,
+                        statusMessage = "获取服务器模型失败：${error.message ?: "未知错误"}"
+                    )
+                }
+            }
         }
     }
 
@@ -135,12 +181,12 @@ class SettingsViewModel(
     fun importUserId(input: String) {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
-            _uiState.update { it.copy(statusMessage = "账号 ID 不能为空") }
+            _uiState.update { it.copy(statusMessage = "UID 不能为空") }
             return
         }
         viewModelScope.launch {
             preferencesStore.setUserId(trimmed)
-            _uiState.update { it.copy(userId = trimmed, statusMessage = "已导入账号 ID") }
+            _uiState.update { it.copy(userId = trimmed, statusMessage = "已导入 UID") }
         }
     }
 
@@ -166,6 +212,39 @@ class SettingsViewModel(
                     it.copy(
                         isClearing = false,
                         statusMessage = "清空失败：${error.message ?: "未知错误"}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun syncHistory() {
+        if (_uiState.value.isSyncing) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSyncing = true, statusMessage = "正在同步...") }
+            runCatching {
+                chatRepository.syncRemoteHistory()
+            }.onSuccess { result ->
+                result.onSuccess { syncResult ->
+                    _uiState.update {
+                        it.copy(
+                            isSyncing = false,
+                            statusMessage = "同步完成：新增 ${syncResult.insertedCount} 条，删除 ${syncResult.deletedCount} 条"
+                        )
+                    }
+                }.onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isSyncing = false,
+                            statusMessage = "同步失败：${error.message ?: "未知错误"}"
+                        )
+                    }
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isSyncing = false,
+                        statusMessage = "同步失败：${error.message ?: "未知错误"}"
                     )
                 }
             }

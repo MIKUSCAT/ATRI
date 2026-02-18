@@ -1,5 +1,6 @@
 package me.atri.ui.chat
 
+import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.atri.data.model.AtriStatus
 import me.atri.ui.components.DiaryIcon
+import me.atri.ui.theme.AtriTheme
 
 @Composable
 fun ChatTopBar(
@@ -86,23 +88,17 @@ fun ChatTopBar(
 @Composable
 private fun StatusPill(status: AtriStatus) {
     val colorScheme = MaterialTheme.colorScheme
+    val atriColors = AtriTheme.colors
 
-    val (indicatorColor, saturation) = when (status) {
-        is AtriStatus.MoodStatus -> {
-            val baseColor = when {
-                status.p > 0.3 -> colorScheme.primary
-                status.p < -0.3 -> colorScheme.error
-                else -> colorScheme.outline
-            }
-            val sat = (0.5f + kotlin.math.abs(status.a.toFloat()) * 0.5f).coerceIn(0.5f, 1f)
-            baseColor to sat
-        }
-        AtriStatus.Thinking -> colorScheme.primary to 0.8f
+    val pillColor = when (status) {
+        is AtriStatus.LiveStatus -> parseDynamicColor(status.pillColor, atriColors.messageBubbleAtri)
+        is AtriStatus.Thinking -> atriColors.messageBubbleAtri
     }
+    val textColor = contrastTextColor(pillColor)
 
     Surface(
         shape = RoundedCornerShape(50),
-        color = colorScheme.surfaceVariant.copy(alpha = 0.7f),
+        color = pillColor,
         tonalElevation = 0.dp
     ) {
         Row(
@@ -117,7 +113,7 @@ private fun StatusPill(status: AtriStatus) {
                     .height(8.dp)
                     .width(8.dp),
                 shape = CircleShape,
-                color = indicatorColor.copy(alpha = saturation),
+                color = textColor,
                 tonalElevation = 0.dp
             ) {}
             AnimatedContent(
@@ -131,11 +127,26 @@ private fun StatusPill(status: AtriStatus) {
                 Text(
                     text = text,
                     style = MaterialTheme.typography.labelMedium,
-                    color = colorScheme.onSurfaceVariant,
+                    color = textColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
     }
+}
+
+private fun parseDynamicColor(value: String?, fallback: Color): Color {
+    val raw = value?.trim().orEmpty()
+    if (raw.isEmpty()) return fallback
+    return try {
+        Color(AndroidColor.parseColor(raw))
+    } catch (_: IllegalArgumentException) {
+        fallback
+    }
+}
+
+private fun contrastTextColor(background: Color): Color {
+    val luminance = 0.299f * background.red + 0.587f * background.green + 0.114f * background.blue
+    return if (luminance > 0.5f) Color(0xFF1A1A2E) else Color(0xFFF0F0F0)
 }

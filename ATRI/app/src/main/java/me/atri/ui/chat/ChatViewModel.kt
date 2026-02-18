@@ -15,6 +15,7 @@ import me.atri.data.model.Attachment
 import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import me.atri.data.repository.ChatRepository
+import me.atri.data.repository.SyncResult
 import me.atri.data.repository.StatusRepository
 import me.atri.data.datastore.PreferencesStore
 import me.atri.data.db.entity.MessageEntity
@@ -68,6 +69,8 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
     private var currentSendJob: Job? = null
     private var pendingUserMessageId: String? = null
+    private var backgroundSyncJob: Job? = null
+    private var lastBackgroundSyncAt: Long = 0L
 
     data class WelcomeUiState(
         val greeting: String = "",
@@ -130,7 +133,37 @@ class ChatViewModel(
     init {
         observeMessages()
         refreshWelcomeState()
+        syncRemoteHistoryOnStart()
         updateState { it }
+    }
+
+    private fun syncRemoteHistoryOnStart() {
+        triggerBackgroundSync(force = true)
+    }
+
+    fun syncRemoteHistoryOnForeground() {
+        triggerBackgroundSync(force = false)
+    }
+
+    private fun triggerBackgroundSync(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastBackgroundSyncAt < 15_000) return
+        if (backgroundSyncJob?.isActive == true) return
+        lastBackgroundSyncAt = now
+        backgroundSyncJob = viewModelScope.launch {
+            try {
+                val result = chatRepository.syncRemoteHistory()
+                result.onSuccess { syncResult ->
+                    if (syncResult.insertedCount > 0 || syncResult.deletedCount > 0) {
+                        println("[ATRI] 同步完成: 新增 ${syncResult.insertedCount} 条, 删除 ${syncResult.deletedCount} 条")
+                    }
+                }.onFailure { error ->
+                    println("[ATRI] 同步失败: ${error.message}")
+                }
+            } finally {
+                backgroundSyncJob = null
+            }
+        }
     }
 
     private fun observeMessages() {
@@ -151,7 +184,7 @@ class ChatViewModel(
             val selectedReferenceAttachments = referenceSnapshot
                 ?.attachments?.filter { it.selected }?.map { it.attachment }.orEmpty()
 
-            updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+            updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
 
             try {
                 val result = chatRepository.sendMessage(
@@ -163,18 +196,20 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val timestamp = System.currentTimeMillis()
+                    val serverTimestamp = chatResult.replyTimestamp
+                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
                     val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
                     val adjustedTimestamp = latestUser?.let { maxOf(timestamp, it + 1) } ?: timestamp
 
                     val atriMessage = MessageEntity(
+                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
                         content = chatResult.reply,
                         isFromAtri = true,
                         timestamp = adjustedTimestamp
                     )
-                    chatRepository.persistAtriMessage(atriMessage)
+                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                     statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
 
                     if (referenceSnapshot != null) clearReferencedAttachments()
                 } else {
@@ -246,7 +281,15 @@ class ChatViewModel(
             val removed = messages.drop(index + 1)
             removed.forEach { msg -> chatRepository.deleteMessage(msg.id) }
             val removedIds = removed.map { it.id }
-            if (removedIds.isNotEmpty()) chatRepository.deleteConversationLogs(removedIds)
+            if (removedIds.isNotEmpty()) {
+                chatRepository.deleteConversationLogs(removedIds)
+                // 收集受影响的日期，使对应的向量记忆失效
+                val affectedDates = removed.map { msg ->
+                    Instant.ofEpochMilli(msg.timestamp).atZone(zoneId).toLocalDate()
+                        .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                }.toSet()
+                chatRepository.invalidateMemoryForDates(affectedDates)
+            }
         }
     }
 
@@ -274,7 +317,7 @@ class ChatViewModel(
                     all[index]
                 }
 
-                updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
                 deleteMessagesAfter(userMessage.id)
                 delay(300)
                 val result = chatRepository.regenerateResponse(
@@ -285,14 +328,18 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
+                    val serverTimestamp = chatResult.replyTimestamp
+                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
+                    val adjustedTimestamp = maxOf(timestamp, userMessage.timestamp + 1)
                     val atriMessage = MessageEntity(
+                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
                         content = chatResult.reply,
                         isFromAtri = true,
-                        timestamp = System.currentTimeMillis()
+                        timestamp = adjustedTimestamp
                     )
-                    chatRepository.persistAtriMessage(atriMessage)
+                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                     statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
                 } else {
                     val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                     updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
@@ -300,6 +347,9 @@ class ChatViewModel(
             } catch (cancel: CancellationException) {
                 updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
                 throw cancel
+            } catch (e: Exception) {
+                val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
             } finally {
                 updateState { it.copy(isLoading = false) }
                 if (isActive) refreshWelcomeState()
@@ -330,7 +380,7 @@ class ChatViewModel(
                         deleteMessagesAfter(editedId)
                         delay(300)
 
-                        updateState { it.copy(isLoading = true, currentStatus = AtriStatus.Thinking) }
+                        updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
                         val result = chatRepository.regenerateResponse(
                             userMessageId = editedMessage.id,
                             userContent = editedMessage.content,
@@ -339,14 +389,17 @@ class ChatViewModel(
 
                         if (result.isSuccess) {
                             val chatResult = result.getOrThrow()
+                            val serverTimestamp = chatResult.replyTimestamp
+                            val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
                             val atriMessage = MessageEntity(
+                                id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
                                 content = chatResult.reply,
                                 isFromAtri = true,
-                                timestamp = System.currentTimeMillis()
+                                timestamp = timestamp
                             )
-                            chatRepository.persistAtriMessage(atriMessage)
+                            chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                             statusRepository.incrementIntimacy(1)
-                            updateState { it.copy(currentStatus = AtriStatus.fromMood(chatResult.mood, chatResult.intimacy)) }
+                            updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
                         } else {
                             val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                             updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
@@ -356,6 +409,9 @@ class ChatViewModel(
             } catch (cancel: CancellationException) {
                 updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
                 throw cancel
+            } catch (e: Exception) {
+                val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
             } finally {
                 updateState { it.copy(isLoading = false) }
                 if (isActive) refreshWelcomeState()
