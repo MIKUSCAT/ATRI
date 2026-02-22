@@ -897,6 +897,6 @@ const AGENT_TOOLS = [
   }
 ];
 
-const MAX_AGENT_LOOPS = 5;
+const MAX_AGENT_LOOPS = 20;
 const AGENT_FALLBACK_REPLY = '唔…我有点卡住了，稍后再聊好吗？';
 const AGENT_TIMEOUT_REPLY = '抱歉，我今天有点迟钝，能再提示我一次吗？';
