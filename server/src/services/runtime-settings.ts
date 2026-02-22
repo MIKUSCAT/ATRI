@@ -14,6 +14,7 @@ type RuntimeConfigPublic = {
 
   agentTemperature?: number;
   agentMaxTokens?: number;
+  agentTimeoutMs?: number;
   diaryTemperature?: number;
   diaryMaxTokens?: number;
   profileTemperature?: number;
@@ -55,6 +56,7 @@ export type EffectiveRuntimeSettings = {
 
   agentTemperature: number;
   agentMaxTokens: number;
+  agentTimeoutMs: number;
   diaryTemperature: number;
   diaryMaxTokens: number;
   profileTemperature: number;
@@ -110,6 +112,7 @@ const CACHE_TTL_MS = 1500;
 const DEFAULTS = {
   agentTemperature: 1.0,
   agentMaxTokens: 4096,
+  agentTimeoutMs: 300000,
   diaryTemperature: 0.7,
   diaryMaxTokens: 4096,
   profileTemperature: 0.2,
@@ -136,6 +139,7 @@ const RUNTIME_CONFIG_KEYS: Array<keyof RuntimeConfigPublic> = [
   'defaultChatModel',
   'agentTemperature',
   'agentMaxTokens',
+  'agentTimeoutMs',
   'diaryTemperature',
   'diaryMaxTokens',
   'profileTemperature',
@@ -438,6 +442,9 @@ function resolveEffectiveSettings(
   const agentMaxTokens = Math.trunc(
     clampNumber(normalizeOptionalNumber(c.agentMaxTokens) ?? DEFAULTS.agentMaxTokens, 64, 8192)
   );
+  const agentTimeoutMs = Math.trunc(
+    clampNumber(normalizeOptionalNumber(c.agentTimeoutMs) ?? DEFAULTS.agentTimeoutMs, 30000, 600000)
+  );
 
   const diaryTemperature = clampNumber(
     normalizeOptionalNumber(c.diaryTemperature) ?? DEFAULTS.diaryTemperature,
@@ -527,6 +534,7 @@ function resolveEffectiveSettings(
     defaultChatModel,
     agentTemperature,
     agentMaxTokens,
+    agentTimeoutMs,
     diaryTemperature,
     diaryMaxTokens,
     profileTemperature,

@@ -161,7 +161,8 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     openaiApiUrl: settings.openaiApiUrl,
     openaiApiKey: settings.openaiApiKey,
     temperature: settings.agentTemperature,
-    maxTokens: settings.agentMaxTokens
+    maxTokens: settings.agentMaxTokens,
+    timeoutMs: settings.agentTimeoutMs
   });
 
   const finalState = {
@@ -403,6 +404,7 @@ async function runToolLoop(env: Env, params: {
   openaiApiKey: string;
   temperature: number;
   maxTokens: number;
+  timeoutMs: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
   let toolInvoked = false;
@@ -419,7 +421,7 @@ async function runToolLoop(env: Env, params: {
         tools: AGENT_TOOLS,
         temperature: params.temperature,
         maxTokens: params.maxTokens,
-        timeoutMs: 120000,
+        timeoutMs: params.timeoutMs,
         trace: { scope: 'agent', userId: params.userId }
       });
       message = result.message;

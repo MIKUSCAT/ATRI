@@ -101,6 +101,7 @@ export async function loadConfig() {
 
   $('agentTemperature').value = c.agentTemperature ?? data.effective?.agentTemperature ?? '';
   $('agentMaxTokens').value = c.agentMaxTokens ?? data.effective?.agentMaxTokens ?? '';
+  $('agentTimeoutMs').value = c.agentTimeoutMs ? Math.round(c.agentTimeoutMs / 1000) : (data.effective?.agentTimeoutMs ? Math.round(data.effective.agentTimeoutMs / 1000) : '');
   $('diaryTemperature').value = c.diaryTemperature ?? data.effective?.diaryTemperature ?? '';
   $('diaryMaxTokens').value = c.diaryMaxTokens ?? data.effective?.diaryMaxTokens ?? '';
   $('profileTemperature').value = c.profileTemperature ?? data.effective?.profileTemperature ?? '';
@@ -139,6 +140,10 @@ function buildSavePayload() {
     diaryModel: $('diaryModel').value,
     agentTemperature: $('agentTemperature').value,
     agentMaxTokens: $('agentMaxTokens').value,
+    agentTimeoutMs: (() => {
+      const v = parseInt($('agentTimeoutMs').value, 10);
+      return isNaN(v) ? undefined : v * 1000;
+    })(),
     diaryTemperature: $('diaryTemperature').value,
     diaryMaxTokens: $('diaryMaxTokens').value,
     profileTemperature: $('profileTemperature').value,

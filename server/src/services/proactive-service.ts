@@ -276,7 +276,7 @@ async function runProactiveAgent(env: Env, params: {
     model,
     temperature: params.settings.agentTemperature,
     maxTokens: 256,
-    timeoutMs: 90000,
+    timeoutMs: params.settings.agentTimeoutMs,
     trace: { scope: 'proactive', userId: params.userId },
     notification
   });
