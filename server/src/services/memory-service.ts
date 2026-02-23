@@ -229,14 +229,23 @@ export async function getActiveFacts(
   userId: string,
   limit = 20
 ): Promise<FactMemoryRecord[]> {
-  const result = await env.db.query(
-    `SELECT id, text, timestamp
-       FROM memory_vectors
-      WHERE user_id = $1 AND mood = $2
-      ORDER BY timestamp DESC
-      LIMIT $3`,
-    [userId, FACT_MOOD_TAG, Math.min(Math.max(1, limit), 50)]
-  );
+  const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
+  const result = normalizedLimit > 0
+    ? await env.db.query(
+        `SELECT id, text, timestamp
+           FROM memory_vectors
+          WHERE user_id = $1 AND mood = $2
+          ORDER BY timestamp DESC
+          LIMIT $3`,
+        [userId, FACT_MOOD_TAG, Math.min(Math.max(1, normalizedLimit), 10000)]
+      )
+    : await env.db.query(
+        `SELECT id, text, timestamp
+           FROM memory_vectors
+          WHERE user_id = $1 AND mood = $2
+          ORDER BY timestamp DESC`,
+        [userId, FACT_MOOD_TAG]
+      );
 
   return (result.rows || []).map((row: any) => ({
     id: String(row.id || ''),

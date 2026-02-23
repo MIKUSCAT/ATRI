@@ -319,7 +319,7 @@ async function loadUserProfileSnippet(env: Env, userId: string) {
 
 async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
   try {
-    const facts = await getActiveFacts(env, userId, 15);
+    const facts = await getActiveFacts(env, userId, 0);
     if (facts.length > 0) {
       return buildFactsSnippet(facts);
     }
@@ -333,10 +333,13 @@ async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
 function buildFactsSnippet(facts: Array<{ id: string; text: string }>) {
   if (!facts.length) return '';
   const lines = facts
-    .slice(0, 10)
     .map(f => `- [${f.id}] ${f.text}`)
     .filter(Boolean);
   return lines.join('\n');
+}
+
+function normalizeFactTextForMatch(value: unknown) {
+  return sanitizeText(String(value || '')).trim().replace(/\s+/g, ' ');
 }
 
 function buildUserProfileSnippet(content: string) {
@@ -408,6 +411,7 @@ async function runToolLoop(env: Env, params: {
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
   let toolInvoked = false;
+  let currentSelfReviewSnippet = params.selfReviewSnippet;
 
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     let message: any = null;
@@ -435,6 +439,7 @@ async function runToolLoop(env: Env, params: {
 
     if (toolCalls.length > 0) {
       toolInvoked = true;
+      let factMemoryChanged = false;
       params.messages.push({
         role: 'assistant',
         content: message?.content || null,
@@ -467,6 +472,9 @@ async function runToolLoop(env: Env, params: {
 
         const toolStartedAt = Date.now();
         const result = await executeAgentTool(call, env, params.userId, params.userName, latestState, params.contextDate);
+        if (toolName === 'remember_fact' || toolName === 'forget_fact') {
+          factMemoryChanged = true;
+        }
         if (result.updatedState) {
           latestState = result.updatedState;
         }
@@ -487,6 +495,10 @@ async function runToolLoop(env: Env, params: {
         });
       }
 
+      if (factMemoryChanged) {
+        currentSelfReviewSnippet = await loadAtriSelfReviewSnippet(env, params.userId);
+      }
+
       const updatedSystemPrompt = composeAgentSystemPrompt({
         template: params.agentSystemTemplate,
         statusLabel: latestState.statusLabel,
@@ -499,7 +511,7 @@ async function runToolLoop(env: Env, params: {
         platform: params.platform,
         clientTimeIso: params.clientTimeIso,
         userProfileSnippet: params.userProfileSnippet,
-        selfReviewSnippet: params.selfReviewSnippet
+        selfReviewSnippet: currentSelfReviewSnippet
       });
       params.messages[0].content = updatedSystemPrompt;
 
@@ -612,12 +624,43 @@ async function executeAgentTool(
 
   if (name === 'forget_fact') {
     const factId = String(args?.factId || args?.fact_id || '').trim();
-    if (!factId) {
-      return { output: '没有指定要忘记的事实 ID' };
+    const factText = normalizeFactTextForMatch(args?.content || args?.text || args?.factText || args?.fact_text);
+    if (!factId && !factText) {
+      return { output: '请给我 factId，或提供要删除的事实文本' };
     }
     try {
-      const deleted = await deleteFactMemory(env, userId, factId);
-      return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+      if (factId) {
+        const deleted = await deleteFactMemory(env, userId, factId);
+        return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+      }
+
+      const facts = await getActiveFacts(env, userId, 0);
+      const exact = facts.find(f => normalizeFactTextForMatch(f.text) === factText);
+      if (exact) {
+        const deleted = await deleteFactMemory(env, userId, exact.id);
+        return { output: deleted ? `已忘记：${exact.id}` : `没找到：${exact.id}` };
+      }
+
+      const fuzzyMatches = facts.filter(f => {
+        const normalized = normalizeFactTextForMatch(f.text);
+        return Boolean(normalized) && (normalized.includes(factText) || factText.includes(normalized));
+      });
+
+      if (fuzzyMatches.length === 1) {
+        const target = fuzzyMatches[0];
+        const deleted = await deleteFactMemory(env, userId, target.id);
+        return { output: deleted ? `已忘记：${target.id}` : `没找到：${target.id}` };
+      }
+
+      if (fuzzyMatches.length > 1) {
+        const hints = fuzzyMatches
+          .slice(0, 3)
+          .map(f => `[${f.id}] ${f.text}`)
+          .join(' | ');
+        return { output: `命中多条事实（${fuzzyMatches.length}条），请改用 factId 删除：${hints}` };
+      }
+
+      return { output: '没找到匹配的事实' };
     } catch (error) {
       console.warn('[ATRI] forget_fact failed', error);
       return { output: '删除失败' };
@@ -889,9 +932,9 @@ const AGENT_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          factId: { type: 'string', description: '要划掉的那条（从"记在心里的事"里找 ID）' }
-        },
-        required: ['factId']
+          factId: { type: 'string', description: '要划掉的那条（优先用这个，从"记在心里的事"里找 ID）' },
+          content: { type: 'string', description: '也可以直接给事实文本（原文或足够唯一的片段）' }
+        }
       }
     }
   }
