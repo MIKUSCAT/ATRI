@@ -202,18 +202,24 @@ export async function upsertFactMemory(
 }
 
 export async function deleteFactMemory(env: Env, userId: string, factId: string): Promise<boolean> {
-  const trimmedId = String(factId || '').trim();
-  if (!trimmedId) return false;
+  const rawId = String(factId || '').trim();
+  if (!rawId) return false;
+
+  // 兼容模型传简写 ID：<userId>:<hash>（缺少 "fact:" 前缀）
+  const bracketStripped = rawId.replace(/^\[(.*)\]$/, '$1').trim();
+  const normalizedId = bracketStripped.startsWith(`${userId}:`)
+    ? `fact:${bracketStripped}`
+    : bracketStripped;
 
   // 安全检查：只能删除自己的 fact
-  if (!trimmedId.startsWith(`fact:${userId}:`)) {
-    console.warn('[ATRI] deleteFactMemory: id mismatch', { userId, factId: trimmedId });
+  if (!normalizedId.startsWith(`fact:${userId}:`)) {
+    console.warn('[ATRI] deleteFactMemory: id mismatch', { userId, factId: rawId, normalizedId });
     return false;
   }
 
   const result = await env.db.query(
     `DELETE FROM memory_vectors WHERE id = $1 AND user_id = $2`,
-    [trimmedId, userId]
+    [normalizedId, userId]
   );
   return Number(result.rowCount || 0) > 0;
 }
