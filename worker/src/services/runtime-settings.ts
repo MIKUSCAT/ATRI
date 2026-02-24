@@ -54,6 +54,7 @@ export type EffectiveRuntimeSettings = {
 
   agentTemperature: number;
   agentMaxTokens: number;
+  agentTimeoutMs: number;
   diaryTemperature: number;
   diaryMaxTokens: number;
   profileTemperature: number;
@@ -111,6 +112,7 @@ const TEXT_DECODER = new TextDecoder();
 const DEFAULTS = {
   agentTemperature: 1.0,
   agentMaxTokens: 4096,
+  agentTimeoutMs: 300000,
   diaryTemperature: 0.7,
   diaryMaxTokens: 4096,
   profileTemperature: 0.2,
@@ -505,6 +507,14 @@ function resolveEffectiveSettings(
     clampNumber(normalizeOptionalNumber(c.agentMaxTokens) ?? DEFAULTS.agentMaxTokens, 64, 8192)
   );
 
+  const agentTimeoutMs = Math.trunc(
+    clampNumber(
+      normalizeOptionalNumber((c as any).agentTimeoutMs ?? env.AGENT_TIMEOUT_MS) ?? DEFAULTS.agentTimeoutMs,
+      10000,
+      600000
+    )
+  );
+
   const diaryTemperature = clampNumber(
     normalizeOptionalNumber(c.diaryTemperature) ?? DEFAULTS.diaryTemperature,
     0,
@@ -593,6 +603,7 @@ function resolveEffectiveSettings(
     defaultChatModel,
     agentTemperature,
     agentMaxTokens,
+    agentTimeoutMs,
     diaryTemperature,
     diaryMaxTokens,
     profileTemperature,

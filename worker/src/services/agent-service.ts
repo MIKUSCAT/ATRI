@@ -148,7 +148,8 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     openaiApiUrl: settings.openaiApiUrl,
     openaiApiKey: settings.openaiApiKey,
     temperature: settings.agentTemperature,
-    maxTokens: settings.agentMaxTokens
+    maxTokens: settings.agentMaxTokens,
+    timeoutMs: settings.agentTimeoutMs
   });
 
   const finalState = {
@@ -295,7 +296,7 @@ async function loadUserProfileSnippet(env: Env, userId: string) {
 
 async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
   try {
-    const facts = await getActiveFacts(env, userId, 15);
+    const facts = await getActiveFacts(env, userId, 0);
     if (facts.length > 0) {
       return buildFactsSnippet(facts);
     }
@@ -309,10 +310,13 @@ async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
 function buildFactsSnippet(facts: Array<{ id: string; text: string }>) {
   if (!facts.length) return '';
   const lines = facts
-    .slice(0, 10)
     .map(f => `- [${f.id}] ${f.text}`)
     .filter(Boolean);
   return lines.join('\n');
+}
+
+function normalizeFactTextForMatch(value: unknown) {
+  return sanitizeText(String(value || '')).trim().replace(/\s+/g, ' ');
 }
 
 function buildUserProfileSnippet(content: string) {
@@ -380,8 +384,11 @@ async function runToolLoop(env: Env, params: {
   openaiApiKey: string;
   temperature: number;
   maxTokens: number;
+  timeoutMs: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
+  let toolInvoked = false;
+  let currentSelfReviewSnippet = params.selfReviewSnippet;
 
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     let message: any = null;
@@ -395,7 +402,7 @@ async function runToolLoop(env: Env, params: {
         tools: AGENT_TOOLS,
         temperature: params.temperature,
         maxTokens: params.maxTokens,
-        timeoutMs: 120000,
+        timeoutMs: params.timeoutMs,
         trace: { scope: 'agent', userId: params.userId }
       });
       message = result.message;
@@ -408,23 +415,36 @@ async function runToolLoop(env: Env, params: {
     const toolCalls: AgentToolCall[] = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
 
     if (toolCalls.length > 0) {
+      toolInvoked = true;
+      let factMemoryChanged = false;
       params.messages.push({
         role: 'assistant',
         content: message?.content || null,
         tool_calls: toolCalls
       });
 
-      for (const call of toolCalls) {
+      for (let toolIndex = 0; toolIndex < toolCalls.length; toolIndex++) {
+        const call = toolCalls[toolIndex];
+        const toolCallId = String(call?.id || '').trim() || `tool_${Date.now()}_${toolIndex}`;
+        const toolName = String(call?.function?.name || (call as any)?.function_call?.name || '').trim();
+
         const result = await executeAgentTool(call, env, params.userId, params.userName, latestState, params.contextDate);
+        if (toolName === 'remember_fact' || toolName === 'forget_fact') {
+          factMemoryChanged = true;
+        }
         if (result.updatedState) {
           latestState = result.updatedState;
         }
         params.messages.push({
           role: 'tool',
-          tool_call_id: call.id,
-          name: call.function?.name,
+          tool_call_id: toolCallId,
+          name: toolName || call.function?.name,
           content: result.output
         });
+      }
+
+      if (factMemoryChanged) {
+        currentSelfReviewSnippet = await loadAtriSelfReviewSnippet(env, params.userId);
       }
 
       const updatedSystemPrompt = composeAgentSystemPrompt({
@@ -439,7 +459,7 @@ async function runToolLoop(env: Env, params: {
         platform: params.platform,
         clientTimeIso: params.clientTimeIso,
         userProfileSnippet: params.userProfileSnippet,
-        selfReviewSnippet: params.selfReviewSnippet
+        selfReviewSnippet: currentSelfReviewSnippet
       });
       params.messages[0].content = updatedSystemPrompt;
 
@@ -447,6 +467,20 @@ async function runToolLoop(env: Env, params: {
     }
 
     const finalText = extractMessageText(message);
+    if (finalText.trim()) {
+      return { reply: finalText, state: latestState };
+    }
+    if (toolInvoked && i < MAX_AGENT_LOOPS - 1) {
+      params.messages.push({
+        role: 'assistant',
+        content: message?.content || null
+      });
+      params.messages.push({
+        role: 'user',
+        content: '请直接给用户一句自然、简短的中文回复，不要再调用工具。'
+      });
+      continue;
+    }
     return { reply: finalText || AGENT_FALLBACK_REPLY, state: latestState };
   }
 
@@ -461,12 +495,17 @@ async function executeAgentTool(
   state: any,
   contextDate: string
 ) {
-  const name = call.function?.name;
+  const name = String(call?.function?.name || (call as any)?.function_call?.name || '').trim();
+  const rawArguments = call?.function?.arguments ?? (call as any)?.function_call?.arguments ?? '{}';
   let args: any = {};
-  try {
-    args = JSON.parse(call.function?.arguments || '{}');
-  } catch (error) {
-    console.warn('[ATRI] tool args parse failed', error);
+  if (typeof rawArguments === 'string') {
+    try {
+      args = JSON.parse(rawArguments || '{}');
+    } catch (error) {
+      console.warn('[ATRI] tool args parse failed', error);
+    }
+  } else if (rawArguments && typeof rawArguments === 'object') {
+    args = rawArguments;
   }
 
   if (name === 'read_diary') {
@@ -533,12 +572,43 @@ async function executeAgentTool(
 
   if (name === 'forget_fact') {
     const factId = String(args?.factId || args?.fact_id || '').trim();
-    if (!factId) {
-      return { output: '没有指定要忘记的事实 ID' };
+    const factText = normalizeFactTextForMatch(args?.content || args?.text || args?.factText || args?.fact_text);
+    if (!factId && !factText) {
+      return { output: '请给我 factId，或提供要删除的事实文本' };
     }
     try {
-      const deleted = await deleteFactMemory(env, userId, factId);
-      return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+      if (factId) {
+        const deleted = await deleteFactMemory(env, userId, factId);
+        return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+      }
+
+      const facts = await getActiveFacts(env, userId, 0);
+      const exact = facts.find(f => normalizeFactTextForMatch(f.text) === factText);
+      if (exact) {
+        const deleted = await deleteFactMemory(env, userId, exact.id);
+        return { output: deleted ? `已忘记：${exact.id}` : `没找到：${exact.id}` };
+      }
+
+      const fuzzyMatches = facts.filter(f => {
+        const normalized = normalizeFactTextForMatch(f.text);
+        return Boolean(normalized) && (normalized.includes(factText) || factText.includes(normalized));
+      });
+
+      if (fuzzyMatches.length === 1) {
+        const target = fuzzyMatches[0];
+        const deleted = await deleteFactMemory(env, userId, target.id);
+        return { output: deleted ? `已忘记：${target.id}` : `没找到：${target.id}` };
+      }
+
+      if (fuzzyMatches.length > 1) {
+        const hints = fuzzyMatches
+          .slice(0, 3)
+          .map(f => `[${f.id}] ${f.text}`)
+          .join(' | ');
+        return { output: `命中多条事实（${fuzzyMatches.length}条），请改用 factId 删除：${hints}` };
+      }
+
+      return { output: '没找到匹配的事实' };
     } catch (error) {
       console.warn('[ATRI] forget_fact failed', error);
       return { output: '删除失败' };
@@ -810,14 +880,14 @@ const AGENT_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          factId: { type: 'string', description: '要划掉的那条（从"记在心里的事"里找 ID）' }
-        },
-        required: ['factId']
+          factId: { type: 'string', description: '要划掉的那条（优先用这个，从"记在心里的事"里找 ID）' },
+          content: { type: 'string', description: '也可以直接给事实文本（原文或足够唯一的片段）' }
+        }
       }
     }
   }
 ];
 
-const MAX_AGENT_LOOPS = 5;
+const MAX_AGENT_LOOPS = 20;
 const AGENT_FALLBACK_REPLY = '唔…我有点卡住了，稍后再聊好吗？';
 const AGENT_TIMEOUT_REPLY = '抱歉，我今天有点迟钝，能再提示我一次吗？';

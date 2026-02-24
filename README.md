@@ -106,14 +106,12 @@
 └──────────────────────────┬──────────────────────────────────────┘
                            │ 🔐 HTTPS + Token Auth
                            ▼
-    ┌──────────────────────┴──────────────────────┐
-    │                                             │
-    ▼                                             ▼
-┌───────────────────────┐         ┌───────────────────────────────┐
-│  ☁️ Cloudflare Workers │   OR    │   🖥️ VPS / Zeabur Server      │
-│  D1 + R2 + Vectorize  │         │  Fastify + PostgreSQL/pgvector│
-└───────────────────────┘         └───────────────────────────────┘
-                           │
+               ┌───────────────────────┐
+               │  ☁️ Cloudflare Workers │  ← Recommended
+               │  D1 + R2 + Vectorize  │
+               └───────────┬───────────┘
+                           │  (VPS/Docker also supported,
+                           │   see server/README.md)
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              🤖 AI Model Service (Native Multi-Format)          │
@@ -136,8 +134,8 @@
 
 | | Option | Best For | Features |
 |:--:|:------:|:---------|:---------|
-| ☁️ | **Cloudflare Workers** | Beginners, low cost | Serverless, free tier, simple setup |
-| 🖥️ | **VPS / Zeabur** | Advanced users | Web admin panel, PostgreSQL, compat API, more control |
+| ☁️ | **Cloudflare Workers** (Recommended) | Beginners, low cost | Serverless, free tier, simple setup |
+| 🖥️ | **VPS / Docker** | Advanced users | Web admin panel, PostgreSQL, compat API, more control |
 
 </div>
 
@@ -147,39 +145,9 @@
 
 ## 🔧 Backend Deployment
 
-### ✅ Option A: Zeabur One-Click Deploy (Recommended)
+### ☁️ Option A: Cloudflare Workers (Recommended)
 
-<div align="center">
-
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/VR6HBL)
-
-</div>
-
-<br/>
-
-1. **Click** the button above
-2. **Fill in** only **2 variables**:
-   - `DOMAIN` - Public domain bound to the API service (must match the publicly exposed domain)
-   - `PASSWORD` - Your password (used for admin login and client auth)
-
-   > 💡 `PASSWORD` can be a strong password (special characters like `@ : / # ?` are safe)
-   >
-   > ⚠️ **Important**: `DOMAIN` must match the actual public domain, otherwise the admin panel may fail with CORS / `bad_origin`
-
-3. **Wait** for deployment to complete
-4. **Visit** your domain to access the admin panel
-5. **Configure** upstream API (OpenAI/Claude/Gemini) in the admin panel
-
-> 📝 **Note**: The Android client and web frontend use the same public API paths on both backends (Cloudflare Workers and VPS/Zeabur), so switching backends is just changing the base URL.
-
-<br/>
-
-### ☁️ Option B: Cloudflare Workers
-
-<details>
-<summary><b>🪟 Windows One-Click Deploy</b></summary>
-
-<br/>
+#### 🪟 Windows One-Click Deploy
 
 1. Double-click `scripts/deploy_cf.bat`
 2. Follow the prompts to enter:
@@ -192,12 +160,7 @@
 3. The script will automatically create resources and deploy
 4. Copy the Worker URL when done
 
-</details>
-
-<details>
-<summary><b>🍎 macOS / 🐧 Linux Manual Deploy</b></summary>
-
-<br/>
+#### 🍎 macOS / 🐧 Linux / Manual Deploy
 
 ```bash
 # 1. Clone and install
@@ -212,20 +175,33 @@ npx wrangler d1 create atri_diary
 npx wrangler r2 bucket create atri-media
 npx wrangler vectorize create atri-memories --dimensions=1024 --metric=cosine
 
-# 4. Update wrangler.toml with database_id from step 3
+# 4. Update wrangler.toml with your account_id and database_id from step 3
 
-# 5. Initialize and deploy
+# 5. Run database migrations
 npx wrangler d1 execute atri_diary --file=db/schema.sql
+npx wrangler d1 execute atri_diary --file=migrations/0004_add_fact_memories.sql
+npx wrangler d1 execute atri_diary --file=migrations/0005_add_conversation_tombstones.sql
+npx wrangler d1 execute atri_diary --file=migrations/0006_add_reply_to.sql
+npx wrangler d1 execute atri_diary --file=migrations/0007_add_proactive_tables.sql
+npx wrangler d1 execute atri_diary --file=migrations/0008_add_runtime_settings_tables.sql
+
+# 6. Set secrets
 npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put EMBEDDINGS_API_KEY
+npx wrangler secret put APP_TOKEN
+# Optional: npx wrangler secret put TAVILY_API_KEY
+# Optional: npx wrangler secret put DIARY_API_KEY
+
+# 7. Sync shared prompts and deploy
 cd .. && python3 scripts/sync_shared.py
 cd worker && npx wrangler deploy
 ```
 
-</details>
+> 📝 **Note**: The Android client uses the same API paths on both backends, so switching is just changing the base URL.
 
 <br/>
 
-### 🐳 Option C: Docker Compose (Self-hosted VPS)
+### 🖥️ Option B: VPS / Docker (Advanced)
 
 ```bash
 cd server
@@ -234,7 +210,7 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-> 📖 See [server/README.md](server/README.md) for detailed VPS deployment guide.
+> 📖 See [server/README.md](server/README.md) for detailed VPS deployment guide (Docker, 1Panel, Baota).
 
 <br/>
 
@@ -317,8 +293,8 @@ docker-compose up -d
 | 📬 **Proactive Messages** | ATRI can initiate conversations on her own; supports Email / WeChat Work notifications |
 | 🌐 **Native Multi-Format** | Natively supports OpenAI, Anthropic (Claude), and Gemini API formats |
 | 🔀 **Split Architecture** | Chat and diary can use different upstreams independently |
-| 🌐 **Web Admin Panel** | (VPS) Runtime config, prompt editing, encrypted secrets management |
-| 🔌 **Compat API** | (VPS) OpenAI / Anthropic / Gemini compatible endpoints for third-party clients |
+| 🌐 **Web Admin Panel** | Runtime config, prompt editing, encrypted secrets management (VPS only) |
+| 🔌 **Compat API** | OpenAI / Anthropic / Gemini compatible endpoints for third-party clients (VPS only) |
 
 </div>
 
@@ -421,7 +397,7 @@ docker-compose up -d
 | 📄 Document | 📝 Content |
 |:------------|:-----------|
 | [**🏛️ Tech Architecture Blueprint**](TECH_ARCHITECTURE_BLUEPRINT.md) | Design philosophy, data flow, API contracts |
-| [**🚀 VPS Deployment Guide**](server/README.md) | Docker, Zeabur, 1Panel, Baota deployment |
+| [**🚀 VPS Deployment Guide**](server/README.md) | Docker, 1Panel, Baota deployment |
 | [**🎭 Personality Definition**](shared/prompts.json) | ATRI's personality and prompts |
 
 </div>

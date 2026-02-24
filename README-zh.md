@@ -127,14 +127,14 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
                                                     ║
                                           HTTPS + Token 鉴权
                                                     ║
-                         ╔══════════════════════════╩══════════════════════════╗
-                         ▼                                                     ▼
-        ╔════════════════════════════════╗          ╔════════════════════════════════════╗
-        ║    ☁️ Cloudflare Workers       ║    OR    ║      🖥️ VPS / Zeabur 服务器        ║
-        ║    D1 + R2 + Vectorize         ║          ║  Fastify + PostgreSQL + pgvector   ║
-        ╚════════════════════════════════╝          ╚════════════════════════════════════╝
-                                                    ║
                                                     ▼
+                            ╔════════════════════════════════╗
+                            ║    ☁️ Cloudflare Workers       ║  ← 推荐
+                            ║    D1 + R2 + Vectorize         ║
+                            ╚════════════════╦═══════════════╝
+                                             ║  （也支持 VPS/Docker，
+                                             ║   详见 server/README.md）
+                                             ▼
                     ╔═══════════════════════════════════════════════════════════════════╗
                     ║                   🧠 AI 模型服务（原生多格式适配）                   ║
                     ║     OpenAI • Claude • Gemini • DeepSeek • 本地模型                 ║
@@ -156,8 +156,8 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 
 | 方案 | 适合人群 | 特点 |
 |:----:|:--------:|:-----|
-| ☁️ **Cloudflare Workers** | 🌱 新手、低成本 | 无服务器、有免费额度、部署简单 |
-| 🖥️ **VPS / Zeabur** | 🔧 进阶用户 | 网页管理后台、PostgreSQL、兼容 API、更多控制 |
+| ☁️ **Cloudflare Workers**（推荐） | 🌱 新手、低成本 | 无服务器、有免费额度、部署简单 |
+| 🖥️ **VPS / Docker** | 🔧 进阶用户 | 网页管理后台、PostgreSQL、兼容 API、更多控制 |
 
 </div>
 
@@ -169,44 +169,9 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 
 ## 📦 后端部署
 
-### 🌟 方案 A：Zeabur 一键部署（推荐）
+### ☁️ 方案 A：Cloudflare Workers（推荐）
 
-<div align="center">
-
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/VR6HBL)
-
-</div>
-
-<br/>
-
-**部署步骤：**
-
-1. 👆 点击上方按钮
-2. 📝 只需填写 **2 个变量**：
-
-   | 变量 | 说明 |
-   |:----:|:-----|
-   | `DOMAIN` | Zeabur 引导生成/绑定的公网域名（必须和实际对外访问域名一致） |
-   | `PASSWORD` | 你的密码（用于管理后台登录和客户端鉴权） |
-
-   > 💡 `PASSWORD` 可以放心用强密码（带 `@ : / # ?` 这类特殊字符也没问题）
-   >
-   > ⚠️ **重要**：`DOMAIN` 必须和 Zeabur 实际对外暴露的域名一致，否则后台可能提示跨域 / `bad_origin`
-
-3. ⏳ 等待部署完成
-4. 🌐 访问你的域名进入管理后台
-5. ⚙️ 在后台配置上游 API（OpenAI/Claude/Gemini）
-
-> 📌 **补充**：Android 客户端和 Web 前端都不用改代码——Cloudflare Worker 版和 VPS/Zeabur 版对外 API 路径保持一致（比如 `/api/v1/chat`、`/upload`、`/diary`），你只需要在客户端把"后端地址"切到对应域名即可。
-
-<br/>
-
-### ☁️ 方案 B：Cloudflare Workers
-
-<details>
-<summary><b>🪟 Windows 一键部署</b></summary>
-
-<br/>
+#### 🪟 Windows 一键部署
 
 1. 双击运行 `scripts/deploy_cf.bat`
 2. 按提示依次输入：
@@ -219,12 +184,7 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 3. ⚡ 脚本会自动创建资源、配置、部署
 4. ✅ 完成后复制 Worker 地址
 
-</details>
-
-<details>
-<summary><b>🍎 macOS / 🐧 Linux 手动部署</b></summary>
-
-<br/>
+#### 🍎 macOS / 🐧 Linux / 手动部署
 
 ```bash
 # 1️⃣ 克隆并安装
@@ -239,20 +199,33 @@ npx wrangler d1 create atri_diary
 npx wrangler r2 bucket create atri-media
 npx wrangler vectorize create atri-memories --dimensions=1024 --metric=cosine
 
-# 4️⃣ 把第 3 步输出的 database_id 填入 wrangler.toml
+# 4️⃣ 把第 3 步输出的 account_id 和 database_id 填入 wrangler.toml
 
-# 5️⃣ 初始化并部署
+# 5️⃣ 执行数据库迁移
 npx wrangler d1 execute atri_diary --file=db/schema.sql
+npx wrangler d1 execute atri_diary --file=migrations/0004_add_fact_memories.sql
+npx wrangler d1 execute atri_diary --file=migrations/0005_add_conversation_tombstones.sql
+npx wrangler d1 execute atri_diary --file=migrations/0006_add_reply_to.sql
+npx wrangler d1 execute atri_diary --file=migrations/0007_add_proactive_tables.sql
+npx wrangler d1 execute atri_diary --file=migrations/0008_add_runtime_settings_tables.sql
+
+# 6️⃣ 设置密钥
 npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put EMBEDDINGS_API_KEY
+npx wrangler secret put APP_TOKEN
+# 可选: npx wrangler secret put TAVILY_API_KEY
+# 可选: npx wrangler secret put DIARY_API_KEY
+
+# 7️⃣ 同步提示词并部署
 cd .. && python3 scripts/sync_shared.py
 cd worker && npx wrangler deploy
 ```
 
-</details>
+> 📌 **补充**：Android 客户端不用改代码——Cloudflare Worker 版和 VPS 版对外 API 路径保持一致，你只需要在客户端把"后端地址"切到对应域名即可。
 
 <br/>
 
-### 🐳 方案 C：Docker Compose（自托管 VPS）
+### 🖥️ 方案 B：VPS / Docker（进阶）
 
 ```bash
 cd server
@@ -261,7 +234,7 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-📖 详细 VPS 部署指南见 [server/README.md](server/README.md)
+📖 详细 VPS 部署指南见 [server/README.md](server/README.md)（Docker、1Panel、宝塔）
 
 <br/>
 
@@ -354,8 +327,8 @@ docker-compose up -d
 | 📬 **主动消息** | 亚托莉可以主动开口说话；支持 Email / 企业微信外部通知 |
 | 🌐 **原生多格式** | 原生支持 OpenAI、Anthropic (Claude)、Gemini 三种 API 格式 |
 | 🔀 **分流架构** | 聊天和日记可以用不同上游，互不影响 |
-| 🌐 **网页管理后台** | （VPS）运行时配置、提示词编辑、加密密钥管理 |
-| 🔌 **兼容 API** | （VPS）提供 OpenAI / Anthropic / Gemini 兼容端点，第三方客户端可直接接入 |
+| 🌐 **网页管理后台** | 运行时配置、提示词编辑、加密密钥管理（仅 VPS） |
+| 🔌 **兼容 API** | 提供 OpenAI / Anthropic / Gemini 兼容端点，第三方客户端可直接接入（仅 VPS） |
 
 </div>
 
@@ -461,7 +434,7 @@ docker-compose up -d
 | 📖 文档 | 📝 内容 |
 |:-------:|:--------|
 | [**🏗️ 技术架构蓝图**](TECH_ARCHITECTURE_BLUEPRINT.md) | 设计思路、数据流、API 契约 |
-| [**🖥️ VPS 部署指南**](server/README.md) | Docker、Zeabur、1Panel、宝塔部署 |
+| [**🖥️ VPS 部署指南**](server/README.md) | Docker、1Panel、宝塔部署 |
 | [**💜 人格定义**](shared/prompts.json) | 亚托莉的人格和提示词 |
 
 </div>

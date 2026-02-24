@@ -325,11 +325,82 @@ function openAiToolsToGemini(tools: any[]) {
   return decls;
 }
 
+function normalizeToolArguments(argumentsLike: unknown): string {
+  if (typeof argumentsLike === 'string') {
+    return argumentsLike;
+  }
+  if (argumentsLike == null) {
+    return '{}';
+  }
+  try {
+    return JSON.stringify(argumentsLike);
+  } catch {
+    return '{}';
+  }
+}
+
+function normalizeOpenAiToolCall(rawCall: any, fallbackId: string): OpenAiToolCall | null {
+  if (!rawCall || typeof rawCall !== 'object') return null;
+
+  const fn = rawCall.function && typeof rawCall.function === 'object'
+    ? rawCall.function
+    : rawCall.function_call && typeof rawCall.function_call === 'object'
+      ? rawCall.function_call
+      : null;
+  if (!fn) return null;
+
+  const name = typeof fn.name === 'string' ? fn.name.trim() : '';
+  if (!name) return null;
+
+  const id = typeof rawCall.id === 'string' && rawCall.id.trim()
+    ? rawCall.id.trim()
+    : fallbackId;
+
+  return {
+    id,
+    type: 'function',
+    function: {
+      name,
+      arguments: normalizeToolArguments(fn.arguments)
+    }
+  };
+}
+
 function extractOpenAiAssistantMessage(data: any) {
   const choice = data?.choices?.[0];
   const message = choice?.message;
   const content = typeof message?.content === 'string' ? message.content : message?.content ?? null;
-  const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+  const rawToolCalls = Array.isArray(message?.tool_calls)
+    ? message.tool_calls
+    : Array.isArray(message?.toolCalls)
+      ? message.toolCalls
+      : [];
+
+  const toolCalls: OpenAiToolCall[] = [];
+  for (let i = 0; i < rawToolCalls.length; i++) {
+    const normalized = normalizeOpenAiToolCall(rawToolCalls[i], `tool_${Date.now()}_${i}`);
+    if (normalized) {
+      toolCalls.push(normalized);
+    }
+  }
+
+  if (!toolCalls.length) {
+    const legacyFn = message?.function_call && typeof message.function_call === 'object'
+      ? message.function_call
+      : message?.functionCall && typeof message.functionCall === 'object'
+        ? message.functionCall
+        : null;
+    if (legacyFn) {
+      const normalized = normalizeOpenAiToolCall(
+        { id: message?.id, type: 'function', function: legacyFn },
+        `tool_${Date.now()}_legacy`
+      );
+      if (normalized) {
+        toolCalls.push(normalized);
+      }
+    }
+  }
+
   return { content, toolCalls };
 }
 
