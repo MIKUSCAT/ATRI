@@ -24,6 +24,9 @@ interface MessageDao {
     @Query("UPDATE messages SET isDeleted = 1 WHERE id = :id")
     suspend fun softDelete(id: String)
 
+    @Query("UPDATE messages SET isDeleted = 1 WHERE id IN (:ids)")
+    suspend fun softDeleteByIds(ids: List<String>)
+
     @Query("UPDATE messages SET isDeleted = 0 WHERE id = :id")
     suspend fun undoDelete(id: String)
 

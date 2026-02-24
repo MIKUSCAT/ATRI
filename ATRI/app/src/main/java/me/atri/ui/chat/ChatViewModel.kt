@@ -279,9 +279,9 @@ class ChatViewModel(
         val index = messages.indexOfFirst { it.id == messageId }
         if (index != -1) {
             val removed = messages.drop(index + 1)
-            removed.forEach { msg -> chatRepository.deleteMessage(msg.id) }
             val removedIds = removed.map { it.id }
             if (removedIds.isNotEmpty()) {
+                chatRepository.deleteMessages(removedIds)
                 chatRepository.deleteConversationLogs(removedIds)
                 // 收集受影响的日期，使对应的向量记忆失效
                 val affectedDates = removed.map { msg ->

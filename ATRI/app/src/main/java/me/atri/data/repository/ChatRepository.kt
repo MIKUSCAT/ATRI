@@ -241,6 +241,11 @@ class ChatRepository(
         }
     }
 
+    suspend fun deleteMessages(ids: List<String>) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        messageDao.softDeleteByIds(ids)
+    }
+
     suspend fun undoDelete(id: String) {
         messageDao.undoDelete(id)
     }
@@ -261,21 +266,24 @@ class ChatRepository(
     }
 
     suspend fun deleteConversationLogs(ids: List<String>) = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext
+        val normalizedIds = ids.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (normalizedIds.isEmpty()) return@withContext
         val userId = preferencesStore.ensureUserId()
-        runCatching {
-            val response = apiService.deleteConversationLogs(
-                ConversationDeleteRequest(
-                    userId = userId,
-                    ids = ids
+        for (batch in normalizedIds.chunked(50)) {
+            runCatching {
+                val response = apiService.deleteConversationLogs(
+                    ConversationDeleteRequest(
+                        userId = userId,
+                        ids = batch
+                    )
                 )
-            )
-            if (!response.isSuccessful) {
-                throw IllegalStateException("conversation delete failed: ${response.code()}")
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("conversation delete failed: ${response.code()}")
+                }
+                response.body()?.close()
+            }.onFailure {
+                println("对话日志删除失败(${batch.size}条): ${it.message}")
             }
-            response.body()?.close()
-        }.onFailure {
-            println("对话日志删除失败: ${it.message}")
         }
     }
 
