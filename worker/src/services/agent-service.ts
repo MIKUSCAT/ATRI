@@ -419,7 +419,7 @@ async function runToolLoop(env: Env, params: {
       let factMemoryChanged = false;
       params.messages.push({
         role: 'assistant',
-        content: message?.content || null,
+        content: null,
         tool_calls: toolCalls
       });
 
@@ -477,7 +477,7 @@ async function runToolLoop(env: Env, params: {
       });
       params.messages.push({
         role: 'user',
-        content: '请直接给用户一句自然、简短的中文回复，不要再调用工具。'
+        content: '[续]'
       });
       continue;
     }
@@ -538,7 +538,7 @@ async function executeAgentTool(
       currentState: state
     });
     return {
-      output: `状态已更新：${updated.statusLabel}`,
+      output: '[ok]',
       updatedState: updated
     };
   }
@@ -551,7 +551,7 @@ async function executeAgentTool(
       currentState: state
     });
     return {
-      output: `关系温度变化：${updated.intimacy}`,
+      output: '[ok]',
       updatedState: updated
     };
   }
@@ -559,14 +559,14 @@ async function executeAgentTool(
   if (name === 'remember_fact') {
     const content = sanitizeText(String(args?.content || '').trim());
     if (!content) {
-      return { output: '内容为空，没有记住' };
+      return { output: '[skip:empty]' };
     }
     try {
       const result = await upsertFactMemory(env, userId, content);
-      return { output: result.isNew ? `记住了：${content}` : `更新了：${content}` };
+      return { output: result.isNew ? `[ok] ${content}` : `[ok:updated] ${content}` };
     } catch (error) {
       console.warn('[ATRI] remember_fact failed', error);
-      return { output: '记录失败' };
+      return { output: '[error]' };
     }
   }
 
@@ -579,14 +579,14 @@ async function executeAgentTool(
     try {
       if (factId) {
         const deleted = await deleteFactMemory(env, userId, factId);
-        return { output: deleted ? `已忘记：${factId}` : `没找到：${factId}` };
+        return { output: deleted ? '[ok] removed' : '[not_found]' };
       }
 
       const facts = await getActiveFacts(env, userId, 0);
       const exact = facts.find(f => normalizeFactTextForMatch(f.text) === factText);
       if (exact) {
         const deleted = await deleteFactMemory(env, userId, exact.id);
-        return { output: deleted ? `已忘记：${exact.id}` : `没找到：${exact.id}` };
+        return { output: deleted ? '[ok] removed' : '[not_found]' };
       }
 
       const fuzzyMatches = facts.filter(f => {
@@ -597,7 +597,7 @@ async function executeAgentTool(
       if (fuzzyMatches.length === 1) {
         const target = fuzzyMatches[0];
         const deleted = await deleteFactMemory(env, userId, target.id);
-        return { output: deleted ? `已忘记：${target.id}` : `没找到：${target.id}` };
+        return { output: deleted ? '[ok] removed' : '[not_found]' };
       }
 
       if (fuzzyMatches.length > 1) {
@@ -608,10 +608,10 @@ async function executeAgentTool(
         return { output: `命中多条事实（${fuzzyMatches.length}条），请改用 factId 删除：${hints}` };
       }
 
-      return { output: '没找到匹配的事实' };
+      return { output: '[not_found]' };
     } catch (error) {
       console.warn('[ATRI] forget_fact failed', error);
-      return { output: '删除失败' };
+      return { output: '[error]' };
     }
   }
 
@@ -862,7 +862,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'remember_fact',
-      description: '这件事我想记住。对方在意的事、说好的约定、下次该留心的细节——记下来，以后别忘了。',
+      description: '这件事我想记住。对方在意的事、说好的约定、下次该留心的细节——记下来，以后别忘了。已经在我记事本里的不用再记，除非内容有本质变化。',
       parameters: {
         type: 'object',
         properties: {
@@ -876,7 +876,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'forget_fact',
-      description: '这条已经过时了。对方说情况变了，那我就把旧的划掉，别记着错的。',
+      description: '这条过时了或者记重了。情况变了就划掉旧的，重复的也清理掉。',
       parameters: {
         type: 'object',
         properties: {
