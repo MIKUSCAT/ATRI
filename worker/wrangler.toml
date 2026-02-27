@@ -1,32 +1,32 @@
 name = "atri-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
-account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
+account_id = "<YOUR_ACCOUNT_ID>"
 
 [vars]
-OPENAI_API_URL = "https://zero.azusa.pp.ua"
+OPENAI_API_URL = "https://api.openai.com/v1"
 CHAT_API_FORMAT = "openai"
-DEFAULT_CHAT_MODEL = "opus-4.6"
+DEFAULT_CHAT_MODEL = "gpt-4o"
 
-DIARY_API_URL = "https://zero.azusa.pp.ua"
-
-DIARY_MODEL = "opus-4.6"
+DIARY_API_URL = "https://api.openai.com/v1"
+DIARY_MODEL = "gpt-4o"
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
 EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 # 主动消息（cron 触发，可按需关闭）
-PROACTIVE_ENABLED = "true"
+PROACTIVE_ENABLED = "false"
 PROACTIVE_INTERVAL_MINUTES = "30"
 PROACTIVE_TIME_ZONE = "Asia/Shanghai"
 PROACTIVE_QUIET_START_HOUR = "23"
 PROACTIVE_QUIET_END_HOUR = "7"
-PROACTIVE_MAX_DAILY = "20"
-PROACTIVE_COOLDOWN_HOURS = "1"
+PROACTIVE_MAX_DAILY = "2"
+PROACTIVE_COOLDOWN_HOURS = "6"
 PROACTIVE_INTIMACY_THRESHOLD = "10"
 PROACTIVE_RECENT_ACTIVE_MINUTES = "60"
-# 可选：配置后会对每条主动消息都发外部通知
-# PROACTIVE_NOTIFICATION_CHANNEL = "email" # email / wechat_work / none
-# PROACTIVE_NOTIFICATION_TARGET = "your@email.com"
+PROACTIVE_NOTIFICATION_CHANNEL = "none"
+# 敏感信息不要写进仓库，请用 secret：
+# npx wrangler secret put PROACTIVE_NOTIFICATION_TARGET
+# npx wrangler secret put EMAIL_API_KEY
 
 # Tavily 联网搜索（可选）
 # API Key 通过 secret 设置: npx wrangler secret put TAVILY_API_KEY
@@ -44,12 +44,12 @@ preview_bucket_name = "atri-media"
 [[d1_databases]]
 binding = "ATRI_DB"
 database_name = "atri_diary"
-database_id = "05def668-b70d-40fc-84a4-b5ba21219217"
+database_id = "<YOUR_DATABASE_ID>"
 
 [triggers]
 crons = ["59 15 * * *", "*/30 * * * *"]
 
-# Custom domain (需要在Cloudflare Dashboard手动添加)
+# Custom domain (可选，需要在 Cloudflare Dashboard 手动添加)
 # Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
-# 添加: mikuscat.qzz.io
+# 添加你自己的域名，例如: atri.yourdomain.com
 
