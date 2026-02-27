@@ -26,6 +26,7 @@ export interface Env {
 
   // 主动消息（可选）
   PROACTIVE_ENABLED?: string;
+  PROACTIVE_INTERVAL_MINUTES?: string;
   PROACTIVE_TIME_ZONE?: string;
   PROACTIVE_QUIET_START_HOUR?: string;
   PROACTIVE_QUIET_END_HOUR?: string;
@@ -33,9 +34,11 @@ export interface Env {
   PROACTIVE_COOLDOWN_HOURS?: string;
   PROACTIVE_INTIMACY_THRESHOLD?: string;
   PROACTIVE_RECENT_ACTIVE_MINUTES?: string;
+  PROACTIVE_NOTIFICATION_CHANNEL?: string;
+  PROACTIVE_NOTIFICATION_TARGET?: string;
 }
 
-export const CHAT_MODEL = 'openai.gpt-5-chat';
+export const CHAT_MODEL = 'claude-opus-4-6';
 export const ATTACHMENT_TYPES = ['image', 'document'] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 

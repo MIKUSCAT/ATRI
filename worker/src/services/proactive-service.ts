@@ -285,7 +285,8 @@ async function runProactiveAgent(env: Env, params: {
   const reply = sanitizeAssistantReply(raw).trim();
   if (!reply) return { reply: null, notification };
 
-  if (notification.requested && !notification.attempted) {
+  const alwaysPushNotification = params.settings.proactiveNotificationChannel !== 'none';
+  if (alwaysPushNotification && !notification.attempted) {
     notification.attempted = true;
     const content = (notification.content || reply).trim().slice(0, 1000);
     const r = await sendNotification(env, {

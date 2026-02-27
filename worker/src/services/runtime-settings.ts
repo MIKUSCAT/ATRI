@@ -530,60 +530,84 @@ function resolveEffectiveSettings(
     2
   );
 
-  const proactiveEnabled = normalizeOptionalBoolean(c.proactiveEnabled) ?? DEFAULTS.proactiveEnabled;
+  const proactiveEnabled =
+    normalizeOptionalBoolean(env.PROACTIVE_ENABLED)
+    ?? normalizeOptionalBoolean(c.proactiveEnabled)
+    ?? DEFAULTS.proactiveEnabled;
   const proactiveIntervalMinutes = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveIntervalMinutes) ?? DEFAULTS.proactiveIntervalMinutes,
+      normalizeOptionalNumber(env.PROACTIVE_INTERVAL_MINUTES)
+      ?? normalizeOptionalNumber(c.proactiveIntervalMinutes)
+      ?? DEFAULTS.proactiveIntervalMinutes,
       5,
       720
     )
   );
-  const proactiveTimeZone = normalizeTimeZone(c.proactiveTimeZone, DEFAULTS.proactiveTimeZone);
+  const proactiveTimeZone = normalizeTimeZone(
+    normalizeOptionalText(env.PROACTIVE_TIME_ZONE) ?? c.proactiveTimeZone,
+    DEFAULTS.proactiveTimeZone
+  );
   const proactiveQuietStartHour = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveQuietStartHour) ?? DEFAULTS.proactiveQuietStartHour,
+      normalizeOptionalNumber(env.PROACTIVE_QUIET_START_HOUR)
+      ?? normalizeOptionalNumber(c.proactiveQuietStartHour)
+      ?? DEFAULTS.proactiveQuietStartHour,
       0,
       23
     )
   );
   const proactiveQuietEndHour = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveQuietEndHour) ?? DEFAULTS.proactiveQuietEndHour,
+      normalizeOptionalNumber(env.PROACTIVE_QUIET_END_HOUR)
+      ?? normalizeOptionalNumber(c.proactiveQuietEndHour)
+      ?? DEFAULTS.proactiveQuietEndHour,
       0,
       23
     )
   );
   const proactiveMaxDaily = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveMaxDaily) ?? DEFAULTS.proactiveMaxDaily,
+      normalizeOptionalNumber(env.PROACTIVE_MAX_DAILY)
+      ?? normalizeOptionalNumber(c.proactiveMaxDaily)
+      ?? DEFAULTS.proactiveMaxDaily,
       0,
       20
     )
   );
   const proactiveCooldownHours = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveCooldownHours) ?? DEFAULTS.proactiveCooldownHours,
+      normalizeOptionalNumber(env.PROACTIVE_COOLDOWN_HOURS)
+      ?? normalizeOptionalNumber(c.proactiveCooldownHours)
+      ?? DEFAULTS.proactiveCooldownHours,
       0,
       168
     )
   );
   const proactiveIntimacyThreshold = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveIntimacyThreshold) ?? DEFAULTS.proactiveIntimacyThreshold,
+      normalizeOptionalNumber(env.PROACTIVE_INTIMACY_THRESHOLD)
+      ?? normalizeOptionalNumber(c.proactiveIntimacyThreshold)
+      ?? DEFAULTS.proactiveIntimacyThreshold,
       -100,
       100
     )
   );
   const proactiveRecentActiveMinutes = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber(c.proactiveRecentActiveMinutes) ?? DEFAULTS.proactiveRecentActiveMinutes,
+      normalizeOptionalNumber(env.PROACTIVE_RECENT_ACTIVE_MINUTES)
+      ?? normalizeOptionalNumber(c.proactiveRecentActiveMinutes)
+      ?? DEFAULTS.proactiveRecentActiveMinutes,
       1,
       1440
     )
   );
   const proactiveNotificationChannel =
-    normalizeProactiveChannel(c.proactiveNotificationChannel) ?? DEFAULTS.proactiveNotificationChannel;
-  const proactiveNotificationTarget = normalizeOptionalText(c.proactiveNotificationTarget);
+    normalizeProactiveChannel(env.PROACTIVE_NOTIFICATION_CHANNEL)
+    ?? normalizeProactiveChannel(c.proactiveNotificationChannel)
+    ?? DEFAULTS.proactiveNotificationChannel;
+  const proactiveNotificationTarget =
+    normalizeOptionalText(env.PROACTIVE_NOTIFICATION_TARGET)
+    ?? normalizeOptionalText(c.proactiveNotificationTarget);
 
   const prompts = mergePrompts(defaultPrompts as any, promptsOverride);
 
