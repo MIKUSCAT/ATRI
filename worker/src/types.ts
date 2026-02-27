@@ -6,6 +6,13 @@ export interface Env {
   OPENAI_API_URL: string;
   CHAT_API_FORMAT?: 'openai' | 'anthropic' | 'gemini';
   DEFAULT_CHAT_MODEL?: string;
+  DIARY_API_FORMAT?: 'openai' | 'anthropic' | 'gemini';
+  AGENT_TEMPERATURE?: string;
+  AGENT_MAX_TOKENS?: string;
+  AGENT_TIMEOUT_MS?: string;
+  DIARY_TEMPERATURE?: string;
+  DIARY_MAX_TOKENS?: string;
+  PROFILE_TEMPERATURE?: string;
   // Tavily 搜索（可选，不配则不启用 web_search）
   TAVILY_API_KEY?: string;
   // 媒体签名密钥（可选，不配则回退用 APP_TOKEN）

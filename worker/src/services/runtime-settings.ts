@@ -480,52 +480,104 @@ function resolveEffectiveSettings(
   const c = stored.config || {};
   const s = stored.secrets || {};
 
-  const chatApiFormat = normalizeApiFormat(c.chatApiFormat) ?? 'openai';
-  const diaryApiFormat = normalizeApiFormat(c.diaryApiFormat) ?? chatApiFormat;
+  const chatApiFormat =
+    normalizeApiFormat(env.CHAT_API_FORMAT)
+    ?? normalizeApiFormat(c.chatApiFormat)
+    ?? 'openai';
+  const diaryApiFormat =
+    normalizeApiFormat(env.DIARY_API_FORMAT)
+    ?? normalizeApiFormat(c.diaryApiFormat)
+    ?? chatApiFormat;
 
-  const openaiApiUrl = String(c.openaiApiUrl ?? env.OPENAI_API_URL ?? '').trim();
-  const openaiApiKey = String(s.openaiApiKey ?? env.OPENAI_API_KEY ?? '').trim();
+  const openaiApiUrl =
+    normalizeOptionalText(env.OPENAI_API_URL)
+    ?? normalizeOptionalText(c.openaiApiUrl)
+    ?? '';
+  const openaiApiKey =
+    normalizeOptionalText(env.OPENAI_API_KEY)
+    ?? normalizeOptionalText(s.openaiApiKey)
+    ?? '';
 
-  const embeddingsApiUrl = String(c.embeddingsApiUrl ?? env.EMBEDDINGS_API_URL ?? '').trim();
-  const embeddingsApiKey = String(s.embeddingsApiKey ?? env.EMBEDDINGS_API_KEY ?? '').trim();
-  const embeddingsModel = String(c.embeddingsModel ?? env.EMBEDDINGS_MODEL ?? '').trim();
+  const embeddingsApiUrl =
+    normalizeOptionalText(env.EMBEDDINGS_API_URL)
+    ?? normalizeOptionalText(c.embeddingsApiUrl)
+    ?? '';
+  const embeddingsApiKey =
+    normalizeOptionalText(env.EMBEDDINGS_API_KEY)
+    ?? normalizeOptionalText(s.embeddingsApiKey)
+    ?? '';
+  const embeddingsModel =
+    normalizeOptionalText(env.EMBEDDINGS_MODEL)
+    ?? normalizeOptionalText(c.embeddingsModel)
+    ?? '';
 
-  const diaryApiUrl = normalizeOptionalText(c.diaryApiUrl ?? env.DIARY_API_URL);
-  const diaryApiKey = normalizeOptionalText(s.diaryApiKey ?? env.DIARY_API_KEY);
-  const diaryModel = normalizeOptionalText(c.diaryModel ?? env.DIARY_MODEL);
+  const diaryApiUrl =
+    normalizeOptionalText(env.DIARY_API_URL)
+    ?? normalizeOptionalText(c.diaryApiUrl);
+  const diaryApiKey =
+    normalizeOptionalText(env.DIARY_API_KEY)
+    ?? normalizeOptionalText(s.diaryApiKey);
+  const diaryModel =
+    normalizeOptionalText(env.DIARY_MODEL)
+    ?? normalizeOptionalText(c.diaryModel);
 
-  const tavilyApiKey = normalizeOptionalText(s.tavilyApiKey ?? env.TAVILY_API_KEY);
+  const tavilyApiKey =
+    normalizeOptionalText(env.TAVILY_API_KEY)
+    ?? normalizeOptionalText(s.tavilyApiKey);
 
-  const defaultChatModel = String(c.defaultChatModel || '').trim() || CHAT_MODEL;
+  const defaultChatModel =
+    normalizeOptionalText(env.DEFAULT_CHAT_MODEL)
+    ?? normalizeOptionalText(c.defaultChatModel)
+    ?? CHAT_MODEL;
 
   const agentTemperature = clampNumber(
-    normalizeOptionalNumber(c.agentTemperature) ?? DEFAULTS.agentTemperature,
+    normalizeOptionalNumber(env.AGENT_TEMPERATURE)
+    ?? normalizeOptionalNumber(c.agentTemperature)
+    ?? DEFAULTS.agentTemperature,
     0,
     2
   );
   const agentMaxTokens = Math.trunc(
-    clampNumber(normalizeOptionalNumber(c.agentMaxTokens) ?? DEFAULTS.agentMaxTokens, 64, 8192)
+    clampNumber(
+      normalizeOptionalNumber(env.AGENT_MAX_TOKENS)
+      ?? normalizeOptionalNumber(c.agentMaxTokens)
+      ?? DEFAULTS.agentMaxTokens,
+      64,
+      8192
+    )
   );
 
   const agentTimeoutMs = Math.trunc(
     clampNumber(
-      normalizeOptionalNumber((c as any).agentTimeoutMs ?? env.AGENT_TIMEOUT_MS) ?? DEFAULTS.agentTimeoutMs,
+      normalizeOptionalNumber(env.AGENT_TIMEOUT_MS)
+      ?? normalizeOptionalNumber((c as any).agentTimeoutMs)
+      ?? DEFAULTS.agentTimeoutMs,
       10000,
       600000
     )
   );
 
   const diaryTemperature = clampNumber(
-    normalizeOptionalNumber(c.diaryTemperature) ?? DEFAULTS.diaryTemperature,
+    normalizeOptionalNumber(env.DIARY_TEMPERATURE)
+    ?? normalizeOptionalNumber(c.diaryTemperature)
+    ?? DEFAULTS.diaryTemperature,
     0,
     2
   );
   const diaryMaxTokens = Math.trunc(
-    clampNumber(normalizeOptionalNumber(c.diaryMaxTokens) ?? DEFAULTS.diaryMaxTokens, 64, 8192)
+    clampNumber(
+      normalizeOptionalNumber(env.DIARY_MAX_TOKENS)
+      ?? normalizeOptionalNumber(c.diaryMaxTokens)
+      ?? DEFAULTS.diaryMaxTokens,
+      64,
+      8192
+    )
   );
 
   const profileTemperature = clampNumber(
-    normalizeOptionalNumber(c.profileTemperature) ?? DEFAULTS.profileTemperature,
+    normalizeOptionalNumber(env.PROFILE_TEMPERATURE)
+    ?? normalizeOptionalNumber(c.profileTemperature)
+    ?? DEFAULTS.profileTemperature,
     0,
     2
   );
