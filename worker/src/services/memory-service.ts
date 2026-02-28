@@ -253,16 +253,27 @@ export async function getActiveFacts(env: Env, userId: string, limit = 20): Prom
   const safeUserId = String(userId || '').trim();
   if (!safeUserId) return [];
 
-  const safeLimit = clampInt(Number(limit || 0), 1, 50);
-  const result = await env.ATRI_DB.prepare(
-    `SELECT id, content, updated_at as timestamp
-       FROM fact_memories
-      WHERE user_id = ?
-      ORDER BY updated_at DESC
-      LIMIT ?`
-  )
-    .bind(safeUserId, safeLimit)
-    .all<{ id: string; content: string; timestamp: number }>();
+  // limit=0 → 不限制，返回全部 facts；显式传 limit 时上限 200
+  const numLimit = Number(limit || 0);
+  const unlimited = numLimit <= 0;
+  const safeLimit = unlimited ? 0 : clampInt(numLimit, 1, 200);
+
+  const sql = unlimited
+    ? `SELECT id, content, updated_at as timestamp
+         FROM fact_memories
+        WHERE user_id = ?
+        ORDER BY updated_at DESC`
+    : `SELECT id, content, updated_at as timestamp
+         FROM fact_memories
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        LIMIT ?`;
+
+  const stmt = unlimited
+    ? env.ATRI_DB.prepare(sql).bind(safeUserId)
+    : env.ATRI_DB.prepare(sql).bind(safeUserId, safeLimit);
+
+  const result = await stmt.all<{ id: string; content: string; timestamp: number }>();
 
   return (result.results || []).map((row) => ({
     id: String(row?.id || '').trim(),

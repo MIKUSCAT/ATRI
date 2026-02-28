@@ -13,6 +13,7 @@ import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
 import { generateUserProfile } from '../services/profile-generator';
+import { consolidateFactsForUser } from '../services/fact-consolidation';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
   const date = targetDate || formatDateInZone(Date.now(), DEFAULT_TIMEZONE);
@@ -77,6 +78,16 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         await saveUserProfile(env, { userId: user.userId, content: profile.raw });
       } catch (err) {
         console.warn('[ATRI] User profile update skipped', { userId: user.userId, date, err });
+      }
+
+      try {
+        await consolidateFactsForUser(env, {
+          userId: user.userId,
+          userName: user.userName || '这个人',
+          modelKey: null
+        });
+      } catch (err) {
+        console.warn('[ATRI] Fact consolidation skipped', { userId: user.userId, date, err });
       }
 
       console.log('[ATRI] Diary auto generated for', user.userId, date);

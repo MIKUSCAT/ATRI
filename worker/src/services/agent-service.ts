@@ -14,7 +14,6 @@ import {
   getConversationLogDate,
   getDiaryEntry,
   getFirstConversationTimestamp,
-  getUserProfile,
   getUserState,
   saveUserState,
   updateIntimacyState,
@@ -70,7 +69,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     yesterdayLogs
   });
 
-  const userProfileSnippet = await loadUserProfileSnippet(env, params.userId);
   const selfReviewSnippet = await loadAtriSelfReviewSnippet(env, params.userId);
   let firstConversationAt: number | null = null;
   try {
@@ -96,7 +94,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     userName: params.userName,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    userProfileSnippet,
     selfReviewSnippet
   });
 
@@ -140,7 +137,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     state: touchedState,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    userProfileSnippet,
     selfReviewSnippet,
     firstConversationAt: firstConversationAt ?? undefined,
     agentSystemTemplate,
@@ -199,7 +195,6 @@ function composeAgentSystemPrompt(params: {
   userName?: string;
   platform?: string;
   clientTimeIso?: string;
-  userProfileSnippet?: string;
   selfReviewSnippet?: string;
 }) {
   const statusLabel = String(params.statusLabel || '陪着你').trim() || '陪着你';
@@ -240,9 +235,6 @@ function composeAgentSystemPrompt(params: {
       `- 相识: ${daysTogether}天 | 关系温度: ${params.intimacy || 0}`,
       timeInfo ? `- 现在的时间是：${timeInfo.localDate} ${timeInfo.clockTime}` : '',
       '',
-      '## 我对你的印象（每天自动整理的档案）',
-      '{user_profile_block}',
-      '',
       '## 我自己记下的事（我可以随时增删）',
       '{self_review_block}',
       '',
@@ -260,11 +252,9 @@ function composeAgentSystemPrompt(params: {
     ].join('\n');
   }
 
-  const profileBlock = String(params.userProfileSnippet || '').trim() || '（暂无）';
   const selfReviewBlock = String(params.selfReviewSnippet || '').trim() || '（暂无）';
 
   basePrompt = basePrompt
-    .replace('{user_profile_block}', profileBlock)
     .replace('{self_review_block}', selfReviewBlock);
 
   basePrompt += [
@@ -278,20 +268,9 @@ function composeAgentSystemPrompt(params: {
     '</当前状态工具约定>'
   ].join('\n');
 
-  return basePrompt;
-}
+  basePrompt += '\n\n<提醒>\n记东西、查资料、翻日记——做完就好，回复里不用提起。\n不确定的事就去查（search_memory / read_diary / read_conversation），别硬编。\n</提醒>';
 
-async function loadUserProfileSnippet(env: Env, userId: string) {
-  try {
-    const profile = await getUserProfile(env, userId);
-    if (!profile?.content) {
-      return '';
-    }
-    return buildUserProfileSnippet(profile.content);
-  } catch (error) {
-    console.warn('[ATRI] user profile加载失败', { userId, error });
-    return '';
-  }
+  return basePrompt;
 }
 
 async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
@@ -317,34 +296,6 @@ function buildFactsSnippet(facts: Array<{ id: string; text: string }>) {
 
 function normalizeFactTextForMatch(value: unknown) {
   return sanitizeText(String(value || '')).trim().replace(/\s+/g, ' ');
-}
-
-function buildUserProfileSnippet(content: string) {
-  const trimmed = String(content || '').trim();
-  if (!trimmed) return '';
-
-  let data: any;
-  try {
-    data = JSON.parse(trimmed);
-  } catch {
-    return trimmed.slice(0, 400);
-  }
-
-  const order = ['事实', '喜好', '雷区', '说话风格', '关系进展'];
-  const lines: string[] = [];
-  for (const key of order) {
-    const items = Array.isArray(data?.[key]) ? data[key] : [];
-    for (const item of items.slice(0, 2)) {
-      const text = String(item || '').trim();
-      if (text) {
-        lines.push(`${key}：${text}`);
-      }
-      if (lines.length >= 6) break;
-    }
-    if (lines.length >= 6) break;
-  }
-  if (!lines.length) return '';
-  return lines.map(line => `- ${line}`).join('\n');
 }
 
 function formatClientDateTime(clientTimeIso?: string) {
@@ -375,7 +326,6 @@ async function runToolLoop(env: Env, params: {
   state: any;
   platform?: string;
   clientTimeIso?: string;
-  userProfileSnippet?: string;
   selfReviewSnippet?: string;
   firstConversationAt?: number;
   agentSystemTemplate: string;
@@ -458,7 +408,6 @@ async function runToolLoop(env: Env, params: {
         userName: params.userName,
         platform: params.platform,
         clientTimeIso: params.clientTimeIso,
-        userProfileSnippet: params.userProfileSnippet,
         selfReviewSnippet: currentSelfReviewSnippet
       });
       params.messages[0].content = updatedSystemPrompt;
