@@ -1,20 +1,19 @@
 import { CHAT_MODEL, Env } from '../types';
-import { getActiveFacts, upsertFactMemory, deleteFactMemory, FactMemoryRecord } from './memory-service';
+import { getActiveFacts, upsertFactMemory, deleteFactMemory, archiveFactMemory, FactMemoryRecord } from './memory-service';
 import { callUpstreamChat } from './llm-service';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
-
-const CONSOLIDATION_THRESHOLD = 15;
 
 type ConsolidateParams = {
   userId: string;
   userName: string;
   modelKey: string | null;
+  date: string;
 };
 
 type ConsolidationResult = {
   keep: string[];
   merge: Array<{ from: string[]; into: string }>;
-  delete: string[];
+  archive: string[];
 };
 
 export async function consolidateFactsForUser(
@@ -22,10 +21,9 @@ export async function consolidateFactsForUser(
   params: ConsolidateParams
 ): Promise<void> {
   const facts = await getActiveFacts(env, params.userId, 0);
-  if (facts.length <= CONSOLIDATION_THRESHOLD) {
-    console.log('[ATRI] Fact consolidation skipped (count <= threshold)', {
-      userId: params.userId,
-      count: facts.length
+  if (facts.length === 0) {
+    console.log('[ATRI] Fact consolidation skipped (no facts)', {
+      userId: params.userId
     });
     return;
   }
@@ -44,7 +42,7 @@ export async function consolidateFactsForUser(
     .map(f => `[${f.id}] ${f.text}`)
     .join('\n');
 
-  const systemPrompt = buildConsolidationSystemPrompt();
+  const systemPrompt = buildConsolidationSystemPrompt(params.date);
   const userPrompt = buildConsolidationUserPrompt(factsText, params.userName);
 
   const result = await callUpstreamChat(env, {
@@ -81,7 +79,7 @@ export async function consolidateFactsForUser(
     userId: params.userId,
     kept: plan.keep.length,
     merged: plan.merge.length,
-    deleted: plan.delete.length
+    archived: plan.archive.length
   });
 }
 
@@ -95,28 +93,35 @@ function resolveModel(
   return configured || trimmed || fallback || CHAT_MODEL;
 }
 
-function buildConsolidationSystemPrompt(): string {
+function buildConsolidationSystemPrompt(date: string): string {
   return [
     '我是亚托莉，现在要整理自己的笔记本。',
+    `今天是 ${date}。`,
     '',
-    '这些是我随手记下的关于他的事。时间久了，有些可能重复了，有些可能过时了。',
-    '我要把它们理一理，但不能丢掉任何可能还有用的信息。',
+    '这些是我随手记下的关于他的事。我要评估每条记录的重要性，大胆归档琐碎条目，让笔记本保持精炼。',
     '',
-    '规则：',
-    '- 合并：两条说的是同一件事（只是措辞不同），合成一条，保留更完整的信息',
-    '- 删除：明确已经过时或被后面的记录推翻的',
-    '- 保留：拿不准的全部保留，宁可多留也不要误删',
+    '分类标准：',
+    '- keep：核心喜好、禁忌/雷区、反复提及的事、约定、重要个人信息（生日、工作、重要的人等）',
+    '- merge：内容重复或高度相关的记录，合成一条更精炼的',
+    '- archive：琐碎事实、已过期的临时安排、被后续记录覆盖的旧信息',
+    '',
+    '判断原则：',
+    '- 优先保留"他是什么样的人"（性格、价值观、核心偏好）',
+    '- 优先保留"我们之间的事"（约定、共同记忆、情感节点）',
+    '- 大胆归档日常琐碎（今天吃了什么、某天晚睡、临时提到的小事）',
+    '- 已过时的安排或被更新覆盖的旧信息，归档',
+    '- 拿不准的，偏向保留',
     '',
     '输出格式：严格返回一个 JSON 对象，不要任何解释或 Markdown：',
     '{',
     '  "keep": ["fact:xxx:yyy", ...],',
     '  "merge": [{ "from": ["fact:xxx:aaa", "fact:xxx:bbb"], "into": "合并后的文本" }, ...],',
-    '  "delete": ["fact:xxx:zzz", ...]',
+    '  "archive": ["fact:xxx:zzz", ...]',
     '}',
     '',
     '硬规则：',
     '1. 只输出一个 JSON 对象，不要任何前后缀/解释/Markdown/代码块。',
-    '2. keep + merge.from + delete 的 ID 集合必须覆盖所有输入 ID，不能遗漏。',
+    '2. keep + merge.from + archive 的 ID 集合必须覆盖所有输入 ID，不能遗漏。',
     '3. 同一个 ID 只能出现在一个分类里。',
     '4. merge.into 的文本要简洁，一句话，不要超过原来两条的总长度。'
   ].join('\n');
@@ -153,11 +158,13 @@ function parseConsolidationResponse(raw: string): ConsolidationResult | null {
           (m: any) => Array.isArray(m?.from) && typeof m?.into === 'string'
         )
       : [];
-    const del = Array.isArray(parsed.delete)
-      ? parsed.delete.filter((id: unknown) => typeof id === 'string')
+    // 兼容 archive 和 delete（防止模型不遵守指令）
+    const archiveRaw = parsed.archive || parsed.delete;
+    const archive = Array.isArray(archiveRaw)
+      ? archiveRaw.filter((id: unknown) => typeof id === 'string')
       : [];
 
-    return { keep, merge, delete: del };
+    return { keep, merge, archive };
   } catch {
     return null;
   }
@@ -171,7 +178,7 @@ async function executeConsolidationPlan(
 ) {
   const existingIds = new Set(existingFacts.map(f => f.id));
 
-  // 执行 merge 操作
+  // 执行 merge 操作：硬删除旧条目（内容已合并到新记录中）
   for (const m of plan.merge) {
     const validFromIds = m.from.filter(id => existingIds.has(id));
     if (validFromIds.length === 0) continue;
@@ -182,7 +189,7 @@ async function executeConsolidationPlan(
     try {
       // 先写入合并后的新记录
       await upsertFactMemory(env, userId, intoText);
-      // 再删除原始条目
+      // 再硬删除原始条目
       for (const oldId of validFromIds) {
         await deleteFactMemory(env, userId, oldId);
       }
@@ -191,13 +198,13 @@ async function executeConsolidationPlan(
     }
   }
 
-  // 执行 delete 操作
-  for (const factId of plan.delete) {
+  // 执行 archive 操作：软删除（可恢复）
+  for (const factId of plan.archive) {
     if (!existingIds.has(factId)) continue;
     try {
-      await deleteFactMemory(env, userId, factId);
+      await archiveFactMemory(env, userId, factId);
     } catch (err) {
-      console.warn('[ATRI] Fact delete failed', { userId, factId, err });
+      console.warn('[ATRI] Fact archive failed', { userId, factId, err });
     }
   }
 }

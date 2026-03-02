@@ -65,7 +65,8 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         await consolidateFactsForUser(env, {
           userId: user.userId,
           userName: user.userName || '这个人',
-          modelKey: null
+          modelKey: null,
+          date
         });
       } catch (err) {
         console.warn('[ATRI] Fact consolidation skipped', { userId: user.userId, date, err });

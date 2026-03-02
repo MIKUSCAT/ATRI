@@ -222,7 +222,8 @@ export async function upsertFactMemory(
      ON CONFLICT(id) DO UPDATE SET
        user_id = excluded.user_id,
        content = excluded.content,
-       updated_at = excluded.updated_at`
+       updated_at = excluded.updated_at,
+       archived_at = NULL`
   )
     .bind(id, safeUserId, cleaned, now, now)
     .run();
@@ -249,6 +250,26 @@ export async function deleteFactMemory(env: Env, userId: string, factId: string)
   return Number(result?.meta?.changes ?? 0) > 0;
 }
 
+export async function archiveFactMemory(env: Env, userId: string, factId: string): Promise<boolean> {
+  const safeUserId = String(userId || '').trim();
+  const trimmedId = String(factId || '').trim();
+  if (!safeUserId || !trimmedId) return false;
+
+  if (!trimmedId.startsWith(`fact:${safeUserId}:`)) {
+    console.warn('[ATRI] archiveFactMemory: id mismatch', { userId: safeUserId, factId: trimmedId });
+    return false;
+  }
+
+  const now = Date.now();
+  const result = await env.ATRI_DB.prepare(
+    `UPDATE fact_memories SET archived_at = ? WHERE id = ? AND user_id = ? AND archived_at IS NULL`
+  )
+    .bind(now, trimmedId, safeUserId)
+    .run();
+
+  return Number(result?.meta?.changes ?? 0) > 0;
+}
+
 export async function getActiveFacts(env: Env, userId: string, limit = 20): Promise<FactMemoryRecord[]> {
   const safeUserId = String(userId || '').trim();
   if (!safeUserId) return [];
@@ -261,11 +282,11 @@ export async function getActiveFacts(env: Env, userId: string, limit = 20): Prom
   const sql = unlimited
     ? `SELECT id, content, updated_at as timestamp
          FROM fact_memories
-        WHERE user_id = ?
+        WHERE user_id = ? AND archived_at IS NULL
         ORDER BY updated_at DESC`
     : `SELECT id, content, updated_at as timestamp
          FROM fact_memories
-        WHERE user_id = ?
+        WHERE user_id = ? AND archived_at IS NULL
         ORDER BY updated_at DESC
         LIMIT ?`;
 

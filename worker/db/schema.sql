@@ -109,12 +109,15 @@ CREATE TABLE IF NOT EXISTS fact_memories (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   content TEXT NOT NULL,
+  archived_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_fact_user_updated_at
   ON fact_memories(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_fact_user_archived
+  ON fact_memories(user_id, archived_at);
 
 -- 运行时配置（与 server 对齐，供 runtime-settings 读取）
 CREATE TABLE IF NOT EXISTS admin_runtime_config (
