@@ -4,7 +4,10 @@ import { jsonResponse } from '../utils/json-response';
 import {
   deleteConversationLogsByUser,
   deleteDiaryEntriesByUser,
+  deleteFactMemoriesByUser,
+  deleteUserProfileByUser,
   deleteUserSettingsByUser,
+  deleteUserStateByUser,
   listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors } from '../services/memory-service';
@@ -45,6 +48,9 @@ export function registerAdminRoutes(router: Router) {
       const vectorDeleted = vectorIds.length ? await deleteDiaryVectors(env, vectorIds) : 0;
       const mediaDeleted = await deleteUserMediaObjects(env, userId);
       const settingsDeleted = await deleteUserSettingsByUser(env, userId);
+      const profileDeleted = await deleteUserProfileByUser(env, userId);
+      const factDeleted = await deleteFactMemoriesByUser(env, userId);
+      const userStateDeleted = await deleteUserStateByUser(env, userId);
 
       return jsonResponse({
         ok: true,
@@ -54,7 +60,10 @@ export function registerAdminRoutes(router: Router) {
           diaryVectors: vectorDeleted,
           conversationLogs: logDeleted,
           mediaObjects: mediaDeleted,
-          userSettings: settingsDeleted
+          userSettings: settingsDeleted,
+          userProfiles: profileDeleted,
+          factMemories: factDeleted,
+          userStates: userStateDeleted
         }
       });
     } catch (error: any) {

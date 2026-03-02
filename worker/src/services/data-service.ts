@@ -687,6 +687,33 @@ export async function deleteUserSettingsByUser(env: Env, userId: string) {
   return Number(result?.meta?.changes ?? 0);
 }
 
+export async function deleteUserProfileByUser(env: Env, userId: string) {
+  const result = await env.ATRI_DB.prepare(
+    `DELETE FROM user_profiles WHERE user_id = ?`
+  )
+    .bind(userId)
+    .run();
+  return Number(result?.meta?.changes ?? 0);
+}
+
+export async function deleteFactMemoriesByUser(env: Env, userId: string) {
+  const result = await env.ATRI_DB.prepare(
+    `DELETE FROM fact_memories WHERE user_id = ?`
+  )
+    .bind(userId)
+    .run();
+  return Number(result?.meta?.changes ?? 0);
+}
+
+export async function deleteUserStateByUser(env: Env, userId: string) {
+  const result = await env.ATRI_DB.prepare(
+    `DELETE FROM user_states WHERE user_id = ?`
+  )
+    .bind(userId)
+    .run();
+  return Number(result?.meta?.changes ?? 0);
+}
+
 export async function getUserState(env: Env, userId: string): Promise<UserStateRecord> {
   await ensureUserStateColumns(env);
   const row = await env.ATRI_DB.prepare(

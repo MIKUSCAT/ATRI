@@ -7,15 +7,12 @@ import {
   fetchConversationLogs,
   getDiaryEntry,
   getLastConversationDate,
-  getUserProfile,
   listDiaryEntries,
-  saveDiaryEntry,
-  saveUserProfile
+  saveDiaryEntry
 } from '../services/data-service';
 import { requireAppToken } from '../utils/auth';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
-import { generateUserProfile } from '../services/profile-generator';
 
 export function registerDiaryRoutes(router: any) {
   router.get('/diary', async (request: any, env: Env) => {
@@ -114,23 +111,6 @@ export function registerDiaryRoutes(router: any) {
             : [diary.content],
         timestamp: diary.timestamp
       });
-
-      // ✅ 强制刷新：用户长期档案（user_profiles）
-      try {
-        const previousProfile = await getUserProfile(env, userId);
-        const profile = await generateUserProfile(env, {
-          userId,
-          transcript,
-          diaryContent: '',
-          date,
-          userName: detectedUserName || '这个人',
-          previousProfile: previousProfile?.content || '',
-          modelKey: null
-        });
-        await saveUserProfile(env, { userId, content: profile.raw });
-      } catch (err) {
-        console.warn('[ATRI] User profile update skipped (regenerate)', { userId, date, err });
-      }
 
       const entry = await getDiaryEntry(env, userId, date);
       if (!entry) {

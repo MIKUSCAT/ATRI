@@ -5,14 +5,11 @@ import {
   listPendingDiaryUsers,
   saveDiaryEntry,
   getLastConversationDate,
-  calculateDaysBetween,
-  getUserProfile,
-  saveUserProfile
+  calculateDaysBetween
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
-import { generateUserProfile } from '../services/profile-generator';
 import { consolidateFactsForUser } from '../services/fact-consolidation';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
@@ -63,22 +60,6 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
             : [diary.content],
         timestamp: diary.timestamp
       });
-
-      try {
-        const previousProfile = await getUserProfile(env, user.userId);
-        const profile = await generateUserProfile(env, {
-          userId: user.userId,
-          transcript,
-          diaryContent: '',
-          date,
-          userName: user.userName || '这个人',
-          previousProfile: previousProfile?.content || '',
-          modelKey: null
-        });
-        await saveUserProfile(env, { userId: user.userId, content: profile.raw });
-      } catch (err) {
-        console.warn('[ATRI] User profile update skipped', { userId: user.userId, date, err });
-      }
 
       try {
         await consolidateFactsForUser(env, {

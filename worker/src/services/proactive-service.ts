@@ -5,7 +5,6 @@ import { callUpstreamChat } from './llm-service';
 import { sendNotification } from './notification-service';
 import {
   getProactiveUserState,
-  getUserProfile,
   getUserState,
   saveConversationLog,
   saveProactiveMessage,
@@ -51,26 +50,6 @@ function inQuietHours(localHour: number, startHour: number, endHour: number) {
     return h >= start && h < end;
   }
   return h >= start || h < end;
-}
-
-function buildUserProfileSnippet(content: string) {
-  const trimmed = String(content || '').trim();
-  if (!trimmed) return '';
-  try {
-    const parsed = JSON.parse(trimmed);
-    const lines: string[] = [];
-    for (const key of ['事实', '喜好', '雷区', '说话风格', '关系进展']) {
-      const list = Array.isArray(parsed?.[key]) ? parsed[key] : [];
-      for (const item of list.slice(0, 2)) {
-        const text = String(item || '').trim();
-        if (text) lines.push(`${key}：${text}`);
-      }
-      if (lines.length >= 8) break;
-    }
-    return lines.slice(0, 8).map((line) => `- ${line}`).join('\n');
-  } catch {
-    return trimmed.slice(0, 500);
-  }
 }
 
 function extractMessageText(message: any): string {
@@ -196,14 +175,13 @@ function renderProactiveSystemPrompt(template: string, params: {
   timeZone: string;
   hoursSince: number;
   intimacy: number;
-  profileSnippet: string;
 }) {
   const clockTime = `${formatDateInZone(params.now, params.timeZone)} ${formatTimeInZone(params.now, params.timeZone)}`;
   return String(template || '')
     .replace(/\{clock_time\}/g, clockTime)
     .replace(/\{hours_since\}/g, String(params.hoursSince))
     .replace(/\{intimacy\}/g, String(params.intimacy))
-    .replace(/\{user_profile_snippet\}/g, params.profileSnippet || '（暂无）');
+    .replace(/\{user_profile_snippet\}/g, '');
 }
 
 async function runProactiveAgent(env: Env, params: {
@@ -215,8 +193,6 @@ async function runProactiveAgent(env: Env, params: {
   settings: EffectiveRuntimeSettings;
 }): Promise<{ reply: string | null; notification: { attempted: boolean; sent: boolean; error: string | null } }> {
   const model = params.settings.defaultChatModel;
-  const profile = await getUserProfile(env, params.userId);
-  const profileSnippet = buildUserProfileSnippet(profile?.content || '');
   const today = formatDateInZone(params.now, params.timeZone);
   const { todayLogs, yesterdayLogs, yesterdayDate } = await loadTwoDaysConversationLogs(env, {
     userId: params.userId,
@@ -235,17 +211,14 @@ async function runProactiveAgent(env: Env, params: {
     '如果不该打扰，就只输出 [SKIP]。',
     `当前时间：${formatDateInZone(params.now, params.timeZone)} ${formatTimeInZone(params.now, params.timeZone)}`,
     `距上次聊天：${params.hoursSince} 小时`,
-    `亲密度：${params.intimacy}`,
-    '关于对方：',
-    profileSnippet || '（暂无）'
+    `亲密度：${params.intimacy}`
   ].join('\n');
   const systemPrompt = proactivePrompt
     ? renderProactiveSystemPrompt(proactivePrompt, {
       now: params.now,
       timeZone: params.timeZone,
       hoursSince: params.hoursSince,
-      intimacy: params.intimacy,
-      profileSnippet
+      intimacy: params.intimacy
     })
     : fallbackPrompt;
 
