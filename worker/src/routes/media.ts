@@ -4,6 +4,9 @@ import { jsonResponse } from '../utils/json-response';
 import { buildPublicUrl, sanitizeFileName } from '../utils/file';
 import { requireAppToken } from '../utils/auth';
 import { signMediaUrlForClient, signMediaUrlForModel, validateSignedMediaPathParams, validateSignedMediaRequest } from '../utils/media-signature';
+import { resolveUploadMimeType } from '../utils/image-mime';
+
+const MIME_SNIFF_BYTES = 512;
 
 /**
  * 验证媒体访问token（通过 query 参数）
@@ -37,6 +40,40 @@ function validateMediaHeaderToken(request: Request, env: Env): boolean {
   return result === 0;
 }
 
+async function readStreamHead(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let ended = false;
+
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) {
+        ended = true;
+        break;
+      }
+      if (!value || value.byteLength === 0) continue;
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    if (!ended) {
+      void reader.cancel().catch(() => undefined);
+    }
+  }
+
+  const head = new Uint8Array(Math.min(total, maxBytes));
+  let offset = 0;
+  for (const chunk of chunks) {
+    const part = chunk.subarray(0, Math.min(chunk.byteLength, maxBytes - offset));
+    head.set(part, offset);
+    offset += part.byteLength;
+    if (offset >= maxBytes) break;
+  }
+  return head;
+}
+
 export function registerMediaRoutes(router: Router) {
   router.post('/upload', async (request: RouterRequest, env: Env) => {
     try {
@@ -48,14 +85,21 @@ export function registerMediaRoutes(router: Router) {
       }
       const fileNameHeader = request.headers.get('x-file-name') || `upload-${Date.now()}`;
       const userIdHeader = request.headers.get('x-user-id') || 'anonymous';
-      const mime = request.headers.get('x-file-type') || 'application/octet-stream';
+      const [sniffBody, uploadBody] = request.body.tee();
+      const headBytes = await readStreamHead(sniffBody, MIME_SNIFF_BYTES);
+      const mime = resolveUploadMimeType({
+        fileName: fileNameHeader,
+        declaredMime: request.headers.get('x-file-type'),
+        contentMime: request.headers.get('content-type'),
+        bytes: headBytes
+      });
       const sizeHeader = request.headers.get('x-file-size');
       const size = sizeHeader ? Number(sizeHeader) : undefined;
       const safeName = sanitizeFileName(fileNameHeader);
       const safeUser = sanitizeFileName(userIdHeader) || 'anon';
       const objectKey = `u/${safeUser}/${Date.now()}-${safeName}`;
 
-      await env.MEDIA_BUCKET.put(objectKey, request.body, {
+      await env.MEDIA_BUCKET.put(objectKey, uploadBody, {
         httpMetadata: {
           contentType: mime,
           contentDisposition: `inline; filename="${safeName}"`

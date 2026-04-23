@@ -1,5 +1,6 @@
 import type { Env } from '../types';
 import { callChatCompletions, ChatCompletionError } from './openai-service';
+import { normalizeMimeType, resolveFetchedImageMimeType } from '../utils/image-mime';
 
 export type UpstreamApiFormat = 'openai' | 'anthropic' | 'gemini';
 
@@ -39,7 +40,7 @@ function parseDataUrl(dataUrl: string): { mimeType: string; base64: string } | n
   const data = text.slice(comma + 1);
   const isBase64 = /;base64/i.test(header);
   if (!isBase64) return null;
-  const mimeType = header.replace(/;base64/i, '').trim() || 'application/octet-stream';
+  const mimeType = normalizeMimeType(header.replace(/;base64/i, '').trim()) || 'application/octet-stream';
   const base64 = data.trim();
   if (!base64) return null;
   return { mimeType, base64 };
@@ -76,10 +77,14 @@ async function resolveImageAsBase64(urlLike: string) {
   try {
     const res = await fetch(url.toString());
     if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
     const contentType = String(res.headers.get('content-type') || '').split(';')[0].trim();
+    const arrayBuffer = await res.arrayBuffer();
     return {
-      mimeType: contentType || 'application/octet-stream',
+      mimeType: resolveFetchedImageMimeType({
+        source: url.toString(),
+        declaredMime: contentType,
+        bytes: arrayBuffer
+      }),
       base64: toBase64(arrayBuffer)
     };
   } catch {
