@@ -3,6 +3,11 @@ import { callChatCompletions, ChatCompletionError } from './openai-service';
 import { normalizeMimeType, resolveFetchedImageMimeType } from '../utils/image-mime';
 
 export type UpstreamApiFormat = 'openai' | 'anthropic' | 'gemini';
+export type AgentThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type AgentThinkingOptions = {
+  level: AgentThinkingLevel;
+  budgetTokens?: number;
+};
 
 type OpenAiToolCall = {
   id: string;
@@ -12,6 +17,27 @@ type OpenAiToolCall = {
     arguments: string;
   };
 };
+
+const HIDDEN_CONTINUATION_KEYS = [
+  'reasoning_content',
+  '_anthropicThinkingBlocks',
+  '_geminiModelParts'
+] as const;
+
+export function buildAssistantToolMessageForContinuation(message: any, toolCalls: any[]) {
+  const out: any = {
+    role: 'assistant',
+    content: message?.content ?? null,
+    tool_calls: toolCalls
+  };
+  for (const key of HIDDEN_CONTINUATION_KEYS) {
+    const value = message?.[key];
+    if (value !== undefined && value !== null) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 function joinUrl(base: string, suffix: string) {
   const left = String(base || '').trim().replace(/\/+$/, '');
@@ -29,6 +55,94 @@ function normalizeFormat(raw: unknown): UpstreamApiFormat {
   if (text === 'anthropic') return 'anthropic';
   if (text === 'gemini') return 'gemini';
   return 'openai';
+}
+
+function normalizeThinkingLevel(raw: unknown): AgentThinkingLevel {
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (text === 'low') return 'low';
+  if (text === 'medium') return 'medium';
+  if (text === 'high') return 'high';
+  if (text === 'xhigh') return 'xhigh';
+  if (text === 'max') return 'max';
+  return 'off';
+}
+
+function isDeepSeekV4Model(model: string) {
+  return String(model || '').trim().toLowerCase().includes('deepseek-v4');
+}
+
+function mapOpenAiReasoningEffort(level: AgentThinkingLevel) {
+  if (level === 'max') return 'xhigh';
+  if (level === 'xhigh') return 'xhigh';
+  if (level === 'high') return 'high';
+  if (level === 'medium') return 'medium';
+  if (level === 'low') return 'low';
+  return undefined;
+}
+
+function mapDeepSeekReasoningEffort(level: AgentThinkingLevel) {
+  if (level === 'max' || level === 'xhigh') return 'max';
+  if (level === 'off') return undefined;
+  return 'high';
+}
+
+function mapAnthropicEffort(level: AgentThinkingLevel, model: string) {
+  const modelText = String(model || '').trim().toLowerCase();
+  if (level === 'max') return 'max';
+  if (level === 'xhigh') {
+    return modelText.includes('claude-opus-4-7') ? 'xhigh' : 'max';
+  }
+  if (level === 'high') return 'high';
+  if (level === 'medium') return 'medium';
+  if (level === 'low') return 'low';
+  return undefined;
+}
+
+function mapGeminiThinkingLevel(level: AgentThinkingLevel) {
+  if (level === 'max' || level === 'xhigh' || level === 'high') return 'high';
+  if (level === 'medium') return 'medium';
+  if (level === 'low') return 'low';
+  return undefined;
+}
+
+function applyOpenAiThinking(body: any, model: string, thinking?: AgentThinkingOptions) {
+  if (!thinking) return;
+  const level = normalizeThinkingLevel(thinking?.level);
+  if (isDeepSeekV4Model(model)) {
+    if (level === 'off') {
+      body.thinking = { type: 'disabled' };
+      return;
+    }
+    body.thinking = { type: 'enabled' };
+    body.reasoning_effort = mapDeepSeekReasoningEffort(level);
+    return;
+  }
+
+  const reasoningEffort = mapOpenAiReasoningEffort(level);
+  if (reasoningEffort) {
+    body.reasoning_effort = reasoningEffort;
+  }
+}
+
+function applyAnthropicThinking(body: any, model: string, thinking?: AgentThinkingOptions) {
+  const level = normalizeThinkingLevel(thinking?.level);
+  const effort = mapAnthropicEffort(level, model);
+  if (!effort) return;
+
+  body.thinking = { type: 'adaptive', display: 'omitted' };
+  body.output_config = { effort };
+  delete body.temperature;
+}
+
+function applyGeminiThinking(body: any, thinking?: AgentThinkingOptions) {
+  const thinkingLevel = mapGeminiThinkingLevel(normalizeThinkingLevel(thinking?.level));
+  if (!thinkingLevel) return;
+
+  body.generationConfig = body.generationConfig || {};
+  body.generationConfig.thinkingConfig = {
+    ...(body.generationConfig.thinkingConfig || {}),
+    thinkingLevel
+  };
 }
 
 function parseDataUrl(dataUrl: string): { mimeType: string; base64: string } | null {
@@ -208,6 +322,16 @@ async function openAiMessagesToAnthropic(messages: any[]) {
 
     if (msg.role === 'assistant') {
       const blocks: any[] = [];
+      const thinkingBlocks = Array.isArray((msg as any)._anthropicThinkingBlocks)
+        ? (msg as any)._anthropicThinkingBlocks
+        : [];
+      for (const block of thinkingBlocks) {
+        if (!block || typeof block !== 'object') continue;
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+          blocks.push(block);
+        }
+      }
+
       const text = typeof msg.content === 'string' ? msg.content : '';
       if (text) blocks.push({ type: 'text', text });
 
@@ -272,6 +396,14 @@ async function openAiMessagesToGemini(messages: any[]) {
     }
 
     if (msg.role === 'assistant') {
+      const preservedParts = Array.isArray((msg as any)._geminiModelParts)
+        ? (msg as any)._geminiModelParts.filter((part: any) => part && typeof part === 'object')
+        : [];
+      if (preservedParts.length) {
+        contents.push({ role: 'model', parts: preservedParts });
+        continue;
+      }
+
       const parts: any[] = [];
       const text = typeof msg.content === 'string' ? msg.content : '';
       if (text) parts.push({ text });
@@ -375,6 +507,11 @@ function extractOpenAiAssistantMessage(data: any) {
   const choice = data?.choices?.[0];
   const message = choice?.message;
   const content = typeof message?.content === 'string' ? message.content : message?.content ?? null;
+  const reasoningContent = typeof message?.reasoning_content === 'string'
+    ? message.reasoning_content
+    : typeof message?.reasoning === 'string'
+      ? message.reasoning
+      : undefined;
   const rawToolCalls = Array.isArray(message?.tool_calls)
     ? message.tool_calls
     : Array.isArray(message?.toolCalls)
@@ -406,16 +543,22 @@ function extractOpenAiAssistantMessage(data: any) {
     }
   }
 
-  return { content, toolCalls };
+  return { content, toolCalls, reasoningContent };
 }
 
 function extractAnthropicAssistantMessage(data: any) {
   const blocks = Array.isArray(data?.content) ? data.content : [];
   const texts: string[] = [];
   const toolCalls: OpenAiToolCall[] = [];
+  const thinkingBlocks: any[] = [];
 
   for (const block of blocks) {
     if (!block || typeof block !== 'object') continue;
+
+    if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+      thinkingBlocks.push(block);
+      continue;
+    }
 
     if (block.type === 'text' && typeof block.text === 'string' && block.text) {
       texts.push(block.text);
@@ -436,7 +579,7 @@ function extractAnthropicAssistantMessage(data: any) {
   }
 
   const content = texts.join('\n').trim();
-  return { content: content || null, toolCalls };
+  return { content: content || null, toolCalls, thinkingBlocks };
 }
 
 function extractGeminiAssistantMessage(data: any) {
@@ -444,10 +587,16 @@ function extractGeminiAssistantMessage(data: any) {
   const list = Array.isArray(parts) ? parts : [];
   const texts: string[] = [];
   const toolCalls: OpenAiToolCall[] = [];
+  const modelParts: any[] = [];
 
   for (let i = 0; i < list.length; i++) {
     const part = list[i];
     if (!part || typeof part !== 'object') continue;
+    modelParts.push(part);
+
+    if (part.thought === true) {
+      continue;
+    }
 
     if (typeof part.text === 'string' && part.text) {
       texts.push(part.text);
@@ -468,7 +617,7 @@ function extractGeminiAssistantMessage(data: any) {
   }
 
   const content = texts.join('\n').trim();
-  return { content: content || null, toolCalls };
+  return { content: content || null, toolCalls, modelParts };
 }
 
 export async function callUpstreamChat(env: Env, params: {
@@ -481,6 +630,7 @@ export async function callUpstreamChat(env: Env, params: {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  thinking?: AgentThinkingOptions;
   trace?: { scope?: string; userId?: string };
 }) {
   const format = normalizeFormat(params.format);
@@ -496,16 +646,19 @@ export async function callUpstreamChat(env: Env, params: {
   const versionedApiUrl = withAutoApiVersion(apiUrl, format);
 
   if (format === 'openai') {
+    const body: any = {
+      messages: params.messages,
+      tools: params.tools,
+      tool_choice: params.tools && Array.isArray(params.tools) && params.tools.length ? 'auto' : undefined,
+      temperature: params.temperature,
+      stream: false,
+      max_tokens: params.maxTokens
+    };
+    applyOpenAiThinking(body, model, params.thinking);
+
     const response = await callChatCompletions(
       env,
-      {
-        messages: params.messages,
-        tools: params.tools,
-        tool_choice: params.tools && Array.isArray(params.tools) && params.tools.length ? 'auto' : undefined,
-        temperature: params.temperature,
-        stream: false,
-        max_tokens: params.maxTokens
-      },
+      body,
       {
         timeoutMs,
         model,
@@ -519,7 +672,8 @@ export async function callUpstreamChat(env: Env, params: {
     return {
       message: {
         content: extracted.content,
-        tool_calls: extracted.toolCalls
+        tool_calls: extracted.toolCalls,
+        reasoning_content: extracted.reasoningContent
       },
       raw: data
     };
@@ -538,6 +692,7 @@ export async function callUpstreamChat(env: Env, params: {
       tools: anthropicTools.length ? anthropicTools : undefined,
       tool_choice: anthropicTools.length ? { type: 'auto' } : undefined
     };
+    applyAnthropicThinking(body, model, params.thinking);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -564,7 +719,8 @@ export async function callUpstreamChat(env: Env, params: {
       return {
         message: {
           content: extracted.content,
-          tool_calls: extracted.toolCalls
+          tool_calls: extracted.toolCalls,
+          _anthropicThinkingBlocks: extracted.thinkingBlocks
         },
         raw: data
       };
@@ -597,6 +753,7 @@ export async function callUpstreamChat(env: Env, params: {
     body.tools = [{ functionDeclarations: decls }];
     body.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
   }
+  applyGeminiThinking(body, params.thinking);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -622,7 +779,8 @@ export async function callUpstreamChat(env: Env, params: {
     return {
       message: {
         content: extracted.content,
-        tool_calls: extracted.toolCalls
+        tool_calls: extracted.toolCalls,
+        _geminiModelParts: extracted.modelParts
       },
       raw: data
     };

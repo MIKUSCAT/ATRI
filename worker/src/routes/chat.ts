@@ -97,7 +97,7 @@ export function registerChatRoutes(router: Router) {
       }
 
       const settings = await getEffectiveRuntimeSettings(env);
-      const modelToUse = settings.defaultChatModel || CHAT_MODEL;
+      const modelToUse = parsed.modelKey || settings.defaultChatModel || CHAT_MODEL;
 
       const replyTo = typeof parsed.logId === 'string' && parsed.logId.trim() ? parsed.logId.trim() : undefined;
       let anchorTimestamp: number | null = null;

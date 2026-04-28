@@ -10,6 +10,8 @@ export interface Env {
   AGENT_TEMPERATURE?: string;
   AGENT_MAX_TOKENS?: string;
   AGENT_TIMEOUT_MS?: string;
+  AGENT_THINKING_LEVEL?: string;
+  AGENT_THINKING_BUDGET_TOKENS?: string;
   DIARY_TEMPERATURE?: string;
   DIARY_MAX_TOKENS?: string;
   PROFILE_TEMPERATURE?: string;

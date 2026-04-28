@@ -1,7 +1,7 @@
 import { Env } from '../types';
 import { formatDateInZone, formatTimeInZone } from '../utils/date';
 import { sanitizeAssistantReply } from '../utils/sanitize';
-import { callUpstreamChat } from './llm-service';
+import { buildAssistantToolMessageForContinuation, callUpstreamChat } from './llm-service';
 import { sendNotification } from './notification-service';
 import {
   getProactiveUserState,
@@ -124,11 +124,7 @@ async function runProactiveToolLoop(env: Env, params: {
       return message;
     }
 
-    params.messages.push({
-      role: 'assistant',
-      content: message?.content || null,
-      tool_calls: toolCalls
-    });
+    params.messages.push(buildAssistantToolMessageForContinuation(message, toolCalls));
 
     for (const call of toolCalls) {
       const name = String(call?.function?.name || '').trim();

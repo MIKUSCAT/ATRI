@@ -7,7 +7,7 @@ import { ChatCompletionError } from './openai-service';
 import { searchMemories, getActiveFacts, upsertFactMemory, deleteFactMemory } from './memory-service';
 import { webSearch } from './web-search-service';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
-import { callUpstreamChat } from './llm-service';
+import { buildAssistantToolMessageForContinuation, callUpstreamChat } from './llm-service';
 import { buildTwoDaysHistoryMessagesFromLogs, loadTwoDaysConversationLogs } from './history-context';
 import {
   fetchConversationLogs,
@@ -47,6 +47,45 @@ type AgentToolCall = {
     arguments: string;
   };
 };
+
+const DEEPSEEK_V4_ROLEPLAY_MARKER = [
+  '',
+  '',
+  '【角色沉浸要求】在你的思考过程（<think>标签内）中，请遵守以下规则：',
+  '1. 请以角色第一人称进行内心独白，用括号包裹内心活动，例如"（心想：……）"或"(内心OS：……)"',
+  '2. 用第一人称描写角色的内心感受，例如"我心想""我觉得""我暗自"等',
+  '3. 思考内容应沉浸在角色中，通过内心独白分析剧情和规划回复'
+].join('\n');
+
+function shouldUseDeepSeekV4Roleplay(format: string, model: string, thinkingLevel: string) {
+  return format === 'openai'
+    && String(model || '').trim().toLowerCase().includes('deepseek-v4')
+    && String(thinkingLevel || '').trim().toLowerCase() !== 'off';
+}
+
+function appendDeepSeekV4RoleplayMarker(content: any) {
+  const markerTitle = '【角色沉浸要求】';
+  if (typeof content === 'string') {
+    return content.includes(markerTitle) ? content : `${content}${DEEPSEEK_V4_ROLEPLAY_MARKER}`;
+  }
+  if (!Array.isArray(content)) {
+    const text = String(content ?? '');
+    return text.includes(markerTitle) ? text : `${text}${DEEPSEEK_V4_ROLEPLAY_MARKER}`;
+  }
+
+  const parts = content.map((part) => part && typeof part === 'object' ? { ...part } : part);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    if (!part || typeof part !== 'object' || part.type !== 'text') continue;
+    const text = typeof part.text === 'string' ? part.text : '';
+    if (text.includes(markerTitle)) return parts;
+    parts[i] = { ...part, text: `${text}${DEEPSEEK_V4_ROLEPLAY_MARKER}` };
+    return parts;
+  }
+
+  parts.push({ type: 'text', text: DEEPSEEK_V4_ROLEPLAY_MARKER.trimStart() });
+  return parts;
+}
 
 export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult> {
   const settings = await getEffectiveRuntimeSettings(env);
@@ -120,13 +159,20 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     messages.push(...historyMessages);
   }
 
-  messages.push(
+  let currentUserContent: any =
     userContentParts.length === 0
       ? { role: 'user', content: '[空消息]' }
       : userContentParts.length === 1 && userContentParts[0].type === 'text'
         ? { role: 'user', content: userContentParts[0].text ?? '' }
-        : { role: 'user', content: userContentParts }
-  );
+        : { role: 'user', content: userContentParts };
+  if (shouldUseDeepSeekV4Roleplay(settings.chatApiFormat, params.model, settings.agentThinkingLevel)) {
+    currentUserContent = {
+      ...currentUserContent,
+      content: appendDeepSeekV4RoleplayMarker(currentUserContent.content)
+    };
+  }
+
+  messages.push(currentUserContent);
 
   const { reply, state } = await runToolLoop(env, {
     messages,
@@ -145,6 +191,10 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     openaiApiKey: settings.openaiApiKey,
     temperature: settings.agentTemperature,
     maxTokens: settings.agentMaxTokens,
+    thinking: {
+      level: settings.agentThinkingLevel,
+      budgetTokens: settings.agentThinkingBudgetTokens
+    },
     timeoutMs: settings.agentTimeoutMs
   });
 
@@ -334,6 +384,7 @@ async function runToolLoop(env: Env, params: {
   openaiApiKey: string;
   temperature: number;
   maxTokens: number;
+  thinking: { level: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; budgetTokens?: number };
   timeoutMs: number;
 }): Promise<{ reply: string; state: any }> {
   let latestState = params.state;
@@ -352,6 +403,7 @@ async function runToolLoop(env: Env, params: {
         tools: AGENT_TOOLS,
         temperature: params.temperature,
         maxTokens: params.maxTokens,
+        thinking: params.thinking,
         timeoutMs: params.timeoutMs,
         trace: { scope: 'agent', userId: params.userId }
       });
@@ -367,11 +419,7 @@ async function runToolLoop(env: Env, params: {
     if (toolCalls.length > 0) {
       toolInvoked = true;
       let factMemoryChanged = false;
-      params.messages.push({
-        role: 'assistant',
-        content: null,
-        tool_calls: toolCalls
-      });
+      params.messages.push(buildAssistantToolMessageForContinuation(message, toolCalls));
 
       for (let toolIndex = 0; toolIndex < toolCalls.length; toolIndex++) {
         const call = toolCalls[toolIndex];

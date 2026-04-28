@@ -13,6 +13,8 @@ type RuntimeConfigPublic = {
 
   agentTemperature?: number;
   agentMaxTokens?: number;
+  agentThinkingLevel?: string;
+  agentThinkingBudgetTokens?: number;
   diaryTemperature?: number;
   diaryMaxTokens?: number;
   profileTemperature?: number;
@@ -55,6 +57,8 @@ export type EffectiveRuntimeSettings = {
   agentTemperature: number;
   agentMaxTokens: number;
   agentTimeoutMs: number;
+  agentThinkingLevel: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  agentThinkingBudgetTokens?: number;
   diaryTemperature: number;
   diaryMaxTokens: number;
   profileTemperature: number;
@@ -113,6 +117,7 @@ const DEFAULTS = {
   agentTemperature: 1.0,
   agentMaxTokens: 4096,
   agentTimeoutMs: 300000,
+  agentThinkingLevel: 'off' as const,
   diaryTemperature: 0.7,
   diaryMaxTokens: 4096,
   profileTemperature: 0.2,
@@ -139,6 +144,8 @@ const RUNTIME_CONFIG_KEYS: Array<keyof RuntimeConfigPublic> = [
   'defaultChatModel',
   'agentTemperature',
   'agentMaxTokens',
+  'agentThinkingLevel',
+  'agentThinkingBudgetTokens',
   'diaryTemperature',
   'diaryMaxTokens',
   'profileTemperature',
@@ -200,6 +207,19 @@ function normalizeProactiveChannel(value: unknown): 'none' | 'email' | 'wechat_w
   if (text === 'email') return 'email';
   if (text === 'wechat_work') return 'wechat_work';
   if (text === 'none') return 'none';
+  return undefined;
+}
+
+function normalizeThinkingLevel(value: unknown): 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return undefined;
+  if (['off', 'none', 'disabled', 'disable', 'false', '0'].includes(text)) return 'off';
+  if (['minimal', 'min'].includes(text)) return 'low';
+  if (text === 'low') return 'low';
+  if (text === 'medium') return 'medium';
+  if (text === 'high') return 'high';
+  if (text === 'xhigh') return 'xhigh';
+  if (['max', 'maximum'].includes(text)) return 'max';
   return undefined;
 }
 
@@ -547,6 +567,18 @@ function resolveEffectiveSettings(
     )
   );
 
+  const agentThinkingLevel =
+    normalizeThinkingLevel(env.AGENT_THINKING_LEVEL)
+    ?? normalizeThinkingLevel(c.agentThinkingLevel)
+    ?? DEFAULTS.agentThinkingLevel;
+  const rawAgentThinkingBudgetTokens =
+    normalizeOptionalNumber(env.AGENT_THINKING_BUDGET_TOKENS)
+    ?? normalizeOptionalNumber(c.agentThinkingBudgetTokens);
+  const agentThinkingBudgetTokens =
+    rawAgentThinkingBudgetTokens == null
+      ? undefined
+      : Math.trunc(clampNumber(rawAgentThinkingBudgetTokens, 1024, 64000));
+
   const agentTimeoutMs = Math.trunc(
     clampNumber(
       normalizeOptionalNumber(env.AGENT_TIMEOUT_MS)
@@ -680,6 +712,8 @@ function resolveEffectiveSettings(
     agentTemperature,
     agentMaxTokens,
     agentTimeoutMs,
+    agentThinkingLevel,
+    agentThinkingBudgetTokens,
     diaryTemperature,
     diaryMaxTokens,
     profileTemperature,
