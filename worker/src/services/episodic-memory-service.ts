@@ -138,6 +138,87 @@ export async function markEpisodicRecalled(env: Env, userId: string, id: string,
   await recordMemoryEvent(env, { userId, memoryId: id, memoryType: 'episodic', eventType: 'recalled', conversationLogId });
 }
 
+
+export async function backfillEpisodicMemoryVectors(env: Env, params: {
+  userId?: string;
+  limit?: number;
+}) {
+  const rawLimit = Number(params.limit ?? 30);
+  const limit = clampInt(rawLimit, 1, 100);
+  const userId = String(params.userId || '').trim();
+
+  const sql = userId
+    ? `SELECT id, user_id as userId, source_date as sourceDate, title, content, emotion, tags,
+              importance, confidence, emotional_weight as emotionalWeight, embedding_id as embeddingId,
+              recall_count as recallCount, last_recalled_at as lastRecalledAt
+         FROM episodic_memories
+        WHERE user_id = ?
+          AND archived_at IS NULL
+          AND (embedding_id IS NULL OR embedding_id = '')
+        ORDER BY importance DESC, emotional_weight DESC, source_date DESC
+        LIMIT ?`
+    : `SELECT id, user_id as userId, source_date as sourceDate, title, content, emotion, tags,
+              importance, confidence, emotional_weight as emotionalWeight, embedding_id as embeddingId,
+              recall_count as recallCount, last_recalled_at as lastRecalledAt
+         FROM episodic_memories
+        WHERE archived_at IS NULL
+          AND (embedding_id IS NULL OR embedding_id = '')
+        ORDER BY importance DESC, emotional_weight DESC, source_date DESC
+        LIMIT ?`;
+
+  const stmt = userId
+    ? env.ATRI_DB.prepare(sql).bind(userId, limit)
+    : env.ATRI_DB.prepare(sql).bind(limit);
+  const result = await stmt.all<any>();
+  const rows = (result.results || []).map(mapRow);
+
+  let updated = 0;
+  const failed: Array<{ id: string; error: string }> = [];
+  for (const row of rows) {
+    try {
+      const memoryId = row.id.startsWith(`epi:${row.userId}:`)
+        ? row.id.slice(`epi:${row.userId}:`.length)
+        : row.id;
+      const embeddingId = await upsertEpisodicMemoryVector(env, {
+        userId: row.userId,
+        memoryId,
+        sourceDate: row.sourceDate,
+        title: row.title,
+        content: row.content,
+        emotion: row.emotion,
+        importance: row.importance,
+        emotionalWeight: row.emotionalWeight,
+        timestamp: Date.now()
+      });
+      await env.ATRI_DB.prepare(
+        `UPDATE episodic_memories
+            SET embedding_id = ?, updated_at = ?
+          WHERE id = ? AND user_id = ?`
+      ).bind(embeddingId, Date.now(), row.id, row.userId).run();
+      updated++;
+    } catch (err) {
+      failed.push({ id: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const remainingRow = userId
+    ? await env.ATRI_DB.prepare(
+        `SELECT COUNT(*) AS n FROM episodic_memories
+          WHERE user_id = ? AND archived_at IS NULL AND (embedding_id IS NULL OR embedding_id = '')`
+      ).bind(userId).first<any>()
+    : await env.ATRI_DB.prepare(
+        `SELECT COUNT(*) AS n FROM episodic_memories
+          WHERE archived_at IS NULL AND (embedding_id IS NULL OR embedding_id = '')`
+      ).first<any>();
+
+  return {
+    scanned: rows.length,
+    updated,
+    failed,
+    remaining: Number(remainingRow?.n || 0)
+  };
+}
+
 export async function deleteEpisodicMemoriesByUser(env: Env, userId: string) {
   const result = await env.ATRI_DB.prepare(`DELETE FROM episodic_memories WHERE user_id = ?`).bind(userId).run();
   return Number(result?.meta?.changes ?? 0);

@@ -338,10 +338,30 @@ export async function searchMemoryVectors(
   const topK = clampInt(Number(options.topK ?? 8), 1, 50);
   const categories = new Set((options.categories || []).map(c => String(c || '').trim()).filter(Boolean));
   const vector = await embedText(queryText, env);
-  const result = await (env as any).VECTORIZE.query(vector, {
-    topK: Math.min(Math.max(topK * 30, 80), 500),
-    returnMetadata: 'all'
-  });
+  const queryKs = Array.from(new Set([
+    Math.min(Math.max(topK * 30, 80), 500),
+    Math.min(Math.max(topK * 12, 50), 200),
+    Math.min(Math.max(topK * 6, 30), 100),
+    topK
+  ]));
+
+  let result: any;
+  let lastError: unknown;
+  for (const k of queryKs) {
+    try {
+      result = await (env as any).VECTORIZE.query(vector, {
+        topK: k,
+        returnMetadata: 'all'
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!result) {
+    throw lastError || new Error('VECTORIZE.query failed');
+  }
+
   const matches = Array.isArray(result?.matches) ? result.matches : [];
   const items: any[] = [];
   for (const m of matches) {

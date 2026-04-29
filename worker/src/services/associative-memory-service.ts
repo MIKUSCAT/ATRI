@@ -1,9 +1,8 @@
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { getActiveFacts, markFactRecalled, searchMemoryVectors } from './memory-service';
-import { getEpisodicMemoryById, listRecentEpisodicMemories, markEpisodicRecalled, EpisodicMemoryRecord } from './episodic-memory-service';
-import { listPendingIntentions, markIntentionRecalled, MemoryIntentionRecord } from './memory-intention-service';
-import { recordMemoryEvent } from './memory-event-service';
+import { getActiveFacts, searchMemoryVectors } from './memory-service';
+import { getEpisodicMemoryById, EpisodicMemoryRecord } from './episodic-memory-service';
+import { listPendingIntentions, MemoryIntentionRecord } from './memory-intention-service';
 
 export type AssociativeMemoryContext = {
   facts: Array<{ id: string; text: string; type: string; importance: number; confidence: number }>;
@@ -57,10 +56,16 @@ export async function retrieveAssociativeMemories(env: Env, params: {
     .slice(0, 5)
     .map(f => ({ id: f.id, text: f.text, type: f.type, importance: f.importance, confidence: f.confidence }));
 
-  let episodes: EpisodicMemoryRecord[] = [];
+  const episodes = await recallEpisodicMemoriesByVector(env, userId, query);
+
+  return { facts, episodes, intentions };
+}
+
+async function recallEpisodicMemoriesByVector(env: Env, userId: string, query: string): Promise<EpisodicMemoryRecord[]> {
   try {
     const vectorHits = await searchMemoryVectors(env, userId, query, { topK: 8, categories: ['episodic'] });
     const seen = new Set<string>();
+    const episodes: EpisodicMemoryRecord[] = [];
     for (const hit of vectorHits) {
       const id = normalizeEpisodicId(userId, hit.id);
       if (!id || seen.has(id)) continue;
@@ -70,31 +75,29 @@ export async function retrieveAssociativeMemories(env: Env, params: {
       episodes.push(row);
       if (episodes.length >= 5) break;
     }
+    return episodes;
   } catch (err) {
-    console.warn('[ATRI] episodic vector recall failed', { userId, err });
+    console.warn('[ATRI] episodic vector recall failed', {
+      userId,
+      error: serializeError(err)
+    });
+    return [];
   }
+}
 
-  if (!episodes.length) {
-    const recent = await listRecentEpisodicMemories(env, userId, 12).catch(() => []);
-    episodes = recent
-      .map((e: EpisodicMemoryRecord) => ({ ...e, score: lexicalScore(`${e.title} ${e.content} ${e.emotion || ''} ${e.tags.join(' ')}`, ks) * 5 + e.importance * 0.4 + e.emotionalWeight * 0.25 }))
-      .filter((e: EpisodicMemoryRecord & { score: number }) => e.score >= 2.6 || e.importance >= 8)
-      .sort((a: EpisodicMemoryRecord & { score: number }, b: EpisodicMemoryRecord & { score: number }) => b.score - a.score)
-      .slice(0, 5);
+function serializeError(err: unknown) {
+  if (err instanceof Error) {
+    return {
+      name: err.name,
+      message: err.message,
+      stack: err.stack
+    };
   }
-
-  for (const f of facts) {
-    await markFactRecalled(env, userId, f.id).catch(() => undefined);
-    await recordMemoryEvent(env, { userId, memoryId: f.id, memoryType: 'fact', eventType: 'recalled', conversationLogId: params.conversationLogId }).catch(() => undefined);
+  try {
+    return JSON.parse(JSON.stringify(err));
+  } catch {
+    return { message: String(err) };
   }
-  for (const e of episodes) {
-    await markEpisodicRecalled(env, userId, e.id, params.conversationLogId).catch(() => undefined);
-  }
-  for (const i of intentions) {
-    await markIntentionRecalled(env, userId, i.id, params.conversationLogId).catch(() => undefined);
-  }
-
-  return { facts, episodes, intentions };
 }
 
 function normalizeEpisodicId(userId: string, vectorId: string) {
