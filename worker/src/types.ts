@@ -47,7 +47,7 @@ export interface Env {
   PROACTIVE_NOTIFICATION_TARGET?: string;
 }
 
-export const CHAT_MODEL = 'claude-opus-4-6';
+export const CHAT_MODEL = 'gpt-4o-mini';
 export const ATTACHMENT_TYPES = ['image', 'document'] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 

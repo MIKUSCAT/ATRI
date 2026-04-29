@@ -10,6 +10,7 @@ import {
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
+import { persistDiaryDerivedMemories } from '../services/memory-maintenance-service';
 import { consolidateFactsForUser } from '../services/fact-consolidation';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
@@ -60,6 +61,8 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
             : [diary.content],
         timestamp: diary.timestamp
       });
+
+      await persistDiaryDerivedMemories(env, { userId: user.userId, date, diary });
 
       try {
         await consolidateFactsForUser(env, {

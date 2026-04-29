@@ -13,6 +13,7 @@ import {
 import { requireAppToken } from '../utils/auth';
 import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
+import { persistDiaryDerivedMemories } from '../services/memory-maintenance-service';
 
 export function registerDiaryRoutes(router: any) {
   router.get('/diary', async (request: any, env: Env) => {
@@ -111,6 +112,8 @@ export function registerDiaryRoutes(router: any) {
             : [diary.content],
         timestamp: diary.timestamp
       });
+
+      await persistDiaryDerivedMemories(env, { userId, date, diary });
 
       const entry = await getDiaryEntry(env, userId, date);
       if (!entry) {

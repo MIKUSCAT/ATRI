@@ -5,12 +5,13 @@ import {
   deleteConversationLogsByUser,
   deleteDiaryEntriesByUser,
   deleteFactMemoriesByUser,
-  deleteUserProfileByUser,
   deleteUserSettingsByUser,
   deleteUserStateByUser,
   listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors } from '../services/memory-service';
+import { deleteEpisodicMemoriesByUser } from '../services/episodic-memory-service';
+import { deleteMemoryIntentionsByUser } from '../services/memory-intention-service';
 import { sanitizeFileName } from '../utils/file';
 
 function extractToken(value: string | null) {
@@ -48,8 +49,10 @@ export function registerAdminRoutes(router: Router) {
       const vectorDeleted = vectorIds.length ? await deleteDiaryVectors(env, vectorIds) : 0;
       const mediaDeleted = await deleteUserMediaObjects(env, userId);
       const settingsDeleted = await deleteUserSettingsByUser(env, userId);
-      const profileDeleted = await deleteUserProfileByUser(env, userId);
       const factDeleted = await deleteFactMemoriesByUser(env, userId);
+      const episodicDeleted = await deleteEpisodicMemoriesByUser(env, userId);
+      const intentionsDeleted = await deleteMemoryIntentionsByUser(env, userId);
+      const eventsDeleted = await deleteMemoryEventsByUser(env, userId);
       const userStateDeleted = await deleteUserStateByUser(env, userId);
 
       return jsonResponse({
@@ -61,8 +64,10 @@ export function registerAdminRoutes(router: Router) {
           conversationLogs: logDeleted,
           mediaObjects: mediaDeleted,
           userSettings: settingsDeleted,
-          userProfiles: profileDeleted,
           factMemories: factDeleted,
+          episodicMemories: episodicDeleted,
+          memoryIntentions: intentionsDeleted,
+          memoryEvents: eventsDeleted,
           userStates: userStateDeleted
         }
       });
@@ -113,4 +118,9 @@ async function deleteUserMediaObjects(env: Env, userId: string) {
     cursor = list.truncated ? list.cursor : undefined;
   } while (cursor);
   return deleted;
+}
+
+async function deleteMemoryEventsByUser(env: Env, userId: string) {
+  const result = await env.ATRI_DB.prepare(`DELETE FROM memory_events WHERE user_id = ?`).bind(userId).run();
+  return Number(result?.meta?.changes ?? 0);
 }

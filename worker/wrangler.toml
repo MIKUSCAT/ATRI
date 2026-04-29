@@ -1,59 +1,65 @@
+# Cloudflare Worker 配置模板
+# 复制本文件后按自己的 Cloudflare / API 服务修改。
+# 不要把真实 account_id、database_id、域名、私有 API 网关或密钥提交到公开仓库。
+
 name = "atri-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
-account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
+# account_id = "your-cloudflare-account-id"
 
 [vars]
-OPENAI_API_URL = "https://zero.bvz.me"
-CHAT_API_FORMAT = "openai"
-DEFAULT_CHAT_MODEL = "opus-4.6"
+# 推荐使用通用默认值或你自己的代理；真实私有网关不要提交。
+OPENAI_API_URL = "https://api.openai.com/v1"
+CHAT_API_FORMAT = "openai" # openai | anthropic | gemini
+DEFAULT_CHAT_MODEL = "gpt-4o-mini"
 AGENT_THINKING_LEVEL = "off" # off | low | medium | high | xhigh | max
-# AGENT_THINKING_BUDGET_TOKENS 仅给旧预算式模型兜底，新 Claude 4.6/4.7 和 Gemini 3 不需要配
 
-DIARY_API_URL = "https://zero.bvz.me"
+DIARY_API_URL = "https://api.openai.com/v1"
+DIARY_MODEL = "gpt-4o-mini"
 
-DIARY_MODEL = "opus-4.6"
-EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
-EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+EMBEDDINGS_API_URL = "https://api.openai.com/v1"
+EMBEDDINGS_MODEL = "text-embedding-3-small"
 
 # 主动消息（cron 触发，可按需关闭）
-PROACTIVE_ENABLED = "true"
+PROACTIVE_ENABLED = "false"
 PROACTIVE_INTERVAL_MINUTES = "30"
 PROACTIVE_TIME_ZONE = "Asia/Shanghai"
 PROACTIVE_QUIET_START_HOUR = "23"
 PROACTIVE_QUIET_END_HOUR = "7"
-PROACTIVE_MAX_DAILY = "20"
-PROACTIVE_COOLDOWN_HOURS = "1"
+PROACTIVE_MAX_DAILY = "5"
+PROACTIVE_COOLDOWN_HOURS = "2"
 PROACTIVE_INTIMACY_THRESHOLD = "10"
 PROACTIVE_RECENT_ACTIVE_MINUTES = "60"
-# 每条主动消息都走外部通知（邮箱）
-PROACTIVE_NOTIFICATION_CHANNEL = "email"
-# 敏感信息请用 secret 设置，不要写入仓库：
+PROACTIVE_NOTIFICATION_CHANNEL = "none"
+
+# 敏感信息请用 wrangler secret 设置，不要写入仓库：
+# npx wrangler secret put OPENAI_API_KEY
+# npx wrangler secret put DIARY_API_KEY
+# npx wrangler secret put EMBEDDINGS_API_KEY
+# npx wrangler secret put APP_TOKEN
+# npx wrangler secret put ADMIN_API_KEY
 # npx wrangler secret put PROACTIVE_NOTIFICATION_TARGET
 # npx wrangler secret put EMAIL_API_KEY
+# npx wrangler secret put TAVILY_API_KEY
 
 # Tavily 联网搜索（可选）
-# API Key 通过 secret 设置: npx wrangler secret put TAVILY_API_KEY
 TAVILY_API_URL = "https://api.tavily.com"
 
 [[vectorize]]
 binding = "VECTORIZE"
-index_name = "atri-memories"
+index_name = "your-vectorize-index"
 
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
-bucket_name = "atri-media"
-preview_bucket_name = "atri-media"
+bucket_name = "your-r2-bucket"
+preview_bucket_name = "your-r2-preview-bucket"
 
 [[d1_databases]]
 binding = "ATRI_DB"
-database_name = "atri_diary"
-database_id = "05def668-b70d-40fc-84a4-b5ba21219217"
+database_name = "your-d1-database"
+database_id = "your-d1-database-id"
 
 [triggers]
 crons = ["59 15 * * *", "*/30 * * * *"]
 
-# Custom domain (需要在Cloudflare Dashboard手动添加)
-# Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain
-# 添加: mikuscat.qzz.io
-
+# Custom domain 请在 Cloudflare Dashboard 手动添加，不要把私人域名提交到公开仓库。

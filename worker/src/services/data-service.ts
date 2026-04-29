@@ -53,12 +53,6 @@ export type UserSettingsRecord = {
   updatedAt: number;
 };
 
-export type UserProfileRecord = {
-  userId: string;
-  content?: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
 
 export type UserStateRecord = {
   userId: string;
@@ -649,47 +643,9 @@ export async function saveUserModelPreference(env: Env, userId: string, modelKey
     .run();
 }
 
-export async function getUserProfile(env: Env, userId: string): Promise<UserProfileRecord | null> {
-  const row = await env.ATRI_DB.prepare(
-    `SELECT user_id as userId, content, created_at as createdAt, updated_at as updatedAt
-     FROM user_profiles
-     WHERE user_id = ?`
-  )
-    .bind(userId)
-    .first<UserProfileRecord>();
-  return row ?? null;
-}
-
-export async function saveUserProfile(env: Env, params: {
-  userId: string;
-  content: string;
-}) {
-  const now = Date.now();
-  const cleaned = (params.content || '').trim();
-  await env.ATRI_DB.prepare(
-    `INSERT INTO user_profiles (user_id, content, created_at, updated_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET
-       content = excluded.content,
-       updated_at = excluded.updated_at`
-  )
-    .bind(params.userId, cleaned, now, now)
-    .run();
-  return { userId: params.userId, updatedAt: now };
-}
-
 export async function deleteUserSettingsByUser(env: Env, userId: string) {
   const result = await env.ATRI_DB.prepare(
     `DELETE FROM user_settings WHERE user_id = ?`
-  )
-    .bind(userId)
-    .run();
-  return Number(result?.meta?.changes ?? 0);
-}
-
-export async function deleteUserProfileByUser(env: Env, userId: string) {
-  const result = await env.ATRI_DB.prepare(
-    `DELETE FROM user_profiles WHERE user_id = ?`
   )
     .bind(userId)
     .run();

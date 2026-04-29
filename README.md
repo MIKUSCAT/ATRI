@@ -69,7 +69,7 @@
 <br/>
 <img src="https://img.icons8.com/fluency/96/brain.png" width="48"/>
 <h3>🧠 Long-term Memory</h3>
-<p>Diaries become "memories"<br/>Recalled in future conversations</p>
+<p>Diaries become episodic memories<br/>Recalled naturally when relevant</p>
 <br/>
 </td>
 </tr>
@@ -84,10 +84,10 @@
 
 | 🤖 Traditional Chatbots | 💖 ATRI's Approach |
 |:----------------------:|:------------------:|
-| Every conversation starts fresh | Remembers everything important via diary + vector memory + real-time facts |
+| Every conversation starts fresh | Builds continuity through facts, episodic memories, and inner thoughts |
 | Emotions change instantly | Status capsule system + intimacy decay, moods have inertia |
 | One-size-fits-all responses | Intimacy system affects speaking style, relationships grow |
-| May fabricate memories | Tool registration mechanism with 8 tools, actively verifies via search/diary/web |
+| May fabricate memories | Associative recall first, then tools verify diary/original conversation when needed |
 
 </div>
 
@@ -184,6 +184,8 @@ npx wrangler d1 execute atri_diary --file=migrations/0005_add_conversation_tombs
 npx wrangler d1 execute atri_diary --file=migrations/0006_add_reply_to.sql
 npx wrangler d1 execute atri_diary --file=migrations/0007_add_proactive_tables.sql
 npx wrangler d1 execute atri_diary --file=migrations/0008_add_runtime_settings_tables.sql
+npx wrangler d1 execute atri_diary --file=migrations/0010_memory_system_overhaul.sql
+npx wrangler d1 execute atri_diary --file=migrations/0011_drop_unused_profile.sql
 
 # 6. Set secrets
 npx wrangler secret put OPENAI_API_KEY
@@ -301,6 +303,19 @@ docker-compose up -d
 <br/>
 
 ---
+
+
+### 🧠 Human-like Memory System
+
+ATRI does not treat memory as a single note bucket. The Worker separates memory into three layers:
+
+| Layer | Storage | Purpose |
+|------|---------|---------|
+| 🧩 Long-term facts | `fact_memories` | Stable preferences, taboos, promises, and important profile facts |
+| 🎞️ Episodic memories | `episodic_memories` | Diary-derived scenes that can be naturally recalled later |
+| 💭 Inner thoughts | `memory_intentions` | Unsaid thoughts from diaries, used only when the mood fits |
+
+Before each reply, the backend performs a lightweight associative recall. Relevant memories are injected as “things that naturally come to mind”, not as database results. If details are uncertain, ATRI can still call `read_diary` or `read_conversation` to verify.
 
 ## 🖼️ UI Preview
 

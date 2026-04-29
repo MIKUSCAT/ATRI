@@ -86,8 +86,7 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 
 ### 🧠 长期记忆
 
-日记变成"回忆"<br/>
-以后聊天时能想起来
+日记会沉淀成情景记忆<br/>合适时自然想起来
 
 </td>
 </tr>
@@ -102,10 +101,10 @@ ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于
 
 | 🤖 传统聊天机器人 | 💝 ATRI 的做法 |
 |:------------------:|:---------------:|
-| 每次对话都是新开始 | 记住所有重要的事，通过日记 + 向量记忆 + 实时事实 |
+| 每次对话都是新开始 | 通过 fact / 情景记忆 / 心里念头形成连续记忆 |
 | 情绪说变就变 | 状态胶囊系统 + 亲密度衰减，情绪有惯性 |
 | 千人一面的回复 | 亲密度系统影响说话风格，关系会成长 |
-| 可能乱编记忆 | 8 个工具注册机制，通过搜索/日记/联网主动查证，不靠感觉补全 |
+| 可能乱编记忆 | 主动联想 + 工具查证：先自然想起，不确定再读日记/原文 |
 
 </div>
 
@@ -208,6 +207,8 @@ npx wrangler d1 execute atri_diary --file=migrations/0005_add_conversation_tombs
 npx wrangler d1 execute atri_diary --file=migrations/0006_add_reply_to.sql
 npx wrangler d1 execute atri_diary --file=migrations/0007_add_proactive_tables.sql
 npx wrangler d1 execute atri_diary --file=migrations/0008_add_runtime_settings_tables.sql
+npx wrangler d1 execute atri_diary --file=migrations/0010_memory_system_overhaul.sql
+npx wrangler d1 execute atri_diary --file=migrations/0011_drop_unused_profile.sql
 
 # 6️⃣ 设置密钥
 npx wrangler secret put OPENAI_API_KEY
@@ -299,10 +300,23 @@ docker-compose up -d
 
 ### 🧠 长期记忆
 
-<sub>向量记忆 + 实时事实<br/>需要时自动唤醒</sub>
+<sub>fact + 情景记忆 + 心里念头<br/>合适时自然浮现</sub>
 
 </td>
 <td align="center" width="20%">
+
+
+### 🧠 类人记忆系统
+
+ATRI 的长期记忆不只是“查资料”，而是分成三层：
+
+| 层级 | 存储 | 用途 |
+|------|------|------|
+| 🧩 长期事实 | `fact_memories` | 喜好、雷区、约定、重要身份信息，少而精 |
+| 🎞️ 情景记忆 | `episodic_memories` | 从日记中提炼“那天发生过什么”，用于自然联想 |
+| 💭 心里念头 | `memory_intentions` | 日记里未说出口、之后找机会自然说的话 |
+
+聊天前会自动做一次轻量联想：相关旧事会进入“脑海里自然浮现”的提示块。她不会说“数据库显示”，而是像人一样在合适的时候想起过去；如果细节不确定，再用 `read_diary` / `read_conversation` 查证。
 
 ### 🖼️ 多媒体支持
 
@@ -396,7 +410,7 @@ docker-compose up -d
 │   │   ├── ⚙️ services/        # 核心服务
 │   │   └── 🔧 utils/           # 工具函数
 │   ├── 🗄️ db/schema.sql        # 数据库结构
-│   └── ⚙️ wrangler.toml        # Worker 配置
+│   └── ⚙️ wrangler.toml        # Worker 配置模板（公开仓库已脱敏）
 │
 ├── 🖥️ server/                  # VPS 后端（Fastify + PostgreSQL + pgvector）
 │   ├── src/

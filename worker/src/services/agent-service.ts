@@ -4,11 +4,12 @@ import { signMediaUrlForModel } from '../utils/media-signature';
 import { resolveDayStartTimestamp, formatTimeInZone, DEFAULT_TIMEZONE } from '../utils/date';
 import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
 import { ChatCompletionError } from './openai-service';
-import { searchMemories, getActiveFacts, upsertFactMemory, deleteFactMemory } from './memory-service';
+import { searchMemories, getActiveFacts, upsertFactMemory, archiveFactMemory } from './memory-service';
 import { webSearch } from './web-search-service';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
 import { buildAssistantToolMessageForContinuation, callUpstreamChat } from './llm-service';
 import { buildTwoDaysHistoryMessagesFromLogs, loadTwoDaysConversationLogs } from './history-context';
+import { buildAssociativeMemoryPrompt, retrieveAssociativeMemories } from './associative-memory-service';
 import {
   fetchConversationLogs,
   getConversationLogDate,
@@ -122,6 +123,16 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     updatedAt: Date.now()
   };
 
+  const associativeSnippet = await loadAssociativeMemorySnippet(env, {
+    userId: params.userId,
+    query: params.messageText,
+    conversationLogId: params.logId
+  });
+  const combinedSelfReviewSnippet = [selfReviewSnippet, associativeSnippet]
+    .map(s => String(s || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+
   const systemPrompt = composeAgentSystemPrompt({
     template: agentSystemTemplate,
     statusLabel: touchedState.statusLabel,
@@ -133,7 +144,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     userName: params.userName,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    selfReviewSnippet
+    selfReviewSnippet: combinedSelfReviewSnippet
   });
 
   const signedInlineImage = await signMediaUrlForModel(params.inlineImage, env, { ttlSeconds: 600 });
@@ -183,7 +194,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     state: touchedState,
     platform: params.platform,
     clientTimeIso: params.clientTimeIso,
-    selfReviewSnippet,
+    selfReviewSnippet: combinedSelfReviewSnippet,
     firstConversationAt: firstConversationAt ?? undefined,
     agentSystemTemplate,
     apiFormat: settings.chatApiFormat,
@@ -318,14 +329,14 @@ function composeAgentSystemPrompt(params: {
     '</当前状态工具约定>'
   ].join('\n');
 
-  basePrompt += '\n\n<提醒>\n记东西、查资料、翻日记——做完就好，回复里不用提起。\n不确定的事就去查（search_memory / read_diary / read_conversation），别硬编。\n</提醒>';
+  basePrompt += '\n\n<提醒>\n记东西、查资料、翻日记——做完就好，回复里不用提起。\n不确定的事就去查（search_memory / read_diary / read_conversation），别硬编。\n旧事不是检索结果，而是脑海里自然浮现的经历：合适才提，不合适就只影响理解和语气。不要说“数据库显示/检索到/记录显示”。\nfact 只记长期稳定信息，普通日常流水不要记成 fact。\n</提醒>';
 
   return basePrompt;
 }
 
 async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
   try {
-    const facts = await getActiveFacts(env, userId, 0);
+    const facts = await getActiveFacts(env, userId, 40);
     if (facts.length > 0) {
       return buildFactsSnippet(facts);
     }
@@ -336,12 +347,26 @@ async function loadAtriSelfReviewSnippet(env: Env, userId: string) {
   }
 }
 
-function buildFactsSnippet(facts: Array<{ id: string; text: string }>) {
+function buildFactsSnippet(facts: Array<{ id: string; text: string; type?: string; importance?: number; confidence?: number }>) {
   if (!facts.length) return '';
-  const lines = facts
-    .map(f => `- [${f.id}] ${f.text}`)
-    .filter(Boolean);
+  const lines = ['<记在心里的长期事实>'];
+  for (const f of facts) {
+    const meta = f.type ? `（${f.type}，重要度${f.importance ?? 5}，置信${Number(f.confidence ?? 0.7).toFixed(2)}）` : '';
+    lines.push(`- [${f.id}] ${f.text}${meta}`);
+  }
+  lines.push('</记在心里的长期事实>');
   return lines.join('\n');
+}
+
+
+async function loadAssociativeMemorySnippet(env: Env, params: { userId: string; query: string; conversationLogId?: string }) {
+  try {
+    const ctx = await retrieveAssociativeMemories(env, params);
+    return buildAssociativeMemoryPrompt(ctx);
+  } catch (error) {
+    console.warn('[ATRI] associative memories加载失败', { userId: params.userId, error });
+    return '';
+  }
 }
 
 function normalizeFactTextForMatch(value: unknown) {
@@ -559,7 +584,13 @@ async function executeAgentTool(
       return { output: '[skip:empty]' };
     }
     try {
-      const result = await upsertFactMemory(env, userId, content);
+      const result = await upsertFactMemory(env, userId, content, {
+        type: args?.type,
+        importance: args?.importance,
+        confidence: args?.confidence,
+        source: 'chat',
+        sourceDate: contextDate
+      });
       return { output: result.isNew ? `[ok] ${content}` : `[ok:updated] ${content}` };
     } catch (error) {
       console.warn('[ATRI] remember_fact failed', error);
@@ -575,14 +606,14 @@ async function executeAgentTool(
     }
     try {
       if (factId) {
-        const deleted = await deleteFactMemory(env, userId, factId);
+        const deleted = await archiveFactMemory(env, userId, factId);
         return { output: deleted ? '[ok] removed' : '[not_found]' };
       }
 
-      const facts = await getActiveFacts(env, userId, 0);
+      const facts = await getActiveFacts(env, userId, 40);
       const exact = facts.find(f => normalizeFactTextForMatch(f.text) === factText);
       if (exact) {
-        const deleted = await deleteFactMemory(env, userId, exact.id);
+        const deleted = await archiveFactMemory(env, userId, exact.id);
         return { output: deleted ? '[ok] removed' : '[not_found]' };
       }
 
@@ -593,7 +624,7 @@ async function executeAgentTool(
 
       if (fuzzyMatches.length === 1) {
         const target = fuzzyMatches[0];
-        const deleted = await deleteFactMemory(env, userId, target.id);
+        const deleted = await archiveFactMemory(env, userId, target.id);
         return { output: deleted ? '[ok] removed' : '[not_found]' };
       }
 
@@ -859,11 +890,14 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'remember_fact',
-      description: '这件事我想记住。对方在意的事、说好的约定、下次该留心的细节——记下来，以后别忘了。已经在我记事本里的不用再记，除非内容有本质变化。',
+      description: '这件事我想记住。只记录长期稳定信息：重要身份、喜好、雷区、约定、关系期待、稳定习惯。普通流水、临时状态、单日小事不要记成 fact。',
       parameters: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: '用一句话概括' }
+          content: { type: 'string', description: '用一句话概括长期稳定事实' },
+          type: { type: 'string', description: 'profile/preference/taboo/promise/relationship/habit/important/other' },
+          importance: { type: 'integer', description: '重要度1-10，普通信息不要低价值硬记' },
+          confidence: { type: 'number', description: '置信度0-1，明确证据越高' }
         },
         required: ['content']
       }

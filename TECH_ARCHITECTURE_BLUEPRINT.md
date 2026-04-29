@@ -464,120 +464,172 @@ search_memory(query)
 | 2️⃣ | `read_conversation(date)` | 读那天原始聊天（带时间戳，适合引用原话） |
 
 > 📌 这就是**"工具注册取代全量注入"**的核心：不把所有历史塞进去，只在需要时取证。
+>
+> 新版记忆系统还会在每次聊天前做一次轻量“主动联想”，把相关情景记忆作为“脑海里自然浮现的旧事”注入；工具则继续负责不确定时的查证。
 
 ---
 
-## 6. 创新点 3：日记/用户档案/实时事实（分流上游 + 三个产物三种用途）
+## 6. 创新点 3：类人记忆系统（fact / episodic / intention 三层分工）
 
-### 📊 6.1 三个产物分别解决什么
+> 💡 这次改造的核心不是“记得更多”，而是：**像人一样筛选、巩固、联想、选择性说出口**。
 
-<table>
-<tr>
-<th width="15%">产物</th>
-<th width="20%">存储位置</th>
-<th width="30%">解决什么</th>
-<th width="35%">给模型什么</th>
-</tr>
-<tr>
-<td>📔 <strong>日记</strong></td>
-<td><code>diary_entries</code></td>
-<td>把"今天发生了什么 + 我怎么想"写成可读叙事</td>
-<td>情感连续性 + highlights（用于向量）</td>
-</tr>
-<tr>
-<td>📋 <strong>用户档案</strong></td>
-<td><code>user_profiles</code></td>
-<td>把"事实/喜好/雷区/说话风格/关系进展"做成结构化摘要</td>
-<td>长期稳定、低噪声（进 system prompt）</td>
-</tr>
-<tr>
-<td>🧠 <strong>实时事实记忆</strong></td>
-<td><code>memory_vectors</code><br/>(mood=system_fact)</td>
-<td>模型在聊天中随时记住/忘记的具体事实</td>
-<td>短期到长期的精确记忆（进 system prompt）</td>
-</tr>
-</table>
+早期设计里，长期记忆主要由“日记 highlights + 实时 fact”承担。实际使用后会出现一个问题：
 
-> 💡 这三个东西都不是"为了好看"，而是给模型下次对话提供**不同层次的材料**。
+- fact 容易变成杂物箱；
+- 日记虽然写得很好，但模型往往只有在用户问“你还记得吗”时才会主动查；
+- 这不像人。人是当前话题触发旧场景，然后自然联想到过去。
 
-### 🆕 6.2 实时事实记忆（`remember_fact` / `forget_fact`）
+因此 Worker 版记忆系统被重构为三层：
 
-这是对早期"亚托莉便签"（`atri_self_reviews`）的重大升级。模型现在可以在聊天过程中**实时**记住或忘记具体事实：
+| 层级 | 表 | 解决什么 | 是否直接进 prompt |
+|------|----|----------|------------------|
+| 🧩 长期事实 | `fact_memories` | 长期稳定的偏好、雷区、约定、重要身份信息 | 少量高价值事实进入 |
+| 🎞️ 情景记忆 | `episodic_memories` | 从日记提炼出的“那天发生过什么” | 当前话题相关才进入 |
+| 💭 心里念头 | `memory_intentions` | 日记里未说出口、之后想找机会说的话 | pending 且气氛相关才进入 |
+| 📜 记忆事件 | `memory_events` | 记录 recalled / used / archived / merged | 不进 prompt，用于再巩固和排查 |
 
-```typescript
-remember_fact(content)  // "对方下周二要考试"
-forget_fact(factId)     // 删除过时的事实
+### 🧩 6.1 fact：只保留长期稳定认知
+
+`fact_memories` 不再只是 `content`。它现在带有权重和来源：
+
+```sql
+type              -- profile / preference / taboo / promise / relationship / habit / important / other
+importance        -- 重要度 1-10
+confidence        -- 置信度 0-1
+source            -- chat / diary / manual / consolidation / legacy
+source_date       -- 来源日期
+recall_count      -- 被想起次数
+last_recalled_at  -- 最近被想起时间
+archived_at       -- 归档时间
 ```
 
-**存储机制**：
-- 事实以向量形式存储在 `memory_vectors` 表中（`mood = 'system_fact'`）
-- ID 格式：`fact:<userId>:<md5_hash>`，用 MD5 哈希去重
-- 重要度固定为 10（高于日记 highlights 的 6），确保事实在向量检索中优先
-- 每次对话开始时，最近 15 条活跃事实会被加载到 system prompt
+写入原则变得更严格：
 
-### 🔄 6.3 生成链路
+| 可以进 fact | 不该进 fact |
+|------------|-------------|
+| 长期喜好 / 雷区 | 今天吃了什么 |
+| 重要身份信息 | 今天困不困 |
+| 明确约定 | 某天普通闲聊 |
+| 关系期待 / 情感创伤 | 单日流水账 |
+| 稳定习惯 | 过期临时安排 |
 
-#### Cron（每天自动跑）
+`remember_fact` 工具也加入了 `type / importance / confidence` 参数，让模型在记住之前先判断这件事到底值不值得长期保存。
 
-在 [`server/src/jobs/diary-cron.ts`](server/src/jobs/diary-cron.ts)，由 [`server/src/jobs/diary-scheduler.ts`](server/src/jobs/diary-scheduler.ts) 调度：
+### 🎞️ 6.2 episodic：日记变成“会自然想起的场景”
+
+完整日记仍然保存在 `diary_entries`，但夜间生成日记时，会额外产出 `episodicMemories`：
+
+```json
+{
+  "title": "他认真谈起记忆系统",
+  "content": "他希望我不是被问到才查，而是像真人一样自然想起以前发生过的事。",
+  "emotion": "心虚、在意、想证明自己",
+  "tags": ["记忆", "真实感", "关系期待"],
+  "importance": 9,
+  "confidence": 0.95,
+  "emotionalWeight": 9
+}
+```
+
+这类记忆不是干巴巴事实，也不是完整日记，而是“可被当前话题触发的旧场景”。
+
+白天聊天时，Worker 会用当前用户消息做轻量联想检索：
 
 ```
-① 找出"今天有聊天但还没 ready 日记"的用户
-                    ↓
-② 拉当天 conversation_logs → 拼 transcript
-                    ↓
-③ 生成日记（generateDiaryFromConversation）
-                    ↓
-④ 保存日记到 diary_entries（status=ready）
-                    ↓
-⑤ highlights 向量化写入 memory_vectors（pgvector）
-                    ↓
-⑥ 刷新 user_profiles（结构化档案）
+用户当前消息
+   ↓
+Vectorize / D1 检索相关 episodic memories
+   ↓
+注入 <脑海里自然浮现的旧事>
+   ↓
+模型判断是否自然提起
 ```
 
-**调度器特性**：
-- 可配置触发时间（`DIARY_CRON_TIME`，默认 23:59）和时区（`DIARY_CRON_TIMEZONE`）
-- 支持 catchup 机制（`DIARY_CRON_CATCHUP_DAYS`，默认 2 天），自动补生成遗漏的日记
-- 使用 PostgreSQL advisory lock 防止并发执行
+提示词明确要求：
 
-#### 手动重生成
+- 不要说“数据库显示”；
+- 不要说“我检索到”；
+- 合适才说，不合适只影响理解和语气；
+- 需要细节时再用 `read_diary` / `read_conversation` 查证。
 
-`POST /diary/regenerate` 会重新生成当天日记，并且**强制刷新档案**（保证两者一致）。
+### 💭 6.3 intention：日记里未说出口的话
 
-### 🔀 6.4 分流上游
+人类晚上回想一天时，经常会产生“下次见面想说的话”。
 
-> ⚠️ **重要：聊天别被日记拖死**
+ATRI 现在也有这层：`memory_intentions`。
+
+```sql
+content           -- 想找机会自然说的话
+trigger_hint      -- 什么气氛/话题下适合说
+urgency           -- 紧迫度
+emotional_weight  -- 情绪权重
+status            -- pending / used / expired / archived
+expires_at        -- 过期时间
+```
+
+这不是任务清单。模型不会机械完成它，而是在当前气氛合适时自然说出口。
+
+### 🌙 6.4 夜间巩固流程
+
+Cloudflare Worker 的日记 cron 现在做的不只是写日记：
+
+```
+① 找出今天有聊天但还没 ready 日记的用户
+                    ↓
+② 拉 conversation_logs → 拼 transcript
+                    ↓
+③ 一次 LLM 输出：diary / highlights / episodicMemories / factCandidates / innerThoughts
+                    ↓
+④ 保存 diary_entries
+                    ↓
+⑤ highlights 写入 Vectorize
+                    ↓
+⑥ episodicMemories 写入 episodic_memories
+                    ↓
+⑦ innerThoughts 写入 memory_intentions
+                    ↓
+⑧ factCandidates 严格筛选后写入 fact_memories
+                    ↓
+⑨ consolidateFactsForUser 合并重复、归档杂碎
+```
+
+为了控制成本，`diary / episodic / factCandidates / innerThoughts` 合并在同一次日记 LLM 输出里，白天聊天不额外增加 LLM 调用。
+
+### 🧹 6.5 fact consolidation：杀伐果断清理杂碎
+
+每晚整理 fact 时，模型被明确要求：
+
+- 临时状态默认归档；
+- 单日事件默认归档；
+- 重复内容必须 merge；
+- 日记细节不要进 fact；
+- 如果输入超过 50 条，active facts 应明显变少。
+
+输出结构仍然是简单 JSON：
+
+```json
+{
+  "keep": ["fact:..."],
+  "merge": [{ "from": ["fact:a", "fact:b"], "into": "合并后的长期事实" }],
+  "archive": ["fact:..."]
+}
+```
+
+`archive` 是软归档，用于避免误删；确认无用的数据可以通过管理脚本或迁移进一步硬删。
+
+### 🔀 6.6 分流上游
 
 | 用途 | 配置变量 | 说明 |
 |------|----------|------|
 | 💬 Chat | `OPENAI_API_URL` / `OPENAI_API_KEY` | 聊天走这个 |
-| 📔 日记/档案 | `DIARY_API_URL` / `DIARY_API_KEY` / `DIARY_MODEL` | 允许走独立上游 |
+| 📔 日记/巩固 | `DIARY_API_URL` / `DIARY_API_KEY` / `DIARY_MODEL` | 日记、情景记忆、fact 候选走这个 |
+| 🧠 Embedding | `EMBEDDINGS_API_URL` / `EMBEDDINGS_API_KEY` / `EMBEDDINGS_MODEL` | highlights / episodic 检索向量 |
 
-**隔离的意义**：
-- 聊天要快、稳定
-- 日记允许慢一点、质量高一点、甚至用另一家服务
-- 日记上游挂了，不影响聊天（最多当天日记生成失败）
+隔离的意义：
 
-**实现位置**：
-| 功能 | 文件 |
-|------|------|
-| 日记 | [`server/src/services/diary-generator.ts`](server/src/services/diary-generator.ts) |
-| 档案 | [`server/src/services/profile-generator.ts`](server/src/services/profile-generator.ts) |
-| 统一 LLM 调用 | [`server/src/services/llm-service.ts`](server/src/services/llm-service.ts)（支持 OpenAI/Anthropic/Gemini 三种格式） |
-
-### 🤖 6.5 模型选择策略（现状）
-
-```
-聊天：优先用客户端传来的 modelKey，否则用 runtime settings 的 defaultChatModel
-          ↓
-后端会把 modelKey 记到 user_settings.model_key
-          ↓
-Cron 会复用它作为日记/档案的 modelKey
-```
-
-> 📌 也就是说：**用户选什么模型，日记/档案也会尽量用同一个模型**（除非你在环境里强制配置别的策略）。
-
----
+- 聊天要快、稳定；
+- 日记允许慢一点、质量高一点；
+- 日记上游挂了，不影响日常聊天。
 
 ## 7. 创新点 4：工具注册取代全量注入（把"查证"变成模型能力的一部分）
 

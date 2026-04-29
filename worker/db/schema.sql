@@ -68,14 +68,6 @@ CREATE TABLE IF NOT EXISTS user_settings (
   updated_at INTEGER NOT NULL
 );
 
--- 用户长期档案（事实/喜好/雷区/说话风格/关系进展）
-CREATE TABLE IF NOT EXISTS user_profiles (
-  user_id TEXT PRIMARY KEY,
-  content TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-
 -- 主动消息队列（由 cron 生成，App 拉取）
 CREATE TABLE IF NOT EXISTS proactive_messages (
   id TEXT PRIMARY KEY,
@@ -109,6 +101,14 @@ CREATE TABLE IF NOT EXISTS fact_memories (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   content TEXT NOT NULL,
+  type TEXT DEFAULT 'other',
+  importance INTEGER NOT NULL DEFAULT 5,
+  confidence REAL NOT NULL DEFAULT 0.7,
+  source TEXT DEFAULT 'legacy',
+  source_date TEXT,
+  last_seen_at INTEGER,
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at INTEGER,
   archived_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -118,6 +118,72 @@ CREATE INDEX IF NOT EXISTS idx_fact_user_updated_at
   ON fact_memories(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_fact_user_archived
   ON fact_memories(user_id, archived_at);
+CREATE INDEX IF NOT EXISTS idx_fact_user_type_importance
+  ON fact_memories(user_id, type, importance DESC);
+CREATE INDEX IF NOT EXISTS idx_fact_user_source_date
+  ON fact_memories(user_id, source_date);
+
+-- 情景记忆：从日记中提炼出的、可被自然联想到的经历片段
+CREATE TABLE IF NOT EXISTS episodic_memories (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  source_date TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  emotion TEXT,
+  tags TEXT,
+  importance INTEGER NOT NULL DEFAULT 5,
+  confidence REAL NOT NULL DEFAULT 0.8,
+  emotional_weight INTEGER NOT NULL DEFAULT 5,
+  embedding_id TEXT,
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  archived_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_episodic_user_date
+  ON episodic_memories(user_id, source_date DESC);
+CREATE INDEX IF NOT EXISTS idx_episodic_user_active_importance
+  ON episodic_memories(user_id, archived_at, importance DESC, emotional_weight DESC);
+
+-- 心里挂着的念头：日记里未说出口、之后找机会自然说的话
+CREATE TABLE IF NOT EXISTS memory_intentions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  source_date TEXT NOT NULL,
+  content TEXT NOT NULL,
+  trigger_hint TEXT,
+  urgency INTEGER NOT NULL DEFAULT 5,
+  emotional_weight INTEGER NOT NULL DEFAULT 5,
+  status TEXT NOT NULL DEFAULT 'pending',
+  expires_at INTEGER,
+  created_at INTEGER NOT NULL,
+  used_at INTEGER,
+  archived_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_intentions_user_status_urgency
+  ON memory_intentions(user_id, status, urgency DESC, emotional_weight DESC);
+CREATE INDEX IF NOT EXISTS idx_intentions_user_expires
+  ON memory_intentions(user_id, expires_at);
+
+-- 记忆事件：记录某条记忆被联想/使用/归档，方便再巩固和排查
+CREATE TABLE IF NOT EXISTS memory_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  memory_id TEXT NOT NULL,
+  memory_type TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  conversation_log_id TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_events_user_created
+  ON memory_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_events_memory
+  ON memory_events(memory_type, memory_id, created_at DESC);
 
 -- 运行时配置（与 server 对齐，供 runtime-settings 读取）
 CREATE TABLE IF NOT EXISTS admin_runtime_config (
