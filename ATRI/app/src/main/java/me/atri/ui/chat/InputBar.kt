@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,7 +53,7 @@ import coil.compose.AsyncImage
 import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 
-private const val MAX_ATTACHMENTS = 6
+private const val MAX_ATTACHMENTS = 1
 
 @Composable
 fun InputBar(
@@ -78,7 +77,7 @@ fun InputBar(
         if (remaining == 0) return@rememberLauncherForActivityResult
         val newItems = uris
             .take(remaining)
-            .mapNotNull { uri -> context.buildPendingAttachment(uri) }
+            .mapNotNull { uri -> context.buildPendingImageAttachment(uri) }
         attachments.addAll(newItems)
     }
 
@@ -134,7 +133,7 @@ fun InputBar(
                     onClick = { imagePickerLauncher.launch("image/*") },
                     enabled = enabled && attachments.size < MAX_ATTACHMENTS
                 ) {
-                    Icon(Icons.Outlined.Add, contentDescription = "添加附件")
+                    Icon(Icons.Outlined.Add, contentDescription = "添加图片")
                 }
 
                 TextField(
@@ -311,38 +310,13 @@ private fun AttachmentPreview(
         modifier = Modifier
             .size(width = 90.dp, height = 90.dp)
     ) {
-        if (attachment.type == AttachmentType.IMAGE) {
-            AsyncImage(
-                model = attachment.uri,
-                contentDescription = attachment.name,
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(RoundedCornerShape(12.dp))
-            )
-        } else {
-            Surface(
-                modifier = Modifier
-                    .matchParentSize(),
-                shape = RoundedCornerShape(12.dp),
-                tonalElevation = 1.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Description,
-                        contentDescription = null
-                    )
-                    Text(
-                        text = attachment.name.take(10),
-                        maxLines = 1
-                    )
-                }
-            }
-        }
+        AsyncImage(
+            model = attachment.uri,
+            contentDescription = attachment.name,
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(12.dp))
+        )
 
         IconButton(
             onClick = onRemove,
@@ -359,9 +333,10 @@ private fun AttachmentPreview(
     }
 }
 
-private fun Context.buildPendingAttachment(uri: Uri): PendingAttachment? {
+private fun Context.buildPendingImageAttachment(uri: Uri): PendingAttachment? {
     val resolver = contentResolver
     val mime = resolver.getType(uri) ?: "application/octet-stream"
+    if (!mime.startsWith("image/")) return null
     val metaPair: Pair<String, Long?> = resolver.query(uri, null, null, null, null)?.use { cursor ->
         val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
@@ -372,12 +347,11 @@ private fun Context.buildPendingAttachment(uri: Uri): PendingAttachment? {
         } else null
     } ?: Pair(uri.lastPathSegment ?: "附件", null)
     val (displayName, size) = metaPair
-    val type = if (mime.startsWith("image/")) AttachmentType.IMAGE else AttachmentType.DOCUMENT
     return PendingAttachment(
         uri = uri,
         mime = mime,
         name = displayName,
         sizeBytes = size,
-        type = type
+        type = AttachmentType.IMAGE
     )
 }
