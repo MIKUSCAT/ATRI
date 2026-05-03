@@ -170,7 +170,41 @@ function toBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-async function resolveImageAsBase64(urlLike: string) {
+function extractR2MediaKey(url: URL): string | null {
+  if (url.pathname.startsWith('/media/')) {
+    const key = url.pathname.slice('/media/'.length).replace(/^\/+/, '');
+    return key || null;
+  }
+
+  if (url.pathname.startsWith('/media-s/')) {
+    const parts = url.pathname.split('/');
+    const key = parts.slice(4).join('/').replace(/^\/+/, '');
+    return key || null;
+  }
+
+  return null;
+}
+
+async function readR2ImageAsBase64(env: Env, url: URL) {
+  const key = extractR2MediaKey(url);
+  if (!key) return null;
+
+  const object = await env.MEDIA_BUCKET.get(key);
+  if (!object || !object.body) return null;
+
+  const arrayBuffer = await object.arrayBuffer();
+  const contentType = String(object.httpMetadata?.contentType || '').split(';')[0].trim();
+  return {
+    mimeType: resolveFetchedImageMimeType({
+      source: url.toString(),
+      declaredMime: contentType,
+      bytes: arrayBuffer
+    }),
+    base64: toBase64(arrayBuffer)
+  };
+}
+
+async function resolveImageAsBase64(env: Env, urlLike: string) {
   const trimmed = String(urlLike || '').trim();
   if (!trimmed) return null;
 
@@ -187,6 +221,9 @@ async function resolveImageAsBase64(urlLike: string) {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     return null;
   }
+
+  const r2Image = await readR2ImageAsBase64(env, url);
+  if (r2Image) return r2Image;
 
   try {
     const res = await fetch(url.toString());
@@ -217,7 +254,7 @@ function buildSystemText(messages: any[]) {
   return lines.join('\n\n');
 }
 
-async function openAiContentToAnthropicBlocks(content: any): Promise<any[]> {
+async function openAiContentToAnthropicBlocks(env: Env, content: any): Promise<any[]> {
   if (typeof content === 'string') {
     const text = content;
     return text ? [{ type: 'text', text }] : [];
@@ -237,14 +274,14 @@ async function openAiContentToAnthropicBlocks(content: any): Promise<any[]> {
     }
     if (part.type === 'image_url') {
       const url = typeof part.image_url?.url === 'string' ? part.image_url.url : '';
-      const resolved = await resolveImageAsBase64(url);
+      const resolved = await resolveImageAsBase64(env, url);
       if (resolved) {
         out.push({
           type: 'image',
           source: { type: 'base64', media_type: resolved.mimeType, data: resolved.base64 }
         });
-      } else if (url) {
-        out.push({ type: 'text', text: `[图片] ${url}` });
+      } else {
+        throw new ChatCompletionError('image', 422, 'image_unreadable');
       }
       continue;
     }
@@ -252,7 +289,7 @@ async function openAiContentToAnthropicBlocks(content: any): Promise<any[]> {
   return out;
 }
 
-async function openAiContentToGeminiParts(content: any): Promise<any[]> {
+async function openAiContentToGeminiParts(env: Env, content: any): Promise<any[]> {
   if (typeof content === 'string') {
     const text = content;
     return text ? [{ text }] : [];
@@ -272,11 +309,11 @@ async function openAiContentToGeminiParts(content: any): Promise<any[]> {
     }
     if (part.type === 'image_url') {
       const url = typeof part.image_url?.url === 'string' ? part.image_url.url : '';
-      const resolved = await resolveImageAsBase64(url);
+      const resolved = await resolveImageAsBase64(env, url);
       if (resolved) {
         out.push({ inlineData: { mimeType: resolved.mimeType, data: resolved.base64 } });
-      } else if (url) {
-        out.push({ text: `[图片] ${url}` });
+      } else {
+        throw new ChatCompletionError('image', 422, 'image_unreadable');
       }
       continue;
     }
@@ -284,7 +321,7 @@ async function openAiContentToGeminiParts(content: any): Promise<any[]> {
   return out;
 }
 
-async function openAiMessagesToAnthropic(messages: any[]) {
+async function openAiMessagesToAnthropic(env: Env, messages: any[]) {
   const system = buildSystemText(messages);
   const out: any[] = [];
 
@@ -315,7 +352,7 @@ async function openAiMessagesToAnthropic(messages: any[]) {
     flushToolResults();
 
     if (msg.role === 'user') {
-      const blocks = await openAiContentToAnthropicBlocks(msg.content);
+      const blocks = await openAiContentToAnthropicBlocks(env, msg.content);
       out.push({ role: 'user', content: blocks.length ? blocks : [{ type: 'text', text: '[空消息]' }] });
       continue;
     }
@@ -362,7 +399,7 @@ async function openAiMessagesToAnthropic(messages: any[]) {
   return { system, messages: out };
 }
 
-async function openAiMessagesToGemini(messages: any[]) {
+async function openAiMessagesToGemini(env: Env, messages: any[]) {
   const system = buildSystemText(messages);
   const contents: any[] = [];
   let pendingToolResponses: any[] = [];
@@ -390,7 +427,7 @@ async function openAiMessagesToGemini(messages: any[]) {
     flushToolResponses();
 
     if (msg.role === 'user') {
-      const parts = await openAiContentToGeminiParts(msg.content);
+      const parts = await openAiContentToGeminiParts(env, msg.content);
       contents.push({ role: 'user', parts: parts.length ? parts : [{ text: '[空消息]' }] });
       continue;
     }
@@ -680,7 +717,7 @@ export async function callUpstreamChat(env: Env, params: {
   }
 
   if (format === 'anthropic') {
-    const { system, messages } = await openAiMessagesToAnthropic(params.messages);
+    const { system, messages } = await openAiMessagesToAnthropic(env, params.messages);
     const anthropicTools = openAiToolsToAnthropic(params.tools || []);
 
     const body: any = {
@@ -734,7 +771,7 @@ export async function callUpstreamChat(env: Env, params: {
     }
   }
 
-  const { systemInstruction, contents } = await openAiMessagesToGemini(params.messages);
+  const { systemInstruction, contents } = await openAiMessagesToGemini(env, params.messages);
   const decls = openAiToolsToGemini(params.tools || []);
 
   const modelName = model.startsWith('models/') ? model.slice('models/'.length) : model;
