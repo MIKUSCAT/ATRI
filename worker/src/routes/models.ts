@@ -1,4 +1,4 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env, CHAT_MODEL } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { requireAppToken } from '../utils/auth';
@@ -59,7 +59,7 @@ function fallbackModels(settings: any) {
   return models;
 }
 
-export function registerModelRoutes(router: Router) {
+export function registerModelRoutes(router: RouterType) {
   router.get('/current-model', async (request, env: Env) => {
     try {
       const auth = requireAppToken(request, env);

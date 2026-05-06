@@ -1,4 +1,4 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import {
@@ -19,7 +19,7 @@ function extractToken(value: string | null) {
   return value.startsWith('Bearer ') ? value.slice(7).trim() : value.trim();
 }
 
-export function registerAdminRoutes(router: Router) {
+export function registerAdminRoutes(router: RouterType) {
   router.post('/admin/clear-user', async (request, env: Env) => {
     const adminKey = (env.ADMIN_API_KEY || '').trim();
     if (!adminKey) {

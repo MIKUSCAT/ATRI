@@ -406,6 +406,48 @@ export async function getConversationLogTimestamp(env: Env, userId: string, logI
   return Number.isFinite(ts) ? ts : null;
 }
 
+export async function fetchLatestAtriReplyToLog(
+  env: Env,
+  userId: string,
+  logId: string
+): Promise<ConversationLogRecord | null> {
+  await ensureConversationTables(env);
+  const trimmedUserId = String(userId || '').trim();
+  const trimmedLogId = String(logId || '').trim();
+  if (!trimmedUserId || !trimmedLogId) return null;
+
+  const row = await env.ATRI_DB.prepare(
+    `SELECT logs.id,
+            logs.user_id as userId,
+            logs.date,
+            logs.role,
+            logs.content,
+            logs.attachments,
+            logs.reply_to as replyTo,
+            logs.timestamp,
+            logs.user_name as userName,
+            logs.time_zone as timeZone
+       FROM conversation_logs logs
+       LEFT JOIN conversation_log_tombstones tombstones
+         ON logs.user_id = tombstones.user_id AND logs.id = tombstones.log_id
+      WHERE logs.user_id = ?
+        AND logs.role = 'atri'
+        AND logs.reply_to = ?
+        AND tombstones.log_id IS NULL
+      ORDER BY logs.timestamp DESC
+      LIMIT 1`
+  )
+    .bind(trimmedUserId, trimmedLogId)
+    .first<any>();
+
+  if (!row) return null;
+  return {
+    ...row,
+    role: 'atri',
+    attachments: parseJson(row.attachments)
+  };
+}
+
 export async function isConversationLogDeleted(env: Env, userId: string, logId: string): Promise<boolean> {
   await ensureConversationTables(env);
 
@@ -1093,6 +1135,56 @@ export async function fetchPendingProactiveMessages(env: Env, params: {
     deliveredAt: row.deliveredAt == null ? null : Number(row.deliveredAt),
     expiresAt: Number(row.expiresAt || 0)
   }));
+}
+
+
+export async function fetchLatestPendingProactive(env: Env, userId: string): Promise<ProactiveMessageRecord | null> {
+  await ensureProactiveTables(env);
+  const safeUserId = String(userId || '').trim();
+  if (!safeUserId) return null;
+  const now = Date.now();
+
+  await env.ATRI_DB.prepare(
+    `UPDATE proactive_messages
+        SET status = 'expired'
+      WHERE user_id = ? AND status = 'pending' AND expires_at <= ?`
+  ).bind(safeUserId, now).run();
+
+  const row = await env.ATRI_DB.prepare(
+    `SELECT id,
+            user_id as userId,
+            content,
+            trigger_context as triggerContext,
+            status,
+            notification_channel as notificationChannel,
+            notification_sent as notificationSent,
+            notification_error as notificationError,
+            created_at as createdAt,
+            delivered_at as deliveredAt,
+            expires_at as expiresAt
+       FROM proactive_messages
+      WHERE user_id = ? AND status = 'pending' AND expires_at > ?
+      ORDER BY created_at DESC
+      LIMIT 1`
+  ).bind(safeUserId, now).first<ProactiveMessageRecord>();
+
+  if (!row) return null;
+  return {
+    id: String(row.id || ''),
+    userId: String(row.userId || safeUserId),
+    content: String(row.content || ''),
+    triggerContext: row.triggerContext == null ? null : String(row.triggerContext),
+    status: row.status as ProactiveMessageStatus,
+    notificationChannel:
+      row.notificationChannel === 'email' || row.notificationChannel === 'wechat_work' || row.notificationChannel === 'none'
+        ? row.notificationChannel
+        : null,
+    notificationSent: Boolean(Number((row as any).notificationSent ?? 0)),
+    notificationError: row.notificationError == null ? null : String(row.notificationError),
+    createdAt: Number(row.createdAt || 0),
+    deliveredAt: row.deliveredAt == null ? null : Number(row.deliveredAt),
+    expiresAt: Number(row.expiresAt || 0)
+  };
 }
 
 export async function markProactiveMessagesDelivered(env: Env, params: {

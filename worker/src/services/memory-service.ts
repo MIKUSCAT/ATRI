@@ -315,6 +315,81 @@ export async function getActiveFacts(env: Env, userId: string, limit = 20): Prom
   }));
 }
 
+
+
+export async function getRelevantFacts(
+  env: Env,
+  userId: string,
+  currentText: string,
+  topRelevant = 8
+): Promise<FactMemoryRecord[]> {
+  const allFacts = await getActiveFacts(env, userId, 200);
+  if (!allFacts.length) return [];
+
+  const critical = allFacts.filter(f => (f.importance ?? 5) >= 9);
+  const criticalIds = new Set(critical.map(f => f.id));
+  const candidates = allFacts.filter(f => !criticalIds.has(f.id));
+  const trimmed = String(currentText || '').trim();
+
+  if (trimmed.length < 4) {
+    const byImportance = candidates
+      .sort((a, b) => (b.importance ?? 5) - (a.importance ?? 5))
+      .slice(0, topRelevant);
+    return [...critical, ...byImportance];
+  }
+
+  let vectorHits: Array<{ id: string; score: number }> = [];
+  try {
+    const hits = await searchMemoryVectors(env, userId, trimmed, {
+      topK: 30,
+      categories: ['fact'],
+      minScore: 0.55
+    });
+    vectorHits = hits.map(h => {
+      const id = String(h.id || '');
+      return { id: id.startsWith('fact:fact:') ? id.slice('fact:'.length) : id, score: h.score ?? 0 };
+    });
+  } catch (error) {
+    console.warn('[ATRI] fact_vector_search_failed', { userId, error });
+  }
+
+  const scoreMap = new Map(vectorHits.map(h => [h.id, h.score]));
+  const ranked = candidates
+    .map(f => ({ fact: f, score: scoreMap.get(f.id) ?? 0, importance: f.importance ?? 5 }))
+    .sort((a, b) => Math.abs(a.score - b.score) > 0.05 ? b.score - a.score : b.importance - a.importance)
+    .slice(0, topRelevant)
+    .map(r => r.fact);
+
+  return [...critical, ...ranked];
+}
+
+export function formatFactsAsInternalKnowledge(facts: Array<{ id: string; text: string; importance?: number }>): string {
+  if (!facts.length) return '';
+  const critical = facts.filter(f => (f.importance ?? 5) >= 9);
+  const normal = facts.filter(f => (f.importance ?? 5) < 9);
+  const lines: string[] = [];
+  if (critical.length) {
+    lines.push('<一定不能忘的事>');
+    for (const f of critical) lines.push(`- [${f.id}] ${f.text}`);
+    lines.push('</一定不能忘的事>');
+  }
+  if (normal.length) {
+    lines.push('<这次可能有关的事>');
+    for (const f of normal) lines.push(`- [${f.id}] ${f.text}`);
+    lines.push('</这次可能有关的事>');
+  }
+  return lines.join('\n');
+}
+
+export async function getArchivedFactIds(env: Env, userId: string): Promise<string[]> {
+  const safeUserId = String(userId || '').trim();
+  if (!safeUserId) return [];
+  const result = await env.ATRI_DB.prepare(
+    `SELECT id FROM fact_memories WHERE user_id = ? AND archived_at IS NOT NULL`
+  ).bind(safeUserId).all<{ id: string }>();
+  return (result.results || []).map(row => String(row?.id || '').trim()).filter(Boolean);
+}
+
 export async function markFactRecalled(env: Env, userId: string, factId: string) {
   const safeUserId = String(userId || '').trim();
   const id = String(factId || '').trim();
@@ -333,10 +408,11 @@ export async function searchMemoryVectors(
   env: Env,
   userId: string,
   queryText: string,
-  options: { topK?: number; categories?: string[] } = {}
+  options: { topK?: number; categories?: string[]; minScore?: number } = {}
 ) {
   const topK = clampInt(Number(options.topK ?? 8), 1, 50);
   const categories = new Set((options.categories || []).map(c => String(c || '').trim()).filter(Boolean));
+  const minScore = Number.isFinite(Number(options.minScore)) ? Number(options.minScore) : 0;
   const vector = await embedText(queryText, env);
   const queryKs = Array.from(new Set([
     Math.min(Math.max(topK * 30, 80), 500),
@@ -366,11 +442,13 @@ export async function searchMemoryVectors(
   const items: any[] = [];
   for (const m of matches) {
     if (m?.metadata?.u !== userId) continue;
-    const category = String(m?.metadata?.c || 'general').trim();
+    const score = Number(m.score || 0);
+    if (score < minScore) continue;
+    const category = String(m?.metadata?.c || m?.metadata?.cat || 'general').trim();
     if (categories.size && !categories.has(category)) continue;
     items.push({
-      id: String(m.id || ''),
-      score: Number(m.score || 0),
+      id: category === 'fact' ? String(m?.metadata?.key || m.id || '') : String(m.id || ''),
+      score,
       category,
       date: String(m?.metadata?.d || '').trim(),
       text: String(m?.metadata?.text || '').trim(),

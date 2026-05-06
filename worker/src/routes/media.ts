@@ -1,4 +1,4 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env, RouterRequest } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { buildPublicUrl, sanitizeFileName } from '../utils/file';
@@ -74,7 +74,7 @@ async function readStreamHead(stream: ReadableStream<Uint8Array>, maxBytes: numb
   return head;
 }
 
-export function registerMediaRoutes(router: Router) {
+export function registerMediaRoutes(router: RouterType) {
   router.post('/upload', async (request: RouterRequest, env: Env) => {
     try {
       const auth = requireAppToken(request, env);

@@ -1,4 +1,4 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import {

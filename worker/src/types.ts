@@ -10,8 +10,8 @@ export interface Env {
   AGENT_TEMPERATURE?: string;
   AGENT_MAX_TOKENS?: string;
   AGENT_TIMEOUT_MS?: string;
-  AGENT_THINKING_LEVEL?: string;
-  AGENT_THINKING_BUDGET_TOKENS?: string;
+  AUTO_RECALL_ENABLED?: string;
+  AUTO_RECALL_MIN_SCORE?: string;
   DIARY_TEMPERATURE?: string;
   DIARY_MAX_TOKENS?: string;
   PROFILE_TEMPERATURE?: string;
@@ -47,7 +47,7 @@ export interface Env {
   PROACTIVE_NOTIFICATION_TARGET?: string;
 }
 
-export const CHAT_MODEL = 'gpt-4o-mini';
+export const CHAT_MODEL = 'claude-opus-4-6';
 export const ATTACHMENT_TYPES = ['image', 'document'] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 
@@ -72,7 +72,6 @@ export interface BioChatRequest {
   content: string;
   logId?: string;
   attachments?: AttachmentPayload[];
-  modelKey?: string;
   timeZone?: string;
 }
 

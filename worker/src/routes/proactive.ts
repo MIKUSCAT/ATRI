@@ -1,10 +1,10 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { requireAppToken } from '../utils/auth';
 import { fetchPendingProactiveMessages, markProactiveMessagesDelivered } from '../services/data-service';
 
-export function registerProactiveRoutes(router: Router) {
+export function registerProactiveRoutes(router: RouterType) {
   router.get('/proactive/pending', async (request, env: Env) => {
     const auth = requireAppToken(request, env);
     if (auth) return auth;

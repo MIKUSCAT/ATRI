@@ -1,4 +1,4 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { sanitizeText } from '../utils/sanitize';
@@ -18,13 +18,13 @@ import { deleteDiaryVectors } from '../services/memory-service';
 
 const VALID_ROLES = new Set(['user', 'atri']);
 
-export function registerConversationRoutes(router: Router) {
+export function registerConversationRoutes(router: RouterType) {
   router.post('/conversation/log', async (request: Request, env: Env) => {
     try {
       const auth = requireAppToken(request, env);
       if (auth) return auth;
 
-      const body = await request.json();
+      const body = await request.json() as any;
       const userId = String(body.userId || '').trim();
       const role = String(body.role || '').trim();
       const logId = typeof body.logId === 'string' ? body.logId.trim() : undefined;
@@ -76,7 +76,7 @@ export function registerConversationRoutes(router: Router) {
       const auth = requireAppToken(request, env);
       if (auth) return auth;
 
-      const body = await request.json();
+      const body = await request.json() as any;
       const userId = String(body.userId || '').trim();
       const ids = Array.isArray(body.ids)
         ? body.ids.map((item: any) => String(item || '').trim()).filter(Boolean)
@@ -167,7 +167,7 @@ export function registerConversationRoutes(router: Router) {
       const auth = requireAppToken(request, env);
       if (auth) return auth;
 
-      const body = await request.json().catch(() => ({} as any));
+      const body = await request.json().catch(() => ({} as any)) as any;
       const userId = String(body?.userId || '').trim();
       const date = String(body?.date || '').trim();
 

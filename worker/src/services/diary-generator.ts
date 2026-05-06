@@ -3,6 +3,7 @@ import { sanitizeText } from '../utils/sanitize';
 import { ChatCompletionError } from './openai-service';
 import { callUpstreamChat } from './llm-service';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
+import { buildSystemPromptFor } from '../utils/prompt-builder';
 
 export type DiaryFactCandidate = {
   content: string;
@@ -98,7 +99,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
       apiKey,
       model,
       messages: [
-        { role: 'system', content: buildDiarySystemPrompt(String(diaryPrompts.system || '')) },
+        { role: 'system', content: buildSystemPromptFor('diary', settings) },
         { role: 'user', content: userPrompt }
       ],
       temperature: settings.diaryTemperature,
@@ -131,31 +132,6 @@ export async function generateDiaryFromConversation(env: Env, params: {
     if (error instanceof ChatCompletionError) throw error;
     throw new Error('diary_generation_failed');
   }
-}
-
-function buildDiarySystemPrompt(base: string) {
-  return [
-    base.trim(),
-    '',
-    '<记忆巩固输出要求>',
-    '你不是只写日记，还要像人在睡前回味一样，把今天的经历整理成不同记忆。',
-    '严格输出 JSON，不要 Markdown，不要解释。字段：',
-    '{',
-    '  "diary": "第一人称日记正文",',
-    '  "mood": "今天整体心情",',
-    '  "highlights": ["方便检索的日记重点，最多10条"],',
-    '  "episodicMemories": [{"title":"场景标题","content":"以后可能自然想起的具体经历","emotion":"当时我的感觉","tags":["标签"],"importance":1-10,"confidence":0-1,"emotionalWeight":1-10}],',
-    '  "factCandidates": [{"content":"长期稳定事实，必须少而精","type":"profile/preference/taboo/promise/relationship/habit/important/other","importance":1-10,"confidence":0-1}],',
-    '  "innerThoughts": [{"content":"我心里挂着、以后找机会自然说的话","triggerHint":"什么时候适合说","urgency":1-10,"emotionalWeight":1-10,"expiresInDays":1-30}]',
-    '}',
-    '',
-    '硬规则：',
-    '1. factCandidates 只写长期稳定信息：喜好、雷区、约定、关系期待、重要身份信息。不要写今天聊了什么、临时情绪、流水账。',
-    '2. episodicMemories 写“我们经历过的场景”，像人脑海马体会保存的片段。最多8条。',
-    '3. innerThoughts 写“未说出口但心里还挂着的话”，最多5条，不要写任务清单。',
-    '4. 记忆要有人味：体现我自己的感受、在意、犹豫、想靠近，但不要客服腔。',
-    '</记忆巩固输出要求>'
-  ].filter(Boolean).join('\n');
 }
 
 function resolveDiaryModel(settings: { diaryModel?: string; defaultChatModel?: string }, modelKey?: string | null) {

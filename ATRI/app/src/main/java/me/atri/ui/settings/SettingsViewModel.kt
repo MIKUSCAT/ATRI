@@ -9,39 +9,24 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.atri.data.UserDataManager
 import me.atri.data.api.AtriApiService
-import me.atri.data.api.response.ModelInfoResponse
 import me.atri.data.datastore.PreferencesStore
 import me.atri.data.repository.ChatRepository
 
 data class SettingsUiState(
     val apiUrl: String = "",
     val userName: String = "",
-    val modelName: String = "",
     val userId: String = "",
     val appToken: String = "",
-    val backendType: String = "worker",
-    val serverCurrentModel: String = "",
-    val serverModelLoading: Boolean = false,
     val isLoading: Boolean = false,
     val isClearing: Boolean = false,
     val isSyncing: Boolean = false,
-    val statusMessage: String? = null,
-    val availableModels: List<ModelOption> = emptyList(),
-    val modelsLoading: Boolean = false,
-    val showModelSavedDialog: Boolean = false
-) {
-    data class ModelOption(
-        val id: String,
-        val label: String,
-        val provider: String? = null,
-        val note: String? = null
-    )
-}
+    val statusMessage: String? = null
+)
 
 class SettingsViewModel(
     private val preferencesStore: PreferencesStore,
     private val userDataManager: UserDataManager,
-    private val apiService: AtriApiService,
+    @Suppress("UNUSED_PARAMETER") apiService: AtriApiService,
     private val chatRepository: ChatRepository
 ) : ViewModel() {
 
@@ -50,7 +35,6 @@ class SettingsViewModel(
 
     init {
         loadSettings()
-        refreshModelCatalog()
     }
 
     private fun loadSettings() {
@@ -70,18 +54,8 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
-            preferencesStore.modelName.collect { model ->
-                _uiState.update { it.copy(modelName = model) }
-            }
-        }
-        viewModelScope.launch {
             preferencesStore.appToken.collect { token ->
                 _uiState.update { it.copy(appToken = token) }
-            }
-        }
-        viewModelScope.launch {
-            preferencesStore.backendType.collect { type ->
-                _uiState.update { it.copy(backendType = type) }
             }
         }
     }
@@ -101,80 +75,10 @@ class SettingsViewModel(
         }
     }
 
-    fun updateModelName(model: String) {
-        viewModelScope.launch {
-            preferencesStore.setModelName(model)
-            _uiState.update { it.copy(showModelSavedDialog = true) }
-        }
-    }
-
     fun updateAppToken(token: String) {
         viewModelScope.launch {
             preferencesStore.setAppToken(token.trim())
             _uiState.update { it.copy(statusMessage = "已保存鉴权 Token") }
-        }
-    }
-
-    fun updateBackendType(type: String) {
-        viewModelScope.launch {
-            preferencesStore.setBackendType(type)
-            _uiState.update { it.copy(backendType = type) }
-            if (type == "vps") {
-                fetchServerCurrentModel()
-            }
-        }
-    }
-
-    fun fetchServerCurrentModel() {
-        if (_uiState.value.serverModelLoading) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(serverModelLoading = true) }
-            runCatching {
-                val response = apiService.fetchCurrentModel()
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("请求失败：${response.code()}")
-                }
-                response.body()?.model ?: "未知"
-            }.onSuccess { model ->
-                _uiState.update {
-                    it.copy(serverCurrentModel = model, serverModelLoading = false)
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        serverModelLoading = false,
-                        statusMessage = "获取服务器模型失败：${error.message ?: "未知错误"}"
-                    )
-                }
-            }
-        }
-    }
-
-    fun refreshModelCatalog() {
-        if (_uiState.value.modelsLoading) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(modelsLoading = true) }
-            runCatching {
-                val response = apiService.fetchModelList()
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("模型列表请求失败：${response.code()}")
-                }
-                response.body()?.models.orEmpty()
-            }.onSuccess { models ->
-                _uiState.update {
-                    it.copy(
-                        availableModels = models.map { model -> model.toOption() },
-                        modelsLoading = false
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(
-                        modelsLoading = false,
-                        statusMessage = "获取模型列表失败：${error.message ?: "未知错误"}"
-                    )
-                }
-            }
         }
     }
 
@@ -188,10 +92,6 @@ class SettingsViewModel(
             preferencesStore.setUserId(trimmed)
             _uiState.update { it.copy(userId = trimmed, statusMessage = "已导入 UID") }
         }
-    }
-
-    fun dismissModelSavedDialog() {
-        _uiState.update { it.copy(showModelSavedDialog = false) }
     }
 
     fun clearMemories() {
@@ -250,12 +150,4 @@ class SettingsViewModel(
             }
         }
     }
-
 }
-
-private fun ModelInfoResponse.toOption() = SettingsUiState.ModelOption(
-    id = id,
-    label = label,
-    provider = provider,
-    note = note
-)

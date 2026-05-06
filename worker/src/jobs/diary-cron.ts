@@ -12,6 +12,8 @@ import { generateDiaryFromConversation } from '../services/diary-generator';
 import { upsertDiaryHighlightsMemory } from '../services/memory-service';
 import { persistDiaryDerivedMemories } from '../services/memory-maintenance-service';
 import { consolidateFactsForUser } from '../services/fact-consolidation';
+import { runNightlyMindForUser } from '../services/nightly-mind-service';
+import { syncFactVectorsNightly } from '../services/fact-vectorize-service';
 
 export async function runDiaryCron(env: Env, targetDate?: string) {
   const date = targetDate || formatDateInZone(Date.now(), DEFAULT_TIMEZONE);
@@ -73,6 +75,24 @@ export async function runDiaryCron(env: Env, targetDate?: string) {
         });
       } catch (err) {
         console.warn('[ATRI] Fact consolidation skipped', { userId: user.userId, date, err });
+      }
+
+      try {
+        await runNightlyMindForUser(env, {
+          userId: user.userId,
+          userName: user.userName || '这个人',
+          date,
+          diaryContent: diary.content,
+          transcript
+        });
+      } catch (err) {
+        console.warn('[ATRI] Nightly mind skipped', { userId: user.userId, date, err });
+      }
+
+      try {
+        await syncFactVectorsNightly(env, user.userId);
+      } catch (err) {
+        console.warn('[ATRI] Fact vector sync skipped', { userId: user.userId, date, err });
       }
 
       console.log('[ATRI] Diary auto generated for', user.userId, date);

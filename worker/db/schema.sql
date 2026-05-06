@@ -200,3 +200,67 @@ CREATE TABLE IF NOT EXISTS admin_prompts_override (
   prompts_json TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- 仿生认知重构：聊天回合记录
+CREATE TABLE IF NOT EXISTS chat_turns (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_log_id TEXT,
+  reply_log_id TEXT,
+  status TEXT NOT NULL,
+  route TEXT,
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_turns_user_started
+  ON chat_turns(user_id, started_at DESC);
+
+-- 白天留下的记忆候选，晚上再巩固/归档
+CREATE TABLE IF NOT EXISTS memory_candidates (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  source_log_id TEXT,
+  type TEXT NOT NULL,
+  content TEXT NOT NULL,
+  importance INTEGER NOT NULL DEFAULT 5,
+  confidence REAL NOT NULL DEFAULT 0.7,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  processed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_candidates_user_status_created
+  ON memory_candidates(user_id, status, created_at DESC);
+
+-- ATRI 自己的长期人格/关系姿态模型
+CREATE TABLE IF NOT EXISTS atri_self_model (
+  user_id TEXT PRIMARY KEY,
+  model_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- 夜间整理运行记录
+CREATE TABLE IF NOT EXISTS nightly_runs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  status TEXT NOT NULL,
+  details TEXT,
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_nightly_runs_user_date
+  ON nightly_runs(user_id, date, stage);
+
+CREATE TABLE IF NOT EXISTS fact_vector_state (
+  user_id TEXT NOT NULL,
+  fact_id TEXT NOT NULL,
+  vectorized_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, fact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fact_vector_state_user ON fact_vector_state(user_id);

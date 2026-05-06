@@ -169,9 +169,36 @@ class ChatViewModel(
     private fun observeMessages() {
         viewModelScope.launch {
             chatRepository.observeMessages().collect { messages ->
-                updateState { it.copy(historyMessages = messages) }
+                updateState { current ->
+                    val restoredStatus = restoreLatestStatus(messages)
+                    current.copy(
+                        historyMessages = messages,
+                        currentStatus = if (!current.isLoading && restoredStatus != null) {
+                            restoredStatus
+                        } else {
+                            current.currentStatus
+                        }
+                    )
+                }
             }
         }
+    }
+
+    private fun restoreLatestStatus(messages: List<MessageEntity>): AtriStatus? {
+        val mood = messages.asReversed()
+            .firstOrNull { it.isFromAtri && !it.mood.isNullOrBlank() }
+            ?.mood
+            ?: return null
+
+        val label = extractJsonString(mood, "label")?.takeIf { it.isNotBlank() } ?: return null
+        val pillColor = extractJsonString(mood, "pillColor")?.takeIf { it.isNotBlank() } ?: "#E3F2FD"
+        val textColor = extractJsonString(mood, "textColor")?.takeIf { it.isNotBlank() } ?: "#FFFFFF"
+        return AtriStatus.LiveStatus(label = label, pillColor = pillColor, textColor = textColor)
+    }
+
+    private fun extractJsonString(json: String, key: String): String? {
+        val pattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"([^\"]*)\"")
+        return pattern.find(json)?.groupValues?.getOrNull(1)
     }
 
     fun sendMessage(content: String, attachments: List<PendingAttachment> = emptyList()) {
@@ -196,18 +223,6 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val serverTimestamp = chatResult.replyTimestamp
-                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
-                    val adjustedTimestamp = latestUser?.let { maxOf(timestamp, it + 1) } ?: timestamp
-
-                    val atriMessage = MessageEntity(
-                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
-                        content = chatResult.reply,
-                        isFromAtri = true,
-                        timestamp = adjustedTimestamp
-                    )
-                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                     statusRepository.incrementIntimacy(1)
                     updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
 
@@ -323,21 +338,12 @@ class ChatViewModel(
                 val result = chatRepository.regenerateResponse(
                     userMessageId = userMessage.id,
                     userContent = userMessage.content,
-                    userAttachments = userMessage.attachments
+                    userAttachments = userMessage.attachments,
+                    forceRegenerate = target.isFromAtri
                 )
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val serverTimestamp = chatResult.replyTimestamp
-                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    val adjustedTimestamp = maxOf(timestamp, userMessage.timestamp + 1)
-                    val atriMessage = MessageEntity(
-                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
-                        content = chatResult.reply,
-                        isFromAtri = true,
-                        timestamp = adjustedTimestamp
-                    )
-                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                     statusRepository.incrementIntimacy(1)
                     updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
                 } else {
@@ -384,20 +390,12 @@ class ChatViewModel(
                         val result = chatRepository.regenerateResponse(
                             userMessageId = editedMessage.id,
                             userContent = editedMessage.content,
-                            userAttachments = editedMessage.attachments
+                            userAttachments = editedMessage.attachments,
+                            forceRegenerate = true
                         )
 
                         if (result.isSuccess) {
                             val chatResult = result.getOrThrow()
-                            val serverTimestamp = chatResult.replyTimestamp
-                            val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                            val atriMessage = MessageEntity(
-                                id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
-                                content = chatResult.reply,
-                                isFromAtri = true,
-                                timestamp = timestamp
-                            )
-                            chatRepository.persistAtriMessage(atriMessage, chatResult.status)
                             statusRepository.incrementIntimacy(1)
                             updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
                         } else {

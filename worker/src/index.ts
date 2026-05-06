@@ -39,7 +39,7 @@ router.options('*', () => {
 router.all('*', () => new Response('Not Found', { status: 404 }));
 
 export default {
-  fetch: router.fetch,
+  fetch: (req: Request, env: Env, ctx: ExecutionContext) => router.fetch(req, env, ctx),
   scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     const cron = String(event.cron || '').trim();
 

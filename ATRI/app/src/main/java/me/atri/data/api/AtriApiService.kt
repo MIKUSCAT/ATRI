@@ -5,12 +5,10 @@ import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
 import me.atri.data.api.request.InvalidateMemoryRequest
 import me.atri.data.api.request.DiaryRegenerateRequest
-import me.atri.data.api.response.CurrentModelResponse
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
 import me.atri.data.api.response.BioChatResponse
-import me.atri.data.api.response.ModelListResponse
 import me.atri.data.api.response.PullConversationResponse
 import me.atri.data.api.response.UploadResponse
 import okhttp3.RequestBody
@@ -69,12 +67,6 @@ interface AtriApiService {
     suspend fun regenerateDiary(
         @Body request: DiaryRegenerateRequest
     ): Response<DiaryEntryResponse>
-
-    @GET("/models")
-    suspend fun fetchModelList(): Response<ModelListResponse>
-
-    @GET("/current-model")
-    suspend fun fetchCurrentModel(): Response<CurrentModelResponse>
 
     @GET("/conversation/pull")
     suspend fun pullConversation(

@@ -13,8 +13,9 @@ type RuntimeConfigPublic = {
 
   agentTemperature?: number;
   agentMaxTokens?: number;
-  agentThinkingLevel?: string;
-  agentThinkingBudgetTokens?: number;
+  agentTimeoutMs?: number;
+  autoRecallEnabled?: boolean | string | number;
+  autoRecallMinScore?: number;
   diaryTemperature?: number;
   diaryMaxTokens?: number;
   profileTemperature?: number;
@@ -57,8 +58,8 @@ export type EffectiveRuntimeSettings = {
   agentTemperature: number;
   agentMaxTokens: number;
   agentTimeoutMs: number;
-  agentThinkingLevel: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-  agentThinkingBudgetTokens?: number;
+  autoRecallEnabled: boolean;
+  autoRecallMinScore: number;
   diaryTemperature: number;
   diaryMaxTokens: number;
   profileTemperature: number;
@@ -116,11 +117,12 @@ const TEXT_DECODER = new TextDecoder();
 const DEFAULTS = {
   agentTemperature: 1.0,
   agentMaxTokens: 4096,
-  agentTimeoutMs: 300000,
-  agentThinkingLevel: 'off' as const,
-  diaryTemperature: 0.7,
+  agentTimeoutMs: 85000,
+  autoRecallEnabled: true,
+  autoRecallMinScore: 0.62,
+  diaryTemperature: 1.0,
   diaryMaxTokens: 4096,
-  profileTemperature: 0.2,
+  profileTemperature: 1.0,
   proactiveEnabled: false,
   proactiveIntervalMinutes: 60,
   proactiveTimeZone: 'Asia/Shanghai',
@@ -144,8 +146,9 @@ const RUNTIME_CONFIG_KEYS: Array<keyof RuntimeConfigPublic> = [
   'defaultChatModel',
   'agentTemperature',
   'agentMaxTokens',
-  'agentThinkingLevel',
-  'agentThinkingBudgetTokens',
+  'autoRecallEnabled',
+  'autoRecallMinScore',
+  'agentTimeoutMs',
   'diaryTemperature',
   'diaryMaxTokens',
   'profileTemperature',
@@ -210,20 +213,8 @@ function normalizeProactiveChannel(value: unknown): 'none' | 'email' | 'wechat_w
   return undefined;
 }
 
-function normalizeThinkingLevel(value: unknown): 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
-  const text = String(value ?? '').trim().toLowerCase();
-  if (!text) return undefined;
-  if (['off', 'none', 'disabled', 'disable', 'false', '0'].includes(text)) return 'off';
-  if (['minimal', 'min'].includes(text)) return 'low';
-  if (text === 'low') return 'low';
-  if (text === 'medium') return 'medium';
-  if (text === 'high') return 'high';
-  if (text === 'xhigh') return 'xhigh';
-  if (['max', 'maximum'].includes(text)) return 'max';
-  return undefined;
-}
 
-function normalizeTimeZone(value: unknown, fallback: string): string {
+function normalizeTimeZone(value: unknown, fallback: string) {
   const text = String(value ?? '').trim();
   if (!text) return fallback;
   try {
@@ -328,12 +319,12 @@ async function deriveAes256Key(secret: string): Promise<Uint8Array | null> {
     // ignore
   }
 
-  const digest = await crypto.subtle.digest('SHA-256', TEXT_ENCODER.encode(raw));
+  const digest = await crypto.subtle.digest('SHA-256', TEXT_ENCODER.encode(raw) as unknown as BufferSource);
   return new Uint8Array(digest);
 }
 
 async function importAesGcmKey(key: Uint8Array) {
-  return crypto.subtle.importKey('raw', key, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.importKey('raw', key as unknown as BufferSource, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
 async function encryptJson(key: Uint8Array, payload: unknown) {
@@ -472,11 +463,21 @@ async function loadStoredPromptsOverride(env: Env) {
   };
 }
 
+const PROMPT_GROUPS = [
+  'core_self',
+  'agent',
+  'proactive',
+  'diary',
+  'nightly_memory',
+  'nightly_state',
+  'self_model_update'
+] as const;
+
 function mergePrompts(base: any, override: any | null) {
   if (!override || typeof override !== 'object') return base;
   const merged = JSON.parse(JSON.stringify(base));
 
-  for (const key of ['agent', 'diary', 'profile', 'proactive']) {
+  for (const key of PROMPT_GROUPS) {
     const src = (override as any)[key];
     if (!src || typeof src !== 'object') continue;
 
@@ -567,17 +568,17 @@ function resolveEffectiveSettings(
     )
   );
 
-  const agentThinkingLevel =
-    normalizeThinkingLevel(env.AGENT_THINKING_LEVEL)
-    ?? normalizeThinkingLevel(c.agentThinkingLevel)
-    ?? DEFAULTS.agentThinkingLevel;
-  const rawAgentThinkingBudgetTokens =
-    normalizeOptionalNumber(env.AGENT_THINKING_BUDGET_TOKENS)
-    ?? normalizeOptionalNumber(c.agentThinkingBudgetTokens);
-  const agentThinkingBudgetTokens =
-    rawAgentThinkingBudgetTokens == null
-      ? undefined
-      : Math.trunc(clampNumber(rawAgentThinkingBudgetTokens, 1024, 64000));
+  const autoRecallEnabled =
+    normalizeOptionalBoolean(env.AUTO_RECALL_ENABLED)
+    ?? normalizeOptionalBoolean(c.autoRecallEnabled)
+    ?? DEFAULTS.autoRecallEnabled;
+  const autoRecallMinScore = clampNumber(
+    normalizeOptionalNumber(env.AUTO_RECALL_MIN_SCORE)
+    ?? normalizeOptionalNumber(c.autoRecallMinScore)
+    ?? DEFAULTS.autoRecallMinScore,
+    0,
+    1
+  );
 
   const agentTimeoutMs = Math.trunc(
     clampNumber(
@@ -585,7 +586,7 @@ function resolveEffectiveSettings(
       ?? normalizeOptionalNumber((c as any).agentTimeoutMs)
       ?? DEFAULTS.agentTimeoutMs,
       10000,
-      600000
+      90000
     )
   );
 
@@ -712,8 +713,8 @@ function resolveEffectiveSettings(
     agentTemperature,
     agentMaxTokens,
     agentTimeoutMs,
-    agentThinkingLevel,
-    agentThinkingBudgetTokens,
+    autoRecallEnabled,
+    autoRecallMinScore,
     diaryTemperature,
     diaryMaxTokens,
     profileTemperature,
@@ -955,11 +956,13 @@ export async function resetRuntimeConfig(env: Env) {
 
 function normalizePromptsForSave(input: any) {
   const required = [
+    ['core_self', 'system'],
     ['agent', 'system'],
     ['diary', 'system'],
     ['diary', 'userTemplate'],
-    ['profile', 'system'],
-    ['profile', 'userTemplate']
+    ['nightly_memory', 'system'],
+    ['nightly_state', 'system'],
+    ['self_model_update', 'system']
   ] as const;
 
   const out: any = {};

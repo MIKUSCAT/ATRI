@@ -70,7 +70,6 @@ class ChatRepository(
 
     private val zoneId: ZoneId = ZoneId.systemDefault()
     private val isoFormatter: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
-
     suspend fun sendMessage(
         content: String,
         attachments: List<PendingAttachment>,
@@ -112,6 +111,7 @@ class ChatRepository(
             )
 
             val chatResult = executeChatRequest(request)
+            persistChatResult(chatResult, userMessage.timestamp + 1)
             Result.success(chatResult)
         } catch (e: CancellationException) {
             throw e
@@ -123,18 +123,22 @@ class ChatRepository(
     suspend fun regenerateResponse(
         userMessageId: String,
         userContent: String,
-        userAttachments: List<Attachment>
+        userAttachments: List<Attachment>,
+        forceRegenerate: Boolean = false
     ): Result<ChatResult> = withContext(Dispatchers.IO) {
         try {
             val userId = preferencesStore.ensureUserId()
+            val sourceMessage = messageDao.getMessageById(userMessageId)
             val request = buildChatRequest(
                 userId = userId,
                 logId = userMessageId,
                 content = userContent,
-                attachments = userAttachments
+                attachments = userAttachments,
+                forceRegenerate = forceRegenerate
             )
 
             val chatResult = executeChatRequest(request)
+            persistChatResult(chatResult, (sourceMessage?.timestamp ?: System.currentTimeMillis()) + 1)
             Result.success(chatResult)
         } catch (e: CancellationException) {
             throw e
@@ -145,14 +149,7 @@ class ChatRepository(
 
     suspend fun persistAtriMessage(finalMessage: MessageEntity, status: BioChatResponse.Status? = null) = withContext(Dispatchers.IO) {
         val cleanedContent = cleanTimestampPrefix(finalMessage.content)
-        val statusJson = if (status != null) {
-            val label = status.label?.replace("\"", "") ?: ""
-            val pillColor = status.pillColor?.replace("\"", "") ?: ""
-            val textColor = status.textColor?.replace("\"", "") ?: ""
-            """{"label":"$label","pillColor":"$pillColor","textColor":"$textColor"}"""
-        } else {
-            null
-        }
+        val statusJson = statusToJson(status)
         val sanitized = finalMessage.copy(
             content = cleanedContent,
             attachments = finalMessage.attachments,
@@ -361,16 +358,11 @@ class ChatRepository(
         userId: String? = null,
         logId: String? = null,
         content: String,
-        attachments: List<Attachment>
+        attachments: List<Attachment>,
+        forceRegenerate: Boolean = false
     ): ChatRequest {
         val ensuredUserId = userId ?: preferencesStore.ensureUserId()
         val userName = preferencesStore.userName.first()
-        val backendType = preferencesStore.backendType.first()
-        val preferredModel = if (backendType == "vps") {
-            null
-        } else {
-            preferencesStore.modelName.first().takeIf { it.isNotBlank() }
-        }
         val requestContent = content
         val imageUrl = attachments.firstOrNull { it.type == AttachmentType.IMAGE }?.url?.takeIf { it.isNotBlank() }
 
@@ -382,7 +374,7 @@ class ChatRepository(
             attachments = emptyList(),
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
-            modelKey = preferredModel
+            forceRegenerate = forceRegenerate
         )
     }
 
@@ -403,6 +395,50 @@ class ChatRepository(
             replyLogId = body?.replyLogId?.takeIf { it.isNotBlank() },
             replyTimestamp = body?.replyTimestamp?.takeIf { it > 0 }
         )
+    }
+
+    private suspend fun persistChatResult(result: ChatResult, fallbackTimestamp: Long) {
+        val statusJson = statusToJson(result.status)
+        val finalMessage = MessageEntity(
+            id = result.replyLogId?.takeIf { it.isNotBlank() } ?: java.util.UUID.randomUUID().toString(),
+            content = cleanTimestampPrefix(result.reply),
+            isFromAtri = true,
+            timestamp = result.replyTimestamp?.takeIf { it > 0 } ?: fallbackTimestamp,
+            mood = statusJson
+        )
+
+        val existing = messageDao.getMessageById(finalMessage.id)
+        if (existing == null) {
+            messageDao.insert(finalMessage)
+        } else {
+            saveMessageVersion(
+                message = existing,
+                newContent = finalMessage.content,
+                newAttachments = finalMessage.attachments,
+                mood = statusJson
+            )
+        }
+        markConversationTouched(finalMessage.timestamp)
+
+        val userId = preferencesStore.ensureUserId()
+        logConversationSafely(
+            logId = finalMessage.id,
+            userId = userId,
+            userName = null,
+            role = "atri",
+            content = finalMessage.content,
+            timestamp = finalMessage.timestamp,
+            attachments = finalMessage.attachments,
+            mood = finalMessage.mood
+        )
+    }
+
+    private fun statusToJson(status: BioChatResponse.Status?): String? {
+        if (status == null) return null
+        val label = status.label?.replace("\"", "") ?: ""
+        val pillColor = status.pillColor?.replace("\"", "") ?: ""
+        val textColor = status.textColor?.replace("\"", "") ?: ""
+        return """{"label":"$label","pillColor":"$pillColor","textColor":"$textColor"}"""
     }
 
     private fun currentClientTimeIso(): String =
@@ -776,7 +812,3 @@ data class SyncResult(
     val insertedCount: Int,
     val deletedCount: Int
 )
-
-
-
-

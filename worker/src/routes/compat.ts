@@ -1,4 +1,4 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import { sanitizeText } from '../utils/sanitize';
@@ -152,12 +152,12 @@ async function logCompatConversation(env: Env, params: {
   return { userLogId, replyLogId, replyTo: userLogId, replyTimestamp: ts + 1 };
 }
 
-export function registerCompatRoutes(router: Router) {
+export function registerCompatRoutes(router: RouterType) {
   router.post('/v1/chat/completions', async (request, env: Env) => {
     const guard = requireCompatKey(extractBearerToken(request), env);
-    if (!guard.ok) return jsonResponse(guard.body, guard.status);
+    if (guard.ok === false) return jsonResponse(guard.body, guard.status);
 
-    const body = await request.json().catch(() => ({} as any));
+    const body = await request.json().catch(() => ({} as any)) as any;
     if (body?.stream === true) {
       return jsonResponse({ error: { message: 'stream=true is not supported on this backend' } }, 400);
     }
@@ -208,9 +208,9 @@ export function registerCompatRoutes(router: Router) {
   router.post('/v1/messages', async (request, env: Env) => {
     const provided = pickHeader(request, 'x-api-key') || extractBearerToken(request);
     const guard = requireCompatKey(provided, env);
-    if (!guard.ok) return jsonResponse(guard.body, guard.status);
+    if (guard.ok === false) return jsonResponse(guard.body, guard.status);
 
-    const body = await request.json().catch(() => ({} as any));
+    const body = await request.json().catch(() => ({} as any)) as any;
     if (body?.stream === true) {
       return jsonResponse({ error: { message: 'stream=true is not supported on this backend' } }, 400);
     }
@@ -270,9 +270,9 @@ export function registerCompatRoutes(router: Router) {
     const keyFromQuery = String(url.searchParams.get('key') || '').trim();
     const keyFromHeader = pickHeader(request, 'x-goog-api-key');
     const guard = requireCompatKey(keyFromQuery || keyFromHeader, env);
-    if (!guard.ok) return jsonResponse(guard.body, guard.status);
+    if (guard.ok === false) return jsonResponse(guard.body, guard.status);
 
-    const body = await request.json().catch(() => ({} as any));
+    const body = await request.json().catch(() => ({} as any)) as any;
     const contents = Array.isArray(body?.contents) ? body.contents : [];
     const messageText = sanitizeText(extractLastUserTextFromGeminiContents(contents)).trim();
     if (!messageText) {
