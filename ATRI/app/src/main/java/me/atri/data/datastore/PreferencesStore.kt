@@ -17,7 +17,6 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
         private val USER_ID = stringPreferencesKey("user_id")
         private val USER_NAME = stringPreferencesKey("user_name")
         private val USER_BIRTHDAY = stringPreferencesKey("user_birthday")
-        private val INTIMACY_POINTS = intPreferencesKey("intimacy_points")
         private val IS_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
         private val API_URL = stringPreferencesKey("api_url")
         private val API_KEY = stringPreferencesKey("api_key")
@@ -30,7 +29,6 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
     val userId: Flow<String> = dataStore.data.map { it[USER_ID] ?: "" }
     val userName: Flow<String> = dataStore.data.map { it[USER_NAME] ?: "" }
     val userBirthday: Flow<String> = dataStore.data.map { it[USER_BIRTHDAY] ?: "" }
-    val intimacyPoints: Flow<Int> = dataStore.data.map { it[INTIMACY_POINTS] ?: 0 }
     val isFirstLaunch: Flow<Boolean> = dataStore.data.map { it[IS_FIRST_LAUNCH] ?: true }
     val apiUrl: Flow<String> = dataStore.data.map { it[API_URL] ?: "https://mikuscat.de5.net" }
     val apiKey: Flow<String> = dataStore.data.map { it[API_KEY] ?: "" }
@@ -65,7 +63,6 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setUserName(name: String) { dataStore.edit { it[USER_NAME] = name } }
     suspend fun setUserBirthday(birthday: String) { dataStore.edit { it[USER_BIRTHDAY] = birthday } }
-    suspend fun setIntimacyPoints(points: Int) { dataStore.edit { it[INTIMACY_POINTS] = points } }
     suspend fun setFirstLaunch(isFirst: Boolean) { dataStore.edit { it[IS_FIRST_LAUNCH] = isFirst } }
     suspend fun setApiUrl(url: String) {
         dataStore.edit { it[API_URL] = url }
@@ -82,19 +79,8 @@ class PreferencesStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[APP_TOKEN] = token }
     }
 
-    suspend fun incrementIntimacy(delta: Int) {
-        dataStore.edit {
-            val current = it[INTIMACY_POINTS] ?: 0
-            it[INTIMACY_POINTS] = current + delta
-        }
-    }
-
     suspend fun setAtriAvatarPath(path: String) {
         dataStore.edit { it[ATRI_AVATAR_PATH] = path }
-    }
-
-    suspend fun clearAtriAvatar() {
-        dataStore.edit { it.remove(ATRI_AVATAR_PATH) }
     }
 
     suspend fun setLastConversationDate(date: String) {

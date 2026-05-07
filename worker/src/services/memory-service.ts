@@ -43,66 +43,6 @@ export async function embedText(text: string, env: Env): Promise<number[]> {
   return embedding as number[];
 }
 
-export async function searchMemories(
-  env: Env,
-  userId: string,
-  queryText: string,
-  topK = 5
-) {
-  const vector = await embedText(queryText, env);
-  const queryKs = Array.from(
-    new Set<number>([
-      Math.min(Math.max(200, topK * 50), 500),
-      Math.min(Math.max(100, topK * 10), 200),
-      50
-    ])
-  );
-
-  let result: any;
-  let lastError: unknown;
-  for (const k of queryKs) {
-    try {
-      result = await (env as any).VECTORIZE.query(vector, { topK: k, returnMetadata: 'all' });
-      break;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (!result) {
-    throw lastError || new Error('VECTORIZE.query failed');
-  }
-  const matches = Array.isArray(result?.matches) ? result.matches : [];
-
-  const items: any[] = [];
-
-  for (const m of matches) {
-    if (m?.metadata?.u !== userId) continue;
-
-    const category = m?.metadata?.c || 'general';
-    const date = String(m?.metadata?.d || '').trim();
-    const mood = String(m?.metadata?.m || '').trim();
-    const matchedHighlight = String(m?.metadata?.text || '').trim();
-
-    // 只保留 highlight 记忆（不再按日期去重，避免漏掉同一天的关键片段）
-    if (category === 'highlight' && date) {
-      items.push({
-        id: m.id,
-        score: m.score,
-        category,
-        date,
-        matchedHighlight,
-        mood,
-        importance: m?.metadata?.imp ?? 6,
-        timestamp: m?.metadata?.ts ?? 0
-      });
-      if (items.length >= topK) break;
-      continue;
-    }
-  }
-
-  return items;
-}
-
 export async function upsertDiaryHighlightsMemory(
   env: Env,
   params: {
@@ -388,20 +328,6 @@ export async function getArchivedFactIds(env: Env, userId: string): Promise<stri
     `SELECT id FROM fact_memories WHERE user_id = ? AND archived_at IS NOT NULL`
   ).bind(safeUserId).all<{ id: string }>();
   return (result.results || []).map(row => String(row?.id || '').trim()).filter(Boolean);
-}
-
-export async function markFactRecalled(env: Env, userId: string, factId: string) {
-  const safeUserId = String(userId || '').trim();
-  const id = String(factId || '').trim();
-  if (!safeUserId || !id) return;
-  const now = Date.now();
-  await env.ATRI_DB.prepare(
-    `UPDATE fact_memories
-        SET recall_count = COALESCE(recall_count, 0) + 1,
-            last_recalled_at = ?,
-            updated_at = ?
-      WHERE user_id = ? AND id = ? AND archived_at IS NULL`
-  ).bind(now, now, safeUserId, id).run();
 }
 
 export async function searchMemoryVectors(

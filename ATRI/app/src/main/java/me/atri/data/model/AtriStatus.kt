@@ -4,7 +4,8 @@ sealed class AtriStatus(open val text: String) {
     data class LiveStatus(
         val label: String,
         val pillColor: String,
-        val textColor: String
+        val textColor: String,
+        val reason: String? = null
     ) : AtriStatus(label)
 
     data class Thinking(override val text: String) : AtriStatus(text)
@@ -29,9 +30,10 @@ sealed class AtriStatus(open val text: String) {
             val label = status?.label?.takeIf { it.isNotBlank() } ?: "陪着你"
             val pillColor = status?.pillColor?.takeIf { it.isNotBlank() } ?: "#E3F2FD"
             val textColor = status?.textColor?.takeIf { it.isNotBlank() } ?: "#FFFFFF"
-            return LiveStatus(label = label, pillColor = pillColor, textColor = textColor)
+            val reason = status?.reason?.takeIf { it.isNotBlank() }
+            return LiveStatus(label = label, pillColor = pillColor, textColor = textColor, reason = reason)
         }
 
-        fun idle(): AtriStatus = LiveStatus("等你~", "#E3F2FD", "#FFFFFF")
+        fun idle(): AtriStatus = LiveStatus("等你~", "#E3F2FD", "#FFFFFF", null)
     }
 }

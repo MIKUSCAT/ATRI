@@ -1,7 +1,6 @@
 import { CHAT_MODEL, Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { ChatCompletionError } from './openai-service';
-import { callUpstreamChat } from './llm-service';
+import { callUpstreamChat, ChatCompletionError } from './llm-service';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
 import { buildSystemPromptFor } from '../utils/prompt-builder';
 

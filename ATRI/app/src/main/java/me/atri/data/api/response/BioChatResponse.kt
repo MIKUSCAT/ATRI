@@ -16,6 +16,7 @@ data class BioChatResponse(
     data class Status(
         val label: String? = null,
         val pillColor: String? = null,
-        val textColor: String? = null
+        val textColor: String? = null,
+        val reason: String? = null
     )
 }

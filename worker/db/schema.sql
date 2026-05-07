@@ -169,22 +169,6 @@ CREATE INDEX IF NOT EXISTS idx_intentions_user_status_urgency
 CREATE INDEX IF NOT EXISTS idx_intentions_user_expires
   ON memory_intentions(user_id, expires_at);
 
--- 记忆事件：记录某条记忆被联想/使用/归档，方便再巩固和排查
-CREATE TABLE IF NOT EXISTS memory_events (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  memory_id TEXT NOT NULL,
-  memory_type TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  conversation_log_id TEXT,
-  created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_events_user_created
-  ON memory_events(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_memory_events_memory
-  ON memory_events(memory_type, memory_id, created_at DESC);
-
 -- 运行时配置（与 server 对齐，供 runtime-settings 读取）
 CREATE TABLE IF NOT EXISTS admin_runtime_config (
   id TEXT PRIMARY KEY,
@@ -200,22 +184,6 @@ CREATE TABLE IF NOT EXISTS admin_prompts_override (
   prompts_json TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
-
--- 仿生认知重构：聊天回合记录
-CREATE TABLE IF NOT EXISTS chat_turns (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  user_log_id TEXT,
-  reply_log_id TEXT,
-  status TEXT NOT NULL,
-  route TEXT,
-  started_at INTEGER NOT NULL,
-  completed_at INTEGER,
-  error TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_chat_turns_user_started
-  ON chat_turns(user_id, started_at DESC);
 
 -- 白天留下的记忆候选，晚上再巩固/归档
 CREATE TABLE IF NOT EXISTS memory_candidates (

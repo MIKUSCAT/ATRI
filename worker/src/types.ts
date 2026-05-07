@@ -77,7 +77,7 @@ export interface BioChatRequest {
 
 export interface BioChatResponse {
   reply: string;
-  status: { label: string; pillColor: string; textColor: string };
+  status: { label: string; pillColor: string; textColor: string; reason?: string };
   action: string | null;
   intimacy: number;
   replyLogId?: string;

@@ -7,31 +7,23 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import me.atri.data.db.dao.DiaryDao
 import me.atri.data.db.dao.MessageDao
 import me.atri.data.db.dao.MessageVersionDao
-import me.atri.data.db.dao.MemoryDao
-import me.atri.data.db.entity.DiaryEntity
-import me.atri.data.db.entity.MemoryEntity
 import me.atri.data.db.entity.MessageEntity
 import me.atri.data.db.entity.MessageVersionEntity
 
 @Database(
     entities = [
         MessageEntity::class,
-        MessageVersionEntity::class,
-        DiaryEntity::class,
-        MemoryEntity::class
+        MessageVersionEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(AttachmentTypeConverters::class)
 abstract class AtriDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun messageVersionDao(): MessageVersionDao
-    abstract fun diaryDao(): DiaryDao
-    abstract fun memoryDao(): MemoryDao
 
     companion object {
         @Volatile
@@ -155,6 +147,15 @@ abstract class AtriDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 7 to 8
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 移除已废弃的本地表：日记 / 记忆现在直接由服务器端为单一真源
+                db.execSQL("DROP TABLE IF EXISTS diary")
+                db.execSQL("DROP TABLE IF EXISTS memories")
+            }
+        }
+
         fun getInstance(context: Context): AtriDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -168,7 +169,8 @@ abstract class AtriDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
-                        MIGRATION_6_7
+                        MIGRATION_6_7,
+                        MIGRATION_7_8
                     )
                     // 仅在开发阶段保留，生产环境应移除
                     // .fallbackToDestructiveMigration()

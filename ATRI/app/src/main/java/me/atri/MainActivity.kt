@@ -26,6 +26,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import me.atri.data.datastore.PreferencesStore
 import me.atri.ui.chat.ChatScreen
 import me.atri.ui.diary.DiaryScreen
+import me.atri.ui.settings.AboutHerScreen
 import me.atri.ui.settings.SettingsScreen
 import me.atri.ui.theme.AtriTheme
 import org.koin.android.ext.android.inject
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppScreen {
-    LOADING, CHAT, SETTINGS, DIARY
+    LOADING, CHAT, SETTINGS, DIARY, ABOUT_HER
 }
 
 @Composable
@@ -68,10 +69,12 @@ fun AtriApp(preferencesStore: PreferencesStore) {
     }
     var showSettings by remember { mutableStateOf(false) }
     var showDiary by remember { mutableStateOf(false) }
+    var showAboutHer by remember { mutableStateOf(false) }
     var chatWelcomeDismissed by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler(enabled = showSettings || showDiary) {
+    BackHandler(enabled = showSettings || showDiary || showAboutHer) {
         when {
+            showAboutHer -> showAboutHer = false
             showSettings -> showSettings = false
             showDiary -> showDiary = false
         }
@@ -86,6 +89,7 @@ fun AtriApp(preferencesStore: PreferencesStore) {
 
     val currentScreen = when {
         isFirstLaunch == null -> AppScreen.LOADING
+        showAboutHer -> AppScreen.ABOUT_HER
         showSettings -> AppScreen.SETTINGS
         showDiary -> AppScreen.DIARY
         else -> AppScreen.CHAT
@@ -95,13 +99,17 @@ fun AtriApp(preferencesStore: PreferencesStore) {
         targetState = currentScreen,
         transitionSpec = {
             when {
-                // 进入设置或日记：从右滑入
-                targetState == AppScreen.SETTINGS || targetState == AppScreen.DIARY -> {
+                // 进入设置/日记/关于她：从右滑入
+                targetState == AppScreen.SETTINGS ||
+                targetState == AppScreen.DIARY ||
+                targetState == AppScreen.ABOUT_HER -> {
                     (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
                             (slideOutHorizontally { -it / 3 } + fadeOut())
                 }
-                // 返回聊天：从左滑入
-                initialState == AppScreen.SETTINGS || initialState == AppScreen.DIARY -> {
+                // 返回上层：从左滑入
+                initialState == AppScreen.SETTINGS ||
+                initialState == AppScreen.DIARY ||
+                initialState == AppScreen.ABOUT_HER -> {
                     (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
                             (slideOutHorizontally { it / 3 } + fadeOut())
                 }
@@ -119,8 +127,12 @@ fun AtriApp(preferencesStore: PreferencesStore) {
                     CircularProgressIndicator()
                 }
             }
-            AppScreen.SETTINGS -> SettingsScreen(onNavigateBack = { showSettings = false })
+            AppScreen.SETTINGS -> SettingsScreen(
+                onNavigateBack = { showSettings = false },
+                onOpenAboutHer = { showAboutHer = true }
+            )
             AppScreen.DIARY -> DiaryScreen(onNavigateBack = { showDiary = false })
+            AppScreen.ABOUT_HER -> AboutHerScreen(onNavigateBack = { showAboutHer = false })
             AppScreen.CHAT -> {
                 ChatScreen(
                     onOpenSettings = { showSettings = true },

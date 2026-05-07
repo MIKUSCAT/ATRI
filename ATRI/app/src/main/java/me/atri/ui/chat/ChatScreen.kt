@@ -593,6 +593,7 @@ fun ChatScreen(
                                         }
                                         MessageBubble(
                                             message = item.message,
+                                            latestStreamingMessageId = uiState.latestStreamingMessageId,
                                             onLongPress = { pressed ->
                                                 val anchor = listBounds?.let { bounds ->
                                                     val info = listState.layoutInfo.visibleItemsInfo

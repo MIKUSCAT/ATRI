@@ -10,7 +10,7 @@ import {
   listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors } from '../services/memory-service';
-import { backfillEpisodicMemoryVectors, deleteEpisodicMemoriesByUser } from '../services/episodic-memory-service';
+import { deleteEpisodicMemoriesByUser } from '../services/episodic-memory-service';
 import { deleteMemoryIntentionsByUser } from '../services/memory-intention-service';
 import { sanitizeFileName } from '../utils/file';
 
@@ -52,7 +52,6 @@ export function registerAdminRoutes(router: RouterType) {
       const factDeleted = await deleteFactMemoriesByUser(env, userId);
       const episodicDeleted = await deleteEpisodicMemoriesByUser(env, userId);
       const intentionsDeleted = await deleteMemoryIntentionsByUser(env, userId);
-      const eventsDeleted = await deleteMemoryEventsByUser(env, userId);
       const userStateDeleted = await deleteUserStateByUser(env, userId);
 
       return jsonResponse({
@@ -67,44 +66,12 @@ export function registerAdminRoutes(router: RouterType) {
           factMemories: factDeleted,
           episodicMemories: episodicDeleted,
           memoryIntentions: intentionsDeleted,
-          memoryEvents: eventsDeleted,
           userStates: userStateDeleted
         }
       });
     } catch (error: any) {
       console.error('[ATRI] Failed to clear user data:', userId, error);
       return jsonResponse({ error: 'clear_failed', details: String(error?.message || error) }, 500);
-    }
-  });
-
-  router.post('/admin/backfill-episodic-vectors', async (request, env: Env) => {
-    const adminKey = (env.ADMIN_API_KEY || '').trim();
-    if (!adminKey) {
-      return jsonResponse({ error: 'admin_disabled' }, 503);
-    }
-    const providedKey = extractToken(request.headers.get('Authorization'));
-    if (providedKey !== adminKey) {
-      return jsonResponse({ error: 'forbidden' }, 403);
-    }
-
-    let body: any = {};
-    try {
-      body = await request.json();
-    } catch {
-      body = {};
-    }
-
-    const userId = String(body?.userId || '').trim() || undefined;
-    const limit = Number(body?.limit ?? 30);
-    try {
-      const result = await backfillEpisodicMemoryVectors(env, { userId, limit });
-      return jsonResponse({ ok: true, ...result });
-    } catch (error: any) {
-      console.error('[ATRI] episodic vector backfill failed', {
-        userId,
-        error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error)
-      });
-      return jsonResponse({ error: 'backfill_failed', details: String(error?.message || error) }, 500);
     }
   });
 
@@ -150,9 +117,4 @@ async function deleteUserMediaObjects(env: Env, userId: string) {
     cursor = list.truncated ? list.cursor : undefined;
   } while (cursor);
   return deleted;
-}
-
-async function deleteMemoryEventsByUser(env: Env, userId: string) {
-  const result = await env.ATRI_DB.prepare(`DELETE FROM memory_events WHERE user_id = ?`).bind(userId).run();
-  return Number(result?.meta?.changes ?? 0);
 }

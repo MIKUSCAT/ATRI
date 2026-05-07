@@ -16,7 +16,6 @@ import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import me.atri.data.repository.ChatRepository
 import me.atri.data.repository.SyncResult
-import me.atri.data.repository.StatusRepository
 import me.atri.data.datastore.PreferencesStore
 import me.atri.data.db.entity.MessageEntity
 import java.time.Instant
@@ -45,7 +44,8 @@ data class ChatUiState(
     val error: String? = null,
     val showRegeneratePrompt: Boolean = false,
     val editedMessageId: String? = null,
-    val referencedMessage: ReferencedMessage? = null
+    val referencedMessage: ReferencedMessage? = null,
+    val latestStreamingMessageId: String? = null
 ) {
     data class ReferencedMessage(
         val messageId: String,
@@ -61,7 +61,6 @@ data class ChatUiState(
 
 class ChatViewModel(
     private val chatRepository: ChatRepository,
-    private val statusRepository: StatusRepository,
     private val preferencesStore: PreferencesStore
 ) : ViewModel() {
 
@@ -193,12 +192,19 @@ class ChatViewModel(
         val label = extractJsonString(mood, "label")?.takeIf { it.isNotBlank() } ?: return null
         val pillColor = extractJsonString(mood, "pillColor")?.takeIf { it.isNotBlank() } ?: "#E3F2FD"
         val textColor = extractJsonString(mood, "textColor")?.takeIf { it.isNotBlank() } ?: "#FFFFFF"
-        return AtriStatus.LiveStatus(label = label, pillColor = pillColor, textColor = textColor)
+        val reason = extractJsonString(mood, "reason")?.takeIf { it.isNotBlank() }
+        return AtriStatus.LiveStatus(label = label, pillColor = pillColor, textColor = textColor, reason = reason)
     }
 
     private fun extractJsonString(json: String, key: String): String? {
-        val pattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"([^\"]*)\"")
-        return pattern.find(json)?.groupValues?.getOrNull(1)
+        // 支持 \" 和 \\ 等基本转义；遇到非法字符截断
+        val pattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+        val raw = pattern.find(json)?.groupValues?.getOrNull(1) ?: return null
+        return raw
+            .replace("\\\"", "\"")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\\\", "\\")
     }
 
     fun sendMessage(content: String, attachments: List<PendingAttachment> = emptyList()) {
@@ -223,8 +229,12 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
+                    updateState {
+                        it.copy(
+                            currentStatus = AtriStatus.fromStatus(chatResult.status),
+                            latestStreamingMessageId = chatResult.replyLogId
+                        )
+                    }
 
                     if (referenceSnapshot != null) clearReferencedAttachments()
                 } else {
@@ -344,8 +354,12 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
+                    updateState {
+                        it.copy(
+                            currentStatus = AtriStatus.fromStatus(chatResult.status),
+                            latestStreamingMessageId = chatResult.replyLogId
+                        )
+                    }
                 } else {
                     val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                     updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
@@ -396,8 +410,12 @@ class ChatViewModel(
 
                         if (result.isSuccess) {
                             val chatResult = result.getOrThrow()
-                            statusRepository.incrementIntimacy(1)
-                            updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
+                            updateState {
+                                it.copy(
+                                    currentStatus = AtriStatus.fromStatus(chatResult.status),
+                                    latestStreamingMessageId = chatResult.replyLogId
+                                )
+                            }
                         } else {
                             val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                             updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
@@ -450,9 +468,5 @@ class ChatViewModel(
 
     fun updateAtriAvatar(path: String) {
         viewModelScope.launch { preferencesStore.setAtriAvatarPath(path) }
-    }
-
-    fun clearAtriAvatar() {
-        viewModelScope.launch { preferencesStore.clearAtriAvatar() }
     }
 }

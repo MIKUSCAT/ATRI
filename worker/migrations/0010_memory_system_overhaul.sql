@@ -1,4 +1,4 @@
--- 记忆系统完整改造：fact 权重化 + 情景记忆 + 心里挂着的念头 + 记忆事件
+-- 记忆系统完整改造：fact 权重化 + 情景记忆 + 心里挂着的念头
 
 ALTER TABLE fact_memories ADD COLUMN type TEXT DEFAULT 'other';
 ALTER TABLE fact_memories ADD COLUMN importance INTEGER NOT NULL DEFAULT 5;
@@ -57,21 +57,6 @@ CREATE INDEX IF NOT EXISTS idx_intentions_user_status_urgency
   ON memory_intentions(user_id, status, urgency DESC, emotional_weight DESC);
 CREATE INDEX IF NOT EXISTS idx_intentions_user_expires
   ON memory_intentions(user_id, expires_at);
-
-CREATE TABLE IF NOT EXISTS memory_events (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  memory_id TEXT NOT NULL,
-  memory_type TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  conversation_log_id TEXT,
-  created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_events_user_created
-  ON memory_events(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_memory_events_memory
-  ON memory_events(memory_type, memory_id, created_at DESC);
 
 -- 明确清理旧的自我复盘表，已被 fact/episodic/intention 替代
 DROP TABLE IF EXISTS atri_self_reviews;

@@ -23,6 +23,7 @@ import {
   getRelevantFacts,
   upsertFactMemory
 } from './memory-service';
+import { listPendingIntentions, markIntentionUsed } from './memory-intention-service';
 import {
   buildAssistantToolMessageForContinuation,
   callUpstreamChat,
@@ -50,11 +51,12 @@ export type SideEffectPlan = {
   rememberFacts: ParsedReply['rememberFacts'];
   forgetFacts: ParsedReply['forgetFacts'];
   finalReply: string;
+  matchedIntentionIds: string[];
 };
 
 export type AgentChatResult = {
   reply: string;
-  status: { label: string; pillColor: string; textColor: string };
+  status: { label: string; pillColor: string; textColor: string; reason?: string };
   action: string | null;
   intimacy: number;
   sideEffects: SideEffectPlan;
@@ -71,7 +73,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     logId: params.logId
   });
 
-  const [historyPack, recalls, facts, state, firstAt, pendingProactive] = await Promise.all([
+  const [historyPack, recalls, facts, state, firstAt, pendingProactive, intentions] = await Promise.all([
     loadTwoDaysConversationLogs(env, {
       userId: params.userId,
       today: contextDate,
@@ -81,7 +83,8 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     getRelevantFacts(env, params.userId, params.messageText, 8),
     getUserState(env, params.userId),
     safeFirstInteraction(env, params.userId),
-    fetchLatestPendingProactive(env, params.userId)
+    fetchLatestPendingProactive(env, params.userId),
+    safeListPendingIntentions(env, params.userId, 5)
   ]);
 
   const touchedState = { ...state, lastInteractionAt: Date.now(), updatedAt: Date.now() };
@@ -90,7 +93,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
   if (!coreSelf) throw new Error('prompt_missing:core_self.system');
   if (!agent) throw new Error('prompt_missing:agent.system');
 
-  const systemPrompt = composeAgentSystemPrompt({
+  const promptResult = composeAgentSystemPrompt({
     coreSelf,
     agent,
     state: touchedState,
@@ -102,8 +105,11 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     facts,
     pendingProactive: pendingProactive
       ? { content: pendingProactive.content, createdAt: pendingProactive.createdAt }
-      : null
+      : null,
+    intentions
   });
+  const systemPrompt = promptResult.prompt;
+  const intentionList = promptResult.intentions;
 
   const signedInlineImage = await signMediaUrlForModel(params.inlineImage, env, { ttlSeconds: 600 });
   const signedAttachments = await Promise.all(
@@ -156,10 +162,16 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
   if (!replyText) throw new Error('empty_agent_reply');
 
   const nextIntimacy = Math.max(-100, Math.min(100, touchedState.intimacy + (parsed.intimacyDelta || 0)));
+  const matchedIntentionIds = matchSpokenIntentions(replyText, intentionList);
   return {
     reply: replyText,
     status: parsed.status
-      ? { label: parsed.status.label, pillColor: parsed.status.pillColor, textColor: parsed.status.textColor }
+      ? {
+          label: parsed.status.label,
+          pillColor: parsed.status.pillColor,
+          textColor: parsed.status.textColor,
+          reason: parsed.status.reason ?? undefined
+        }
       : { label: touchedState.statusLabel, pillColor: touchedState.statusPillColor, textColor: touchedState.statusTextColor },
     action: null,
     intimacy: nextIntimacy,
@@ -170,7 +182,8 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
       intimacyDelta: parsed.intimacyDelta || 0,
       rememberFacts: parsed.rememberFacts,
       forgetFacts: parsed.forgetFacts,
-      finalReply: replyText
+      finalReply: replyText,
+      matchedIntentionIds
     }
   };
 }
@@ -289,6 +302,14 @@ export async function applySideEffects(env: Env, plan: SideEffectPlan): Promise<
       console.warn('[ATRI] fact_forget_failed', { userId: plan.userId, e });
     }
   }
+
+  for (const intentionId of plan.matchedIntentionIds || []) {
+    try {
+      await markIntentionUsed(env, plan.userId, intentionId);
+    } catch (e) {
+      console.warn('[ATRI] intention_mark_used_failed', { userId: plan.userId, intentionId, e });
+    }
+  }
 }
 
 async function safeFirstInteraction(env: Env, userId: string): Promise<number | null> {
@@ -315,4 +336,62 @@ async function resolveConversationDateForChat(env: Env, params: {
 
 function normalizeFactTextForMatch(s: string): string {
   return sanitizeText(String(s || '')).trim().replace(/\s+/g, ' ');
+}
+
+async function safeListPendingIntentions(env: Env, userId: string, limit: number) {
+  try {
+    return await listPendingIntentions(env, userId, limit);
+  } catch (e) {
+    console.warn('[ATRI] list_pending_intentions_failed', { userId, e });
+    return [];
+  }
+}
+
+// 把字符串标准化为只含字母数字与中日韩文字的紧凑序列，方便做 n-gram 重叠
+function normalizeForIntentionMatch(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+function buildNGrams(text: string, n: number): string[] {
+  if (text.length < n) return text ? [text] : [];
+  const grams: string[] = [];
+  for (let i = 0; i <= text.length - n; i++) {
+    grams.push(text.slice(i, i + n));
+  }
+  return grams;
+}
+
+// 判断 reply 中是否说出了某条 intention：
+// - intention 紧凑后 < 6 字时，整串包含即命中
+// - 否则用 4-gram 重叠率 ≥ 0.5 判定（兼顾"自然说出"而非逐字复述）
+function matchSpokenIntentions(
+  reply: string,
+  intentions: Array<{ id: string; content: string }>
+): string[] {
+  if (!Array.isArray(intentions) || !intentions.length) return [];
+  const replyNorm = normalizeForIntentionMatch(reply);
+  if (!replyNorm) return [];
+
+  const matched: string[] = [];
+  for (const it of intentions) {
+    const contentNorm = normalizeForIntentionMatch(it.content);
+    if (!contentNorm) continue;
+
+    if (contentNorm.length < 6) {
+      if (replyNorm.includes(contentNorm)) matched.push(it.id);
+      continue;
+    }
+
+    const grams = buildNGrams(contentNorm, 4);
+    if (!grams.length) continue;
+    let hit = 0;
+    for (const g of grams) {
+      if (replyNorm.includes(g)) hit++;
+    }
+    const ratio = hit / grams.length;
+    if (ratio >= 0.5) matched.push(it.id);
+  }
+  return matched;
 }

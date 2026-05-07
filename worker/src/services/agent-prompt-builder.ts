@@ -1,6 +1,12 @@
 import { AutoRecallResult, formatRecallsAsNaturalThoughts } from './auto-recall-service';
 import { UserStateRecord } from './data-service';
 import { formatFactsAsInternalKnowledge } from './memory-service';
+import type { MemoryIntentionRecord } from './memory-intention-service';
+
+export type ComposeAgentPromptResult = {
+  prompt: string;
+  intentions: Array<{ id: string; content: string }>;
+};
 
 export function composeAgentSystemPrompt(params: {
   coreSelf: string;
@@ -13,7 +19,8 @@ export function composeAgentSystemPrompt(params: {
   recalls: AutoRecallResult;
   facts: Array<{ id: string; text: string; importance?: number }>;
   pendingProactive?: { content: string; createdAt: number } | null;
-}): string {
+  intentions?: MemoryIntentionRecord[];
+}): ComposeAgentPromptResult {
   const parts: string[] = [];
   parts.push(params.coreSelf.trim());
   parts.push(params.agent.trim());
@@ -33,7 +40,24 @@ export function composeAgentSystemPrompt(params: {
   const factsBlock = formatFactsAsInternalKnowledge(params.facts);
   if (factsBlock) parts.push(factsBlock);
 
-  return parts.filter(Boolean).join('\n\n');
+  const cleanIntentions = (Array.isArray(params.intentions) ? params.intentions : [])
+    .map(it => ({ id: String(it?.id || '').trim(), content: String(it?.content || '').trim() }))
+    .filter(it => it.id && it.content);
+
+  if (cleanIntentions.length) {
+    const lines = [
+      '<我心里挂着的话>',
+      '（这些是我之前没说出口、想找机会自然说的。气氛合适才说，不合适就只放在心里，绝不机械念清单。说完就不要再提。）'
+    ];
+    for (const it of cleanIntentions) lines.push(`- ${it.content}`);
+    lines.push('</我心里挂着的话>');
+    parts.push(lines.join('\n'));
+  }
+
+  return {
+    prompt: parts.filter(Boolean).join('\n\n'),
+    intentions: cleanIntentions
+  };
 }
 
 function buildContextBlock(params: {

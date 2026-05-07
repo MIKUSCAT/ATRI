@@ -1,6 +1,5 @@
 import { Env } from '../types';
 import { sanitizeText } from '../utils/sanitize';
-import { recordMemoryEvent } from './memory-event-service';
 
 function clampInt(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.trunc(Number.isFinite(value) ? value : min)));
@@ -97,16 +96,11 @@ export async function listPendingIntentions(env: Env, userId: string, limit = 3)
   }));
 }
 
-export async function markIntentionRecalled(env: Env, userId: string, id: string, conversationLogId?: string) {
-  await recordMemoryEvent(env, { userId, memoryId: id, memoryType: 'intention', eventType: 'recalled', conversationLogId });
-}
-
-export async function markIntentionUsed(env: Env, userId: string, id: string, conversationLogId?: string) {
+export async function markIntentionUsed(env: Env, userId: string, id: string) {
   const now = Date.now();
   await env.ATRI_DB.prepare(
     `UPDATE memory_intentions SET status = 'used', used_at = ?, archived_at = ? WHERE user_id = ? AND id = ?`
   ).bind(now, now, userId, id).run();
-  await recordMemoryEvent(env, { userId, memoryId: id, memoryType: 'intention', eventType: 'used', conversationLogId });
 }
 
 export async function deleteMemoryIntentionsByUser(env: Env, userId: string) {

@@ -9,6 +9,7 @@ import { Env } from './types';
 import { registerModelRoutes } from './routes/models';
 import { registerCompatRoutes } from './routes/compat';
 import { registerProactiveRoutes } from './routes/proactive';
+import { registerMeRoutes } from './routes/me';
 import { runProactiveCron } from './jobs/proactive-cron';
 
 const router = Router();
@@ -23,6 +24,7 @@ registerAdminRoutes(router);
 registerModelRoutes(router);
 registerCompatRoutes(router);
 registerProactiveRoutes(router);
+registerMeRoutes(router);
 
 router.get('/health', () => jsonOk());
 

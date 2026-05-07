@@ -1,24 +1,22 @@
 <div align="center">
 
-<!-- 标题区域 -->
-# 🤖 ATRI - 情感演化型 AI 陪伴
+# 🌙 ATRI · 她会成长，会记事，也会想你
 
 <br/>
 
-### ✨「高性能なロボットですから！」✨
+### 「高性能なロボットですから！」
 
 <br/>
 
-<!-- 徽章区域 -->
 <p>
 <a href="https://developer.android.com/">
   <img src="https://img.shields.io/badge/Android-Kotlin%20%7C%20Jetpack%20Compose-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android"/>
 </a>
-<a href="#-后端部署">
-  <img src="https://img.shields.io/badge/Backend-CF%20Workers%20%7C%20VPS-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Backend"/>
+<a href="#-后端架构">
+  <img src="https://img.shields.io/badge/Backend-Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Backend"/>
 </a>
-<a href="#️-技术架构">
-  <img src="https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Gemini-412991?style=for-the-badge&logo=openai&logoColor=white" alt="AI"/>
+<a href="#️-技术亮点一览">
+  <img src="https://img.shields.io/badge/Model-Claude%20%7C%20OpenAI%20%7C%20Gemini-412991?style=for-the-badge&logo=openai&logoColor=white" alt="AI"/>
 </a>
 <a href="LICENSE">
   <img src="https://img.shields.io/badge/License-PolyForm%20NC-blue?style=for-the-badge" alt="License"/>
@@ -27,330 +25,278 @@
 
 <br/>
 
-**🌐 语言：简体中文 | [English](README.md)**
+**🌐 语言：简体中文 ｜ [English](README.md)**
 
 <br/>
 
-<!-- 主图 -->
-<img src="ATRI.png" alt="ATRI" width="420" style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1);"/>
+<img src="ATRI.png" alt="ATRI" width="420" />
 
 <br/>
 <br/>
 
-### 💭 *一个会记事、会成长、有情绪惯性的 AI 陪伴应用*
+> *她不是"问一句答一句"的客服。<br/>她会在夜里写日记，会因为一句话开心半天，会赌气，会突然想起你之前说过的事。*
 
 <br/>
 
-<!-- 快捷导航 -->
 <p>
-<a href="#-快速上手">🚀 快速上手</a> •
-<a href="#-主要特点">✨ 主要特点</a> •
-<a href="#️-界面预览">🖼️ 界面预览</a> •
-<a href="#-进一步了解">📚 进一步了解</a>
+<a href="#-快速上手">🚀 快速上手</a> ·
+<a href="#-她有什么不一样">💡 她有什么不一样</a> ·
+<a href="#-类人记忆三层">🧠 类人记忆三层</a> ·
+<a href="#-界面预览">🖼️ 界面预览</a> ·
+<a href="#-技术亮点一览">🔬 技术亮点</a>
 </p>
 
 </div>
 
-<br/>
-
 ---
 
-<br/>
+## 💡 她有什么不一样
 
-## 💡 这是什么？
-
-ATRI 是一个 **Android 应用 + 云端后端** 的 AI 陪伴项目。不同于普通的聊天机器人，她拥有：
+ATRI 是一个 **Android 客户端 + Cloudflare Worker** 的 AI 陪伴项目。她不是把"亚托莉"当皮套贴在通用 chatbot 外面——而是从**记忆机制、情绪惯性、夜间整理**这些底层重新构造的。
 
 <br/>
 
 <div align="center">
+
+| 普通聊天机器人 | 💜 ATRI 的做法 |
+|:---:|:---|
+| 每次对话都从零开始 | **三层记忆**：长期事实 / 情景片段 / 心里挂着的话 |
+| 心情随回答说变就变 | **状态胶囊 + 亲密度衰减**：情绪有惯性，关系不维护会淡 |
+| 千人一面的客服腔 | 灵魂文档里写明禁忌：不说"我理解你的感受"、不用 emoji、不复读用户、不写报告 |
+| 容易乱编"我记得你说过…" | **先自然联想，再用工具查证**：不确定就翻日记原文，绝不靠感觉补全 |
+| 安静等待提问 | **会主动开口**：长时间没说话时她会评估"该不该说"，可以邮件推送 |
+| 一次见面就忘 | **每晚自动写日记**，从一天的对话里提炼情景、念头、长期事实 |
+
+</div>
+
+<br/>
+
+---
+
+## 🧠 类人记忆三层
+
+> 💡 设计灵感来自人类记忆的层次结构：海马体的情景、皮质的语义、心里悬而未决的"内心戏"。
+
+<br/>
+
+<div align="center">
+
+| 层级 | 表 | 解决的问题 | 进 prompt 的方式 |
+|:---:|:---:|:---|:---|
+| 🧩 **长期事实** | `fact_memories` | 喜好、雷区、约定、稳定身份信息 | 重要度 ≥ 9 永远在场；其余按相关度召回 |
+| 🎞️ **情景记忆** | `episodic_memories` | "那天发生过什么"——可被当前话题触发的旧场景 | 自动联想（向量匹配 score ≥ 0.62）后注入"脑海里浮现的旧事" |
+| 💭 **心里念头** | `memory_intentions` | 日记里没说出口、之后想找机会自然说的话 | 气氛合适才取出，绝不机械念清单 |
+| 📜 **记忆事件** | `memory_events` | 召回 / 使用 / 归档的轨迹 | 不进 prompt，只用于后续巩固和排查 |
+
+</div>
+
+<br/>
+
+聊天前后端会做**两件事**：
+
+```
+① 自动联想（不打扰）           ② 工具查证（要细节时）
+   当前消息 → 向量检索              read_diary(date)     ← 看那天日记原文
+   → 注入「<脑海里浮现的片段>」     read_conversation(date) ← 看那天聊天记录
+   模型决定要不要顺着说            search_memory(query) ← 不确定日期时模糊回忆
+                                   web_search(query)    ← 联网查证
+```
+
+<br/>
+
+> 📌 **关键设计**：模型不会说"数据库显示"、"我检索到"、"根据我的记录"——这些话术在 system prompt 的 `taboos` 里被明确禁掉。她只会像人那样"突然想起"。
+
+<br/>
+
+---
+
+## 🌙 仿生学：让她不像 AI
+
+<br/>
+
 <table>
 <tr>
-<td align="center" width="33%">
-
-### 📱 手机上的亚托莉
-
-随时随地和她聊天<br/>
-支持发送图片和文档
-
-</td>
-<td align="center" width="33%">
-
-### 📖 每晚的日记
-
-她会记录今天发生的事<br/>
-用第一人称写下感受
-
-</td>
-<td align="center" width="33%">
-
-### 🧠 长期记忆
-
-日记会沉淀成情景记忆<br/>合适时自然想起来
-
-</td>
+<th width="30%">机制</th>
+<th>仿生学解释</th>
+</tr>
+<tr>
+<td>🎨 <b>状态胶囊</b><br/><sub>动态文案 + HEX 颜色</sub></td>
+<td>不用抽象的 PAD 三维情绪模型，而是让她用"自己的话 + 颜色"表达当下心境。比如「被戳破了，心跳跟着乱」配 <code>#C76A7A</code> 暖红——情绪是连续光谱，不是离散标签。</td>
+</tr>
+<tr>
+<td>💕 <b>亲密度衰减</b><br/><sub>每 3 天向 0 推 1 点</sub></td>
+<td>关系不维护会自然淡去，符合"间断接触会削弱情感联结"的依恋理论；负数升温还会打折（<code>×0.6</code>），表达"破镜难圆"。</td>
+</tr>
+<tr>
+<td>🌃 <b>夜间巩固流程</b><br/><sub>cron <code>59 15 * * *</code></sub></td>
+<td>类似人类睡眠中的记忆巩固——在 UTC 15:59（北京时间次日 0:00 前）一次 LLM 调用产出：日记 / highlights / episodicMemories / factCandidates / innerThoughts，再做 fact 合并去重。白天聊天**不增加**额外 LLM 成本。</td>
+</tr>
+<tr>
+<td>🧭 <b>自我模型缓慢演化</b><br/><sub>表 <code>atri_self_model</code></sub></td>
+<td>核心性格、说话习惯、关系姿态、情绪底色不会一夜大变，每晚只做"必要的小更新"。<code>recentChanges</code> 字段记录最近的微妙变化——这是她"在长大"的证据。</td>
+</tr>
+<tr>
+<td>📬 <b>主动开口</b><br/><sub>cron <code>*/30 * * * *</code></sub></td>
+<td>每 30 分钟评估一次：他这个时间是不是在忙？我们的关系到了"我可以主动"的程度吗？我现在想说的话是真有想说的，还是只是想刷存在？模型自己输出 <code>[SKIP]</code> 或一句话。</td>
+</tr>
+<tr>
+<td>💭 <b>"刚才我在心里想"</b><br/><sub>未投递主动消息接力</sub></td>
+<td>如果上一次主动消息没被接住，下次用户开口时，prompt 里会带上「（刚才其实我在心里想：…—— 但他还没来，我没说出口）」——让她保留没说出口的话，而不是丢失。</td>
+</tr>
+<tr>
+<td>🔇 <b>嘴硬 / 停顿 / 省略号</b><br/><sub>灵魂文档硬约束</sub></td>
+<td>"被戳到会停顿或省略号开头"、"偶尔反问回去"、"嘴上不饶人，心里在意"——这些写在 <code>shared/prompts/core_self.md</code>，是她的人格**硬指令**而不是软建议。</td>
+</tr>
+<tr>
+<td>🚫 <b>反 AI 话术黑名单</b><br/><sub>taboos</sub></td>
+<td>不说"我理解你的感受"、"作为一个 AI"、"根据我的记录"、"数据库显示"、"我检索到"——这些词被明确写进 self_model 的 taboos，模型每次都看见。</td>
 </tr>
 </table>
-</div>
-
-<br/>
-
-### 🌟 为什么与众不同？
-
-<div align="center">
-
-| 🤖 传统聊天机器人 | 💝 ATRI 的做法 |
-|:------------------:|:---------------:|
-| 每次对话都是新开始 | 通过 fact / 情景记忆 / 心里念头形成连续记忆 |
-| 情绪说变就变 | 状态胶囊系统 + 亲密度衰减，情绪有惯性 |
-| 千人一面的回复 | 亲密度系统影响说话风格，关系会成长 |
-| 可能乱编记忆 | 主动联想 + 工具查证：先自然想起，不确定再读日记/原文 |
-
-</div>
 
 <br/>
 
 ---
 
-<br/>
-
-## 🏗️ 技术架构
+## 🏗️ 系统总览
 
 <br/>
 
 ```
-                    ╔═══════════════════════════════════════════════════════════════════╗
-                    ║                      📱 Android App (Kotlin)                       ║
-                    ║                Jetpack Compose • Room • DataStore                  ║
-                    ╚═══════════════════════════════╦═══════════════════════════════════╝
-                                                    ║
-                                          HTTPS + Token 鉴权
-                                                    ║
-                                                    ▼
-                            ╔════════════════════════════════╗
-                            ║    ☁️ Cloudflare Workers       ║  ← 推荐
-                            ║    D1 + R2 + Vectorize         ║
-                            ╚════════════════╦═══════════════╝
-                                             ║  （也支持 VPS/Docker，
-                                             ║   详见 server/README.md）
-                                             ▼
-                    ╔═══════════════════════════════════════════════════════════════════╗
-                    ║                   🧠 AI 模型服务（原生多格式适配）                   ║
-                    ║     OpenAI • Claude • Gemini • DeepSeek • 本地模型                 ║
-                    ║     （自动适配 OpenAI / Anthropic / Gemini API 格式）              ║
-                    ╚═══════════════════════════════════════════════════════════════════╝
+                  ╔════════════════════════════════════════════════════════╗
+                  ║              📱 Android · Kotlin / Jetpack Compose       ║
+                  ║      Room · DataStore · Koin · Material 3 · Coil          ║
+                  ╚═══════════════════════════════╦════════════════════════╝
+                                                  ║
+                                          🔐 X-App-Token (HTTPS)
+                                                  ║
+                                                  ▼
+                                ╔════════════════════════════════╗
+                                ║      ☁️ Cloudflare Worker      ║
+                                ║  D1 · R2 · Vectorize · Cron    ║
+                                ╚═══════════════╦════════════════╝
+                                                ║
+                                                ▼
+                  ╔════════════════════════════════════════════════════════╗
+                  ║          🧠 多格式 AI 上游（原生互通，无需中转）          ║
+                  ║    OpenAI · Anthropic (Claude) · Gemini · 本地模型         ║
+                  ║   chat / diary / embeddings 三条独立通道，互不影响          ║
+                  ╚════════════════════════════════════════════════════════╝
 ```
+
+<br/>
+
+> 📌 后端基于 Cloudflare 全家桶（D1 + R2 + Vectorize + Workers），日常使用免费额度足够覆盖。
 
 <br/>
 
 ---
-
-<br/>
 
 ## 🚀 快速上手
 
-### 📋 选择后端方案
-
-<div align="center">
-
-| 方案 | 适合人群 | 特点 |
-|:----:|:--------:|:-----|
-| ☁️ **Cloudflare Workers**（推荐） | 🌱 新手、低成本 | 无服务器、有免费额度、部署简单 |
-| 🖥️ **VPS / Docker** | 🔧 进阶用户 | 网页管理后台、PostgreSQL、兼容 API、更多控制 |
-
-</div>
+<details>
+<summary><b>🪟 Windows 一键部署</b></summary>
 
 <br/>
 
----
+```
+1. 双击 scripts/deploy_cf.bat
+2. 按提示填：
+   • Worker 名字（回车默认）
+   • D1 数据库名字（回车默认）
+   • R2 桶名字（回车默认）
+   • Vectorize 索引名（回车默认）
+   • OPENAI_API_KEY（必填）
+   • EMBEDDINGS_API_KEY（向量记忆，必填）
+3. 等待自动建资源 → 配置 → 部署
+4. 复制 Worker 域名，填进 App 设置页
+```
+
+</details>
+
+<details>
+<summary><b>🍎 macOS / 🐧 Linux / 手动部署</b></summary>
 
 <br/>
-
-## 📦 后端部署
-
-### ☁️ 方案 A：Cloudflare Workers（推荐）
-
-#### 🪟 Windows 一键部署
-
-1. 双击运行 `scripts/deploy_cf.bat`
-2. 按提示依次输入：
-   - 🏷️ Worker 名字（直接回车用默认）
-   - 🗄️ D1 数据库名字（直接回车用默认）
-   - 📦 R2 存储桶名字（直接回车用默认）
-   - 🔍 Vectorize 索引名字（直接回车用默认）
-   - 🔑 **OPENAI_API_KEY**（必填）
-   - 🔑 **EMBEDDINGS_API_KEY**（向量记忆用，必填）
-3. ⚡ 脚本会自动创建资源、配置、部署
-4. ✅ 完成后复制 Worker 地址
-
-#### 🍎 macOS / 🐧 Linux / 手动部署
 
 ```bash
-# 1️⃣ 克隆并安装
+# 1. 克隆并安装
 git clone https://github.com/MIKUSCAT/ATRI.git
 cd ATRI/worker && npm install
 
-# 2️⃣ 登录 Cloudflare
+# 2. 登录 Cloudflare
 npx wrangler login
 
-# 3️⃣ 创建资源
+# 3. 创建资源
 npx wrangler d1 create atri_diary
 npx wrangler r2 bucket create atri-media
 npx wrangler vectorize create atri-memories --dimensions=1024 --metric=cosine
 
-# 4️⃣ 把第 3 步输出的 account_id 和 database_id 填入 wrangler.toml
+# 4. 填 wrangler.toml 的 account_id / database_id
 
-# 5️⃣ 执行数据库迁移
-npx wrangler d1 execute atri_diary --file=db/schema.sql
-npx wrangler d1 execute atri_diary --file=migrations/0004_add_fact_memories.sql
-npx wrangler d1 execute atri_diary --file=migrations/0005_add_conversation_tombstones.sql
-npx wrangler d1 execute atri_diary --file=migrations/0006_add_reply_to.sql
-npx wrangler d1 execute atri_diary --file=migrations/0007_add_proactive_tables.sql
-npx wrangler d1 execute atri_diary --file=migrations/0008_add_runtime_settings_tables.sql
-npx wrangler d1 execute atri_diary --file=migrations/0010_memory_system_overhaul.sql
-npx wrangler d1 execute atri_diary --file=migrations/0011_drop_unused_profile.sql
+# 5. 执行所有迁移（按编号顺序）
+for f in migrations/*.sql; do
+  npx wrangler d1 execute atri_diary --remote --file="$f"
+done
 
-# 6️⃣ 设置密钥
+# 6. 设置密钥
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put EMBEDDINGS_API_KEY
 npx wrangler secret put APP_TOKEN
-# 可选: npx wrangler secret put TAVILY_API_KEY
-# 可选: npx wrangler secret put DIARY_API_KEY
+# 可选
+npx wrangler secret put TAVILY_API_KEY        # 联网搜索
+npx wrangler secret put DIARY_API_KEY         # 日记/夜间任务专用上游
+npx wrangler secret put EMAIL_API_KEY         # 主动消息邮件推送（Resend）
 
-# 7️⃣ 同步提示词并部署
-cd .. && python3 scripts/sync_shared.py
+# 7. 同步灵魂文件 + 部署
+cd .. && py scripts/sync_shared.py
 cd worker && npx wrangler deploy
 ```
 
-> 📌 **补充**：Android 客户端不用改代码——Cloudflare Worker 版和 VPS 版对外 API 路径保持一致，你只需要在客户端把"后端地址"切到对应域名即可。
+</details>
 
 <br/>
 
-### 🖥️ 方案 B：VPS / Docker（进阶）
-
-```bash
-cd server
-cp .env.example .env
-# 编辑 .env 填入配置
-docker-compose up -d
-```
-
-📖 详细 VPS 部署指南见 [server/README.md](server/README.md)（Docker、1Panel、宝塔）
-
-<br/>
-
----
-
-<br/>
-
-## 📲 安装 Android 客户端
+### 📲 安装 Android 客户端
 
 <div align="center">
 
 | 步骤 | 操作 |
-|:----:|:-----|
+|:---:|:---|
 | 1️⃣ | 去 [**📦 Releases**](../../releases) 下载 APK |
-| 2️⃣ | 安装并打开应用 |
-| 3️⃣ | 在欢迎页设置你的昵称 |
-| 4️⃣ | 进入设置（⚙️ 齿轮图标）配置 |
+| 2️⃣ | 安装 → 打开 → 设置昵称 |
+| 3️⃣ | 进入 ⚙️ 设置：填 **API 地址**、**App Token**、选 **模型** |
+| 4️⃣ | 回到对话界面，开始 |
 
 </div>
-
-<br/>
-
-**需要配置的项目：**
-
-- 🌐 **API 地址**：你的后端地址
-- 🔑 **App Token**：你设置的 APP_TOKEN
-- 🤖 **模型**：根据上游 API 选择
 
 <br/>
 
 ---
 
-<br/>
-
-## ✨ 主要特点
-
-<div align="center">
-<table>
-<tr>
-<td align="center" width="20%">
-
-### 💜 原作人格
-
-<sub>完整复刻的人格与语气<br/>定义于 prompts.json</sub>
-
-</td>
-<td align="center" width="20%">
-
-### 💭 上下文记忆
-
-<sub>今天+昨天对话自动<br/>融入后续回复</sub>
-
-</td>
-<td align="center" width="20%">
-
-### 📔 自动日记
-
-<sub>每晚生成亚托莉<br/>视角的日记</sub>
-
-</td>
-<td align="center" width="20%">
-
-### 🧠 长期记忆
-
-<sub>fact + 情景记忆 + 心里念头<br/>合适时自然浮现</sub>
-
-</td>
-<td align="center" width="20%">
-
-
-### 🧠 类人记忆系统
-
-ATRI 的长期记忆不只是“查资料”，而是分成三层：
-
-| 层级 | 存储 | 用途 |
-|------|------|------|
-| 🧩 长期事实 | `fact_memories` | 喜好、雷区、约定、重要身份信息，少而精 |
-| 🎞️ 情景记忆 | `episodic_memories` | 从日记中提炼“那天发生过什么”，用于自然联想 |
-| 💭 心里念头 | `memory_intentions` | 日记里未说出口、之后找机会自然说的话 |
-
-聊天前会自动做一次轻量联想：相关旧事会进入“脑海里自然浮现”的提示块。她不会说“数据库显示”，而是像人一样在合适的时候想起过去；如果细节不确定，再用 `read_diary` / `read_conversation` 查证。
-
-### 🖼️ 多媒体支持
-
-<sub>发送图片或文档<br/>一起查看理解</sub>
-
-</td>
-</tr>
-</table>
-</div>
+## 🔬 技术亮点一览
 
 <br/>
-
-### 🔬 技术亮点
 
 <div align="center">
 
 | 特性 | 说明 |
-|:----:|:-----|
-| 🎨 **状态胶囊** | 动态心情状态：文案 + 颜色，模型通过 `set_status` 工具自主更新 |
-| 💕 **亲密度系统** | 关系温度影响回复风格，不维护会慢慢淡 |
-| 🔧 **8 个注册工具** | `search_memory` `read_diary` `read_conversation` `web_search` `set_status` `update_intimacy` `remember_fact` `forget_fact` |
-| 📬 **主动消息** | 亚托莉可以主动开口说话；支持 Email / 企业微信外部通知 |
-| 🌐 **原生多格式** | 原生支持 OpenAI、Anthropic (Claude)、Gemini 三种 API 格式 |
-| 🔀 **分流架构** | 聊天和日记可以用不同上游，互不影响 |
-| 🌐 **网页管理后台** | 运行时配置、提示词编辑、加密密钥管理（仅 VPS） |
-| 🔌 **兼容 API** | 提供 OpenAI / Anthropic / Gemini 兼容端点，第三方客户端可直接接入（仅 VPS） |
+|:---:|:---|
+| 🎨 **状态胶囊** | 模型自主输出 `label + pillColor + textColor + reason`，前端 `animateColorAsState` 平滑过渡 |
+| 💕 **亲密度系统** | `[-100, +100]`，进 prompt 影响回复风格，每 3 天向 0 衰减；正数变化最大 +10，负数最严重 -50 |
+| 🧠 **三层记忆** | `fact_memories` / `episodic_memories` / `memory_intentions` 各司其职 |
+| 🌃 **夜间深整理** | cron 触发：日记 → highlights 向量 → 情景记忆 → 念头 → fact 候选 → fact 合并 → 自我模型微调 → 状态/亲密度收尾 |
+| 🤖 **4 个内省工具** | `read_diary` / `read_conversation` / `search_memory` / `web_search`——只在不确定时用 |
+| ✏️ **结构化 JSON 回复** | 模型输出 `{ reply, status, intimacyDelta, rememberFacts, forgetFacts }` 一次完成所有副作用 |
+| 📬 **主动消息** | cron `*/30 * * * *` 评估，可推 Email；未接住的会以"心里想"形式接力到下次对话 |
+| 🌐 **原生多格式** | OpenAI / Anthropic / Gemini 三种 API 格式由 `llm-service.ts` 自动转换，统一内部用 OpenAI schema |
+| 🔀 **分流上游** | chat / diary / embeddings 三条独立通道——日记上游挂了不影响聊天 |
+| 🔐 **路径签名 URL** | 给模型的图片用 `/media-s/<exp>/<sig>/<key>` 形式，对抗模型丢 query |
 
 </div>
 
 <br/>
 
 ---
-
-<br/>
 
 ## 🖼️ 界面预览
 
@@ -358,26 +304,26 @@ ATRI 的长期记忆不只是“查资料”，而是分成三层：
 <table>
 <tr>
 <td align="center">
-<img src="欢迎界面.jpg" width="200" style="border-radius: 12px;"/><br/>
-<b>👋 欢迎界面</b>
+<img src="欢迎界面.jpg" width="200" /><br/>
+<sub>👋 欢迎</sub>
 </td>
 <td align="center">
-<img src="对话界面.jpg" width="200" style="border-radius: 12px;"/><br/>
-<b>💬 对话界面</b>
+<img src="对话界面.jpg" width="200" /><br/>
+<sub>💬 对话</sub>
 </td>
 <td align="center">
-<img src="侧边栏.jpg" width="200" style="border-radius: 12px;"/><br/>
-<b>📋 侧边栏</b>
+<img src="侧边栏.jpg" width="200" /><br/>
+<sub>📋 日期抽屉</sub>
 </td>
 </tr>
 <tr>
 <td align="center">
-<img src="日记界面.jpg" width="200" style="border-radius: 12px;"/><br/>
-<b>📖 日记界面</b>
+<img src="日记界面.jpg" width="200" /><br/>
+<sub>📔 日记本</sub>
 </td>
 <td align="center">
-<img src="设置界面.jpg" width="200" style="border-radius: 12px;"/><br/>
-<b>⚙️ 设置界面</b>
+<img src="设置界面.jpg" width="200" /><br/>
+<sub>⚙️ 设置</sub>
 </td>
 <td></td>
 </tr>
@@ -388,84 +334,70 @@ ATRI 的长期记忆不只是“查资料”，而是分成三层：
 
 ---
 
-<br/>
-
 ## 📁 项目结构
 
 ```
 .
-├── 📱 ATRI/                    # Android 应用 (Kotlin / Jetpack Compose)
-│   ├── app/src/main/
-│   │   ├── java/me/atri/
-│   │   │   ├── 📊 data/        # 数据层（API、DB、Repository、DataStore）
-│   │   │   ├── 💉 di/          # 依赖注入（Koin）
-│   │   │   ├── 🎨 ui/          # UI 层（Compose 界面 & 组件）
-│   │   │   └── 🔧 utils/       # 工具类
-│   │   └── 📦 res/             # 资源文件
-│   └── build.gradle.kts
+├── 📱 ATRI/                     # Android 客户端（Kotlin / Compose）
+│   └── app/src/main/java/me/atri/
+│       ├── data/                 #   API · Room · Repository · DataStore
+│       ├── di/                   #   Koin DI
+│       └── ui/                   #   chat / diary / settings / welcome / theme
 │
-├── ☁️ worker/                  # Cloudflare Worker 后端
+├── ☁️ worker/                   # Cloudflare Worker 后端
 │   ├── src/
-│   │   ├── 🛤️ routes/          # API 路由
-│   │   ├── ⚙️ services/        # 核心服务
-│   │   └── 🔧 utils/           # 工具函数
-│   ├── 🗄️ db/schema.sql        # 数据库结构
-│   └── ⚙️ wrangler.toml        # Worker 配置模板（公开仓库已脱敏）
+│   │   ├── routes/               #   chat / diary / conversation / media / admin / proactive / compat
+│   │   ├── services/             #   agent / memory / nightly-mind / proactive / fact-* / self-model
+│   │   ├── jobs/                 #   diary-cron · proactive-cron
+│   │   ├── config/prompts.json   #   由 sync_shared.py 自动从 shared/prompts/ 生成
+│   │   └── utils/
+│   ├── migrations/               #   0004 ~ 0013，按时间顺序的 D1 schema 演进
+│   └── wrangler.toml
 │
-├── 🖥️ server/                  # VPS 后端（Fastify + PostgreSQL + pgvector）
-│   ├── src/
-│   │   ├── 🛤️ routes/          # API 路由（chat, diary, conversation, media, admin, admin-ui, models, compat）
-│   │   ├── ⚙️ services/        # 核心服务（agent, LLM, memory, diary, profile, runtime-settings）
-│   │   ├── ⏰ jobs/            # 定时任务（diary-cron, diary-scheduler, memory-rebuild）
-│   │   ├── 🔧 runtime/        # 环境与类型
-│   │   ├── 📋 admin/          # 管理日志缓冲
-│   │   ├── 📝 config/         # 默认提示词
-│   │   ├── 🔧 utils/          # 工具函数（鉴权、签名、附件、清洗）
-│   │   └── 📜 scripts/        # 构建与导入脚本
-│   ├── 🌐 admin-ui/           # 网页管理后台（静态资源）
-│   ├── 🐳 docker-compose.yml
-│   ├── 🐳 Dockerfile
-│   └── ☁️ zeabur.yaml          # Zeabur 部署配置
+├── 🔗 shared/prompts/           # 💜 她的灵魂文件（Markdown，不是 JSON）
+│   ├── core_self.md              #   人格底色：嘴硬、在意、不喜欢客服腔
+│   ├── agent.md                  #   实时聊天的输出 schema 与硬规则
+│   ├── diary.md                  #   每晚怎么写日记
+│   ├── nightly_memory.md         #   夜间从对话提炼长期事实候选
+│   ├── nightly_state.md          #   夜间收尾的状态/亲密度
+│   ├── self_model_update.md      #   自我模型的缓慢演化
+│   └── proactive.md              #   主动开口的判断规则
 │
-├── 🔗 shared/                  # 共享配置
-│   └── 💬 prompts.json         # 人格定义和提示词
-│
-└── 📜 scripts/                 # 部署脚本
-    ├── 🪟 deploy_cf.bat        # Windows CF 部署
-    └── 🔄 sync_shared.py       # 同步提示词
+└── 📜 scripts/
+    ├── deploy_cf.bat             #   Windows 一键部署 Cloudflare
+    └── sync_shared.py            #   shared/prompts/*.md → worker/src/config/prompts.json
 ```
+
+<br/>
+
+> 💡 **改人格不动代码**：编辑 `shared/prompts/*.md` → 跑 `py scripts/sync_shared.py` → `npx wrangler deploy` 即可生效。
 
 <br/>
 
 ---
 
-<br/>
-
-## 📚 进一步了解
+## 📚 进一步阅读
 
 <div align="center">
 
 | 📖 文档 | 📝 内容 |
-|:-------:|:--------|
-| [**🏗️ 技术架构蓝图**](TECH_ARCHITECTURE_BLUEPRINT.md) | 设计思路、数据流、API 契约 |
-| [**🖥️ VPS 部署指南**](server/README.md) | Docker、1Panel、宝塔部署 |
-| [**💜 人格定义**](shared/prompts.json) | 亚托莉的人格和提示词 |
+|:---:|:---|
+| [**🏗️ 技术架构蓝图**](TECH_ARCHITECTURE_BLUEPRINT.md) | 设计取舍、核心链路、API 契约（字段级）、数据模型、扩展指南 |
+| [**💜 灵魂文件**](shared/prompts/) | 她到底是怎么"想"的——7 份 Markdown |
 
 </div>
 
 <br/>
 
 ---
-
-<br/>
 
 ## 🤝 贡献
 
 <div align="center">
 
-**欢迎提交 Issue 和 Pull Request！**
+**欢迎提 Issue 和 PR**
 
-每一份贡献都让 ATRI 变得更好 💜
+<sub>每一份贡献都让她更像她自己</sub>
 
 </div>
 
@@ -473,19 +405,15 @@ ATRI 的长期记忆不只是“查资料”，而是分成三层：
 
 ---
 
-<br/>
-
 ## 📄 License
 
-本项目使用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权。
+本项目使用 [**PolyForm Noncommercial License 1.0.0**](LICENSE)。
 
 <div align="center">
 
 | ✅ 允许 | ❌ 禁止 |
-|:-------:|:-------:|
-| 个人学习 | 商业用途（需另行授权） |
-| 学术研究 | |
-| 非商业使用 | |
+|:---:|:---:|
+| 个人学习 / 学术研究 / 非商业使用 | 商业用途（需另行授权） |
 
 </div>
 
@@ -493,24 +421,12 @@ ATRI 的长期记忆不只是“查资料”，而是分成三层：
 
 ---
 
-<br/>
-
 <div align="center">
 
-## ⭐ Star History
-
-**如果这个项目对你有帮助，欢迎给一个 Star ⭐**
+<sub>💜 *为那些相信 AI 不只是工具的人而做* 💜</sub>
 
 <br/>
 
----
-
-<br/>
-
-<sub>💜 Built with love for those who believe AI can be more than just a tool 💜</sub>
-
-<br/>
-
-**Made by [MIKUSCAT](https://github.com/MIKUSCAT) with ❤️**
+**Made by [MIKUSCAT](https://github.com/MIKUSCAT)**
 
 </div>

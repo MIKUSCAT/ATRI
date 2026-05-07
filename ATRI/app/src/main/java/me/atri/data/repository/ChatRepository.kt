@@ -147,43 +147,6 @@ class ChatRepository(
         }
     }
 
-    suspend fun persistAtriMessage(finalMessage: MessageEntity, status: BioChatResponse.Status? = null) = withContext(Dispatchers.IO) {
-        val cleanedContent = cleanTimestampPrefix(finalMessage.content)
-        val statusJson = statusToJson(status)
-        val sanitized = finalMessage.copy(
-            content = cleanedContent,
-            attachments = finalMessage.attachments,
-            mood = statusJson
-        )
-        val existing = messageDao.getMessageById(sanitized.id)
-
-        val persisted = if (existing == null) {
-            messageDao.insert(sanitized)
-            sanitized
-        } else {
-            saveMessageVersion(
-                message = existing,
-                newContent = sanitized.content,
-                newAttachments = sanitized.attachments,
-                mood = statusJson
-            )
-        }
-
-        markConversationTouched(persisted.timestamp)
-
-        val userId = preferencesStore.ensureUserId()
-        logConversationSafely(
-            logId = persisted.id,
-            userId = userId,
-            userName = null,
-            role = "atri",
-            content = persisted.content,
-            timestamp = persisted.timestamp,
-            attachments = persisted.attachments,
-            mood = persisted.mood
-        )
-    }
-
     suspend fun editMessage(
         id: String,
         newContent: String,
@@ -224,25 +187,6 @@ class ChatRepository(
     suspend fun deleteMessages(ids: List<String>) = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
         messageDao.softDeleteByIds(ids)
-    }
-
-    suspend fun undoDelete(id: String) {
-        messageDao.undoDelete(id)
-    }
-
-    suspend fun toggleImportant(id: String, important: Boolean) {
-        messageDao.updateImportant(id, important)
-    }
-
-    suspend fun regenerateMessage(messageId: String, newContent: String) = withContext(Dispatchers.IO) {
-        val message = messageDao.getRecentMessages(1000).find { it.id == messageId } ?: return@withContext
-        if (!message.isFromAtri) return@withContext
-
-        saveMessageVersion(
-            message = message,
-            newContent = newContent,
-            newAttachments = message.attachments
-        )
     }
 
     suspend fun deleteConversationLogs(ids: List<String>) = withContext(Dispatchers.IO) {
@@ -349,11 +293,6 @@ class ChatRepository(
         )
     }
 
-    suspend fun getMessageVersions(messageId: String): List<MessageVersionEntity> =
-        withContext(Dispatchers.IO) {
-            messageVersionDao.getVersions(messageId)
-        }
-
     private suspend fun buildChatRequest(
         userId: String? = null,
         logId: String? = null,
@@ -435,10 +374,20 @@ class ChatRepository(
 
     private fun statusToJson(status: BioChatResponse.Status?): String? {
         if (status == null) return null
-        val label = status.label?.replace("\"", "") ?: ""
-        val pillColor = status.pillColor?.replace("\"", "") ?: ""
-        val textColor = status.textColor?.replace("\"", "") ?: ""
-        return """{"label":"$label","pillColor":"$pillColor","textColor":"$textColor"}"""
+        val label = escapeJsonString(status.label.orEmpty())
+        val pillColor = escapeJsonString(status.pillColor.orEmpty())
+        val textColor = escapeJsonString(status.textColor.orEmpty())
+        val reason = escapeJsonString(status.reason.orEmpty())
+        return """{"label":"$label","pillColor":"$pillColor","textColor":"$textColor","reason":"$reason"}"""
+    }
+
+    private fun escapeJsonString(value: String): String {
+        // 仅做最小限度转义：反斜杠、双引号、换行
+        return value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
     }
 
     private fun currentClientTimeIso(): String =

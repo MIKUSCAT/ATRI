@@ -14,7 +14,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,15 +32,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.atri.data.model.AtriStatus
@@ -102,6 +108,7 @@ fun ChatTopBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StatusPill(status: AtriStatus) {
     val atriColors = AtriTheme.colors
@@ -138,13 +145,27 @@ private fun StatusPill(status: AtriStatus) {
         }
     }
 
+    // 长按胶囊看 reason：解释“她为什么是这个心境”
+    var showReasonDialog by remember { mutableStateOf(false) }
+    val liveStatus = status as? AtriStatus.LiveStatus
+    val reason = liveStatus?.reason
+    val pillShape = RoundedCornerShape(50)
+
     Surface(
-        shape = RoundedCornerShape(50),
+        shape = pillShape,
         color = pillColor,
         tonalElevation = 0.dp,
-        modifier = Modifier.animateContentSize(
-            animationSpec = tween(400, easing = FastOutSlowInEasing)
-        )
+        modifier = Modifier
+            .animateContentSize(
+                animationSpec = tween(400, easing = FastOutSlowInEasing)
+            )
+            .clip(pillShape)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    if (liveStatus != null) showReasonDialog = true
+                }
+            )
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -177,6 +198,41 @@ private fun StatusPill(status: AtriStatus) {
                 )
             }
         }
+    }
+
+    if (showReasonDialog && liveStatus != null) {
+        AlertDialog(
+            onDismissRequest = { showReasonDialog = false },
+            title = {
+                Text(
+                    text = liveStatus.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = reason?.takeIf { it.isNotBlank() } ?: "她没说为什么",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "（长按胶囊看见我）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showReasonDialog = false }) {
+                    Text("好哦")
+                }
+            }
+        )
     }
 }
 

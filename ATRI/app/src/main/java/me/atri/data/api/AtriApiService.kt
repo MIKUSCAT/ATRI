@@ -10,6 +10,7 @@ import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
 import me.atri.data.api.response.BioChatResponse
 import me.atri.data.api.response.PullConversationResponse
+import me.atri.data.api.response.SelfModelResponse
 import me.atri.data.api.response.UploadResponse
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -75,4 +76,9 @@ interface AtriApiService {
         @Query("limit") limit: Int = 200,
         @Query("tombstones") tombstones: Boolean = false
     ): Response<PullConversationResponse>
+
+    @GET("/api/v1/me/self-model")
+    suspend fun getSelfModel(
+        @Query("userId") userId: String
+    ): Response<SelfModelResponse>
 }

@@ -115,7 +115,8 @@ export function registerChatRoutes(router: RouterType) {
                 status: {
                   label: state.statusLabel,
                   pillColor: state.statusPillColor,
-                  textColor: state.statusTextColor
+                  textColor: state.statusTextColor,
+                  reason: state.statusReason ?? undefined
                 },
                 action: null,
                 intimacy: state.intimacy,

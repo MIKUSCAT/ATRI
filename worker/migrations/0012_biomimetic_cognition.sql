@@ -1,20 +1,5 @@
 -- 仿生认知重构：白天轻量聊天 + 夜间深整理
 
-CREATE TABLE IF NOT EXISTS chat_turns (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  user_log_id TEXT,
-  reply_log_id TEXT,
-  status TEXT NOT NULL,
-  route TEXT,
-  started_at INTEGER NOT NULL,
-  completed_at INTEGER,
-  error TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_chat_turns_user_started
-  ON chat_turns(user_id, started_at DESC);
-
 CREATE TABLE IF NOT EXISTS memory_candidates (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
