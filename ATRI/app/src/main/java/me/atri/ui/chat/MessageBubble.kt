@@ -32,7 +32,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +53,7 @@ import coil.compose.AsyncImage
 import com.halilibo.richtext.markdown.Markdown
 import com.halilibo.richtext.ui.RichTextScope
 import com.halilibo.richtext.ui.material3.Material3RichText
+import kotlinx.coroutines.delay
 import me.atri.data.db.entity.MessageEntity
 import me.atri.data.model.AttachmentType
 import me.atri.ui.theme.AtriTheme
@@ -59,6 +62,9 @@ import me.atri.ui.theme.AtriTheme
 fun MessageBubble(
     message: MessageEntity,
     isLoading: Boolean = false,
+    playTypewriter: Boolean = false,
+    onTypewriterStarted: (String) -> Unit = {},
+    onTypewriterComplete: (String) -> Unit = {},
     onLongPress: (MessageEntity) -> Unit = {},
     onVersionSwitch: (String, Int) -> Unit = { _, _ -> }
 ) {
@@ -74,6 +80,55 @@ fun MessageBubble(
     LaunchedEffect(message.id) {
         if (isNewMessage) {
             animationStarted = true
+        }
+    }
+
+    val totalCodePoints = remember(message.content) {
+        if (message.content.isEmpty()) 0
+        else message.content.codePointCount(0, message.content.length)
+    }
+    var revealedCodePoints by remember(message.id) {
+        mutableIntStateOf(if (playTypewriter) 0 else totalCodePoints)
+    }
+    var typewriterRun by remember(message.id) { mutableIntStateOf(0) }
+    var isTypewriterRunning by remember(message.id) { mutableStateOf(false) }
+
+    LaunchedEffect(message.id, playTypewriter) {
+        if (message.isFromAtri && playTypewriter && !isTypewriterRunning) {
+            typewriterRun += 1
+        }
+    }
+
+    LaunchedEffect(message.id, message.content, playTypewriter) {
+        if (!isTypewriterRunning && !playTypewriter) {
+            revealedCodePoints = totalCodePoints
+        }
+    }
+
+    LaunchedEffect(message.id, typewriterRun) {
+        if (typewriterRun > 0 && totalCodePoints > 0) {
+            isTypewriterRunning = true
+            revealedCodePoints = 0
+            onTypewriterStarted(message.id)
+            // 等首屏渲染稳定，再开始逐字显现
+            delay(120)
+            while (revealedCodePoints < totalCodePoints) {
+                delay(18)
+                revealedCodePoints = (revealedCodePoints + 1).coerceAtMost(totalCodePoints)
+            }
+            revealedCodePoints = totalCodePoints
+            isTypewriterRunning = false
+            onTypewriterComplete(message.id)
+        }
+    }
+    val visibleContent by remember(message.content) {
+        derivedStateOf {
+            if (revealedCodePoints >= totalCodePoints || message.content.isEmpty()) {
+                message.content
+            } else {
+                val end = message.content.offsetByCodePoints(0, revealedCodePoints)
+                message.content.substring(0, end)
+            }
         }
     }
 
@@ -216,7 +271,7 @@ fun MessageBubble(
                     }
 
                     if (message.content.isNotEmpty()) {
-                        val contentText = message.content
+                        val contentText = visibleContent
                         val hasMarkdown = remember(message.id, contentText) {
                             val markdownHints = listOf("*", "_", "[", "`")
                             markdownHints.any { hint -> contentText.contains(hint) }

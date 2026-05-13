@@ -2,33 +2,54 @@ package me.atri.ui.chat
 
 import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.atri.data.model.AtriStatus
@@ -85,21 +106,64 @@ fun ChatTopBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StatusPill(status: AtriStatus) {
-    val colorScheme = MaterialTheme.colorScheme
     val atriColors = AtriTheme.colors
-
-    val pillColor = when (status) {
+    val targetPill = when (status) {
         is AtriStatus.LiveStatus -> parseDynamicColor(status.pillColor, atriColors.messageBubbleAtri)
         is AtriStatus.Thinking -> atriColors.messageBubbleAtri
     }
-    val textColor = contrastTextColor(pillColor)
+    val targetText = when (status) {
+        is AtriStatus.LiveStatus -> parseDynamicColor(status.textColor, contrastTextColor(targetPill))
+        is AtriStatus.Thinking -> contrastTextColor(targetPill)
+    }
+
+    val pillColor by animateColorAsState(
+        targetValue = targetPill,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "pillColor"
+    )
+    val textColor by animateColorAsState(
+        targetValue = targetText,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "textColor"
+    )
+
+    var pulseKey by remember { mutableIntStateOf(0) }
+    LaunchedEffect(status.text) { pulseKey++ }
+    val dotScale = remember { Animatable(1f) }
+    LaunchedEffect(pulseKey) {
+        if (pulseKey > 0) {
+            dotScale.snapTo(1.4f)
+            dotScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessLow)
+            )
+        }
+    }
+
+    // 长按胶囊看 reason：解释“她为什么是这个心境”
+    var showReasonDialog by remember { mutableStateOf(false) }
+    val liveStatus = status as? AtriStatus.LiveStatus
+    val reason = liveStatus?.reason
+    val pillShape = RoundedCornerShape(50)
 
     Surface(
-        shape = RoundedCornerShape(50),
+        shape = pillShape,
         color = pillColor,
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
+        modifier = Modifier
+            .animateContentSize(
+                animationSpec = tween(400, easing = FastOutSlowInEasing)
+            )
+            .clip(pillShape)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    if (liveStatus != null) showReasonDialog = true
+                }
+            )
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -108,19 +172,17 @@ private fun StatusPill(status: AtriStatus) {
                 .widthIn(max = 200.dp)
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
-                    .height(8.dp)
-                    .width(8.dp),
-                shape = CircleShape,
-                color = textColor,
-                tonalElevation = 0.dp
-            ) {}
+                    .size(8.dp)
+                    .scale(dotScale.value)
+                    .clip(CircleShape)
+                    .background(textColor)
+            )
             AnimatedContent(
                 targetState = status.text,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(200)) togetherWith
-                        fadeOut(animationSpec = tween(150))
+                    fadeIn(animationSpec = tween(350)) togetherWith fadeOut(animationSpec = tween(350))
                 },
                 label = "statusText"
             ) { text ->
@@ -133,6 +195,41 @@ private fun StatusPill(status: AtriStatus) {
                 )
             }
         }
+    }
+
+    if (showReasonDialog && liveStatus != null) {
+        AlertDialog(
+            onDismissRequest = { showReasonDialog = false },
+            title = {
+                Text(
+                    text = liveStatus.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = reason?.takeIf { it.isNotBlank() } ?: "她没说为什么",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "（长按胶囊看见我）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showReasonDialog = false }) {
+                    Text("好哦")
+                }
+            }
+        )
     }
 }
 

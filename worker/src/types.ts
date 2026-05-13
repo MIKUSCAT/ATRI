@@ -4,6 +4,17 @@ export interface Env {
   MEDIA_BUCKET: R2Bucket;
   OPENAI_API_KEY: string;
   OPENAI_API_URL: string;
+  CHAT_API_FORMAT?: 'openai' | 'anthropic' | 'gemini';
+  DEFAULT_CHAT_MODEL?: string;
+  DIARY_API_FORMAT?: 'openai' | 'anthropic' | 'gemini';
+  AGENT_TEMPERATURE?: string;
+  AGENT_MAX_TOKENS?: string;
+  AGENT_TIMEOUT_MS?: string;
+  AUTO_RECALL_ENABLED?: string;
+  AUTO_RECALL_MIN_SCORE?: string;
+  DIARY_TEMPERATURE?: string;
+  DIARY_MAX_TOKENS?: string;
+  PROFILE_TEMPERATURE?: string;
   // Tavily 搜索（可选，不配则不启用 web_search）
   TAVILY_API_KEY?: string;
   // 媒体签名密钥（可选，不配则回退用 APP_TOKEN）
@@ -12,14 +23,32 @@ export interface Env {
   DIARY_API_KEY?: string;
   DIARY_API_URL?: string;
   DIARY_MODEL?: string;
+  EMAIL_API_KEY?: string;
+  EMAIL_FROM?: string;
   EMBEDDINGS_API_KEY: string;
   EMBEDDINGS_API_URL: string;
   EMBEDDINGS_MODEL: string;
   ADMIN_API_KEY?: string;
+  ADMIN_CONFIG_ENCRYPTION_KEY?: string;
   APP_TOKEN?: string;
+  COMPAT_API_KEY?: string;
+
+  // 主动消息（可选）
+  PROACTIVE_ENABLED?: string;
+  PROACTIVE_INTERVAL_MINUTES?: string;
+  PROACTIVE_TIME_ZONE?: string;
+  PROACTIVE_QUIET_START_HOUR?: string;
+  PROACTIVE_QUIET_END_HOUR?: string;
+  PROACTIVE_MAX_DAILY?: string;
+  PROACTIVE_COOLDOWN_HOURS?: string;
+  PROACTIVE_RECENT_ACTIVE_MINUTES?: string;
+  PROACTIVE_NOTIFICATION_CHANNEL?: string;
+  PROACTIVE_NOTIFICATION_TARGET?: string;
+
+  THINKING_MODE_ENABLED?: string;
 }
 
-export const CHAT_MODEL = 'openai.gpt-5-chat';
+export const CHAT_MODEL = 'claude-opus-4-6';
 export const ATTACHMENT_TYPES = ['image', 'document'] as const;
 export type AttachmentType = (typeof ATTACHMENT_TYPES)[number];
 
@@ -44,12 +73,16 @@ export interface BioChatRequest {
   content: string;
   logId?: string;
   attachments?: AttachmentPayload[];
-  modelKey?: string;
   timeZone?: string;
 }
 
 export interface BioChatResponse {
   reply: string;
+  status: { label: string; pillColor: string; textColor: string; reason?: string };
+  action: string | null;
+  replyLogId?: string;
+  replyTimestamp?: number;
+  replyTo?: string;
 }
 
 // Memory 相关类型

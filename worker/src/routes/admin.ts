@@ -1,13 +1,17 @@
-import type { Router } from 'itty-router';
+import type { RouterType } from 'itty-router';
 import { Env } from '../types';
 import { jsonResponse } from '../utils/json-response';
 import {
   deleteConversationLogsByUser,
   deleteDiaryEntriesByUser,
+  deleteFactMemoriesByUser,
   deleteUserSettingsByUser,
+  deleteUserStateByUser,
   listDiaryDatesByUser
 } from '../services/data-service';
 import { deleteDiaryVectors } from '../services/memory-service';
+import { deleteEpisodicMemoriesByUser } from '../services/episodic-memory-service';
+import { deleteMemoryIntentionsByUser } from '../services/memory-intention-service';
 import { sanitizeFileName } from '../utils/file';
 
 function extractToken(value: string | null) {
@@ -15,7 +19,7 @@ function extractToken(value: string | null) {
   return value.startsWith('Bearer ') ? value.slice(7).trim() : value.trim();
 }
 
-export function registerAdminRoutes(router: Router) {
+export function registerAdminRoutes(router: RouterType) {
   router.post('/admin/clear-user', async (request, env: Env) => {
     const adminKey = (env.ADMIN_API_KEY || '').trim();
     if (!adminKey) {
@@ -45,6 +49,10 @@ export function registerAdminRoutes(router: Router) {
       const vectorDeleted = vectorIds.length ? await deleteDiaryVectors(env, vectorIds) : 0;
       const mediaDeleted = await deleteUserMediaObjects(env, userId);
       const settingsDeleted = await deleteUserSettingsByUser(env, userId);
+      const factDeleted = await deleteFactMemoriesByUser(env, userId);
+      const episodicDeleted = await deleteEpisodicMemoriesByUser(env, userId);
+      const intentionsDeleted = await deleteMemoryIntentionsByUser(env, userId);
+      const userStateDeleted = await deleteUserStateByUser(env, userId);
 
       return jsonResponse({
         ok: true,
@@ -54,7 +62,11 @@ export function registerAdminRoutes(router: Router) {
           diaryVectors: vectorDeleted,
           conversationLogs: logDeleted,
           mediaObjects: mediaDeleted,
-          userSettings: settingsDeleted
+          userSettings: settingsDeleted,
+          factMemories: factDeleted,
+          episodicMemories: episodicDeleted,
+          memoryIntentions: intentionsDeleted,
+          userStates: userStateDeleted
         }
       });
     } catch (error: any) {
@@ -62,6 +74,7 @@ export function registerAdminRoutes(router: Router) {
       return jsonResponse({ error: 'clear_failed', details: String(error?.message || error) }, 500);
     }
   });
+
 }
 
 function buildUserMemoryVectorIds(userId: string, dates: string[]) {

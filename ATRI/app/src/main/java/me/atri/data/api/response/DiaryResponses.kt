@@ -26,3 +26,20 @@ data class DiaryEntryResponse(
     val entry: DiaryEntryDto? = null,
     val error: String? = null
 )
+
+@Serializable
+data class RegenerateAcceptResponse(
+    val taskId: String,
+    val status: String
+)
+
+@Serializable
+data class RegenerateStatusResponse(
+    val taskId: String,
+    val currentPhase: String? = null,
+    val completedPhases: Int = 0,
+    val totalPhases: Int = 0,
+    val percent: Int = 0,
+    val error: String? = null,
+    val entry: DiaryEntryDto? = null
+)

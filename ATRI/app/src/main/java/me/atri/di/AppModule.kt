@@ -10,7 +10,5 @@ val appModule = module {
     single { AtriDatabase.getInstance(androidContext()) }
     single { get<AtriDatabase>().messageDao() }
     single { get<AtriDatabase>().messageVersionDao() }
-    single { get<AtriDatabase>().diaryDao() }
-    single { get<AtriDatabase>().memoryDao() }
     single { PreferencesStore(androidContext().appDataStore) }
 }

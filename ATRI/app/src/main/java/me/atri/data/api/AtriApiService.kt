@@ -5,13 +5,14 @@ import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
 import me.atri.data.api.request.InvalidateMemoryRequest
 import me.atri.data.api.request.DiaryRegenerateRequest
-import me.atri.data.api.response.CurrentModelResponse
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
 import me.atri.data.api.response.LastConversationResponse
 import me.atri.data.api.response.BioChatResponse
-import me.atri.data.api.response.ModelListResponse
 import me.atri.data.api.response.PullConversationResponse
+import me.atri.data.api.response.RegenerateAcceptResponse
+import me.atri.data.api.response.RegenerateStatusResponse
+import me.atri.data.api.response.SelfModelResponse
 import me.atri.data.api.response.UploadResponse
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -68,13 +69,12 @@ interface AtriApiService {
     @POST("/diary/regenerate")
     suspend fun regenerateDiary(
         @Body request: DiaryRegenerateRequest
-    ): Response<DiaryEntryResponse>
+    ): Response<RegenerateAcceptResponse>
 
-    @GET("/models")
-    suspend fun fetchModelList(): Response<ModelListResponse>
-
-    @GET("/current-model")
-    suspend fun fetchCurrentModel(): Response<CurrentModelResponse>
+    @GET("/diary/regenerate/status")
+    suspend fun getRegenerateStatus(
+        @Query("taskId") taskId: String
+    ): Response<RegenerateStatusResponse>
 
     @GET("/conversation/pull")
     suspend fun pullConversation(
@@ -83,4 +83,9 @@ interface AtriApiService {
         @Query("limit") limit: Int = 200,
         @Query("tombstones") tombstones: Boolean = false
     ): Response<PullConversationResponse>
+
+    @GET("/api/v1/me/self-model")
+    suspend fun getSelfModel(
+        @Query("userId") userId: String
+    ): Response<SelfModelResponse>
 }

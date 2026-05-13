@@ -389,6 +389,7 @@ fun ChatScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var pendingScrollIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     val showWelcome = !welcomeDismissed
+    val isReady = !showWelcome
     val avatarPickerScope = rememberCoroutineScope()
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -413,6 +414,7 @@ fun ChatScreen(
     } else {
         baseBottomPadding
     }
+    val typewriterMessageId = uiState.latestStreamingMessageId
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -461,6 +463,7 @@ fun ChatScreen(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = isReady,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -522,9 +525,9 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .pointerInput(showWelcome, drawerState.isOpen) {
-                        // 只在非欢迎界面且抽屉关闭时检测左右滑
-                        if (!showWelcome && !drawerState.isOpen) {
+                    .pointerInput(isReady, drawerState.isOpen) {
+                        // 只在完整进入对话界面且抽屉关闭时检测左右滑
+                        if (isReady && !drawerState.isOpen) {
                             detectHorizontalDragGestures(
                                 onDragStart = {
                                     swipeOffset = 0f
@@ -591,6 +594,11 @@ fun ChatScreen(
                                         }
                                         MessageBubble(
                                             message = item.message,
+                                            playTypewriter = item.message.isFromAtri &&
+                                                item.message.id == typewriterMessageId &&
+                                                item.message.id !in uiState.typewriterConsumedMessageIds,
+                                            onTypewriterStarted = viewModel::markTypewriterStarted,
+                                            onTypewriterComplete = viewModel::markTypewriterComplete,
                                             onLongPress = { pressed ->
                                                 val anchor = listBounds?.let { bounds ->
                                                     val info = listState.layoutInfo.visibleItemsInfo

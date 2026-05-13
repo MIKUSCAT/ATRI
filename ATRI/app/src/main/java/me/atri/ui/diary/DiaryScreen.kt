@@ -35,6 +35,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -124,6 +125,8 @@ fun DiaryScreen(
                         entry = selectedEntry,
                         errorMessage = uiState.error,
                         isRegenerating = uiState.isRegeneratingEntry,
+                        regeneratePhase = uiState.regeneratePhase,
+                        regeneratePercent = uiState.regeneratePercent,
                         onRegenerate = { viewModel.regenerateEntry(it) },
                         onNavigateBack = viewModel::closeDiary
                     )
@@ -335,6 +338,8 @@ private fun DiaryDetailScreen(
     entry: DiaryEntryDto,
     errorMessage: String?,
     isRegenerating: Boolean,
+    regeneratePhase: String?,
+    regeneratePercent: Int,
     onRegenerate: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
@@ -445,6 +450,40 @@ private fun DiaryDetailScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
+            }
+
+            if (isRegenerating) {
+                Spacer(modifier = Modifier.height(16.dp))
+                val phaseLabel = regeneratePhaseLabel(regeneratePhase) ?: "准备中…"
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = phaseLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${regeneratePercent.coerceIn(0, 100)}%",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (regeneratePercent > 0) {
+                        LinearProgressIndicator(
+                            progress = { regeneratePercent.coerceIn(0, 100) / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))

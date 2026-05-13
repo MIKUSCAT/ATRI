@@ -16,7 +16,6 @@ import me.atri.data.model.AttachmentType
 import me.atri.data.model.PendingAttachment
 import me.atri.data.repository.ChatRepository
 import me.atri.data.repository.SyncResult
-import me.atri.data.repository.StatusRepository
 import me.atri.data.datastore.PreferencesStore
 import me.atri.data.db.entity.MessageEntity
 import java.time.Instant
@@ -45,7 +44,9 @@ data class ChatUiState(
     val error: String? = null,
     val showRegeneratePrompt: Boolean = false,
     val editedMessageId: String? = null,
-    val referencedMessage: ReferencedMessage? = null
+    val referencedMessage: ReferencedMessage? = null,
+    val latestStreamingMessageId: String? = null,
+    val typewriterConsumedMessageIds: Set<String> = emptySet()
 ) {
     data class ReferencedMessage(
         val messageId: String,
@@ -61,7 +62,6 @@ data class ChatUiState(
 
 class ChatViewModel(
     private val chatRepository: ChatRepository,
-    private val statusRepository: StatusRepository,
     private val preferencesStore: PreferencesStore
 ) : ViewModel() {
 
@@ -71,6 +71,7 @@ class ChatViewModel(
     private var pendingUserMessageId: String? = null
     private var backgroundSyncJob: Job? = null
     private var lastBackgroundSyncAt: Long = 0L
+    private var awaitingTypewriterReply = false
 
     data class WelcomeUiState(
         val greeting: String = "",
@@ -130,6 +131,18 @@ class ChatViewModel(
         }
     }
 
+    private fun unconsumedTypewriterId(state: ChatUiState, messageId: String?): String? {
+        return messageId?.takeUnless { it in state.typewriterConsumedMessageIds }
+    }
+
+    private fun detectPendingTypewriterReply(messages: List<MessageEntity>, state: ChatUiState): String? {
+        if (!awaitingTypewriterReply || !state.isLoading || state.latestStreamingMessageId != null) return null
+        val latest = messages.lastOrNull() ?: return null
+        return latest.id.takeIf {
+            latest.isFromAtri && latest.id !in state.typewriterConsumedMessageIds
+        }
+    }
+
     init {
         observeMessages()
         refreshWelcomeState()
@@ -169,9 +182,48 @@ class ChatViewModel(
     private fun observeMessages() {
         viewModelScope.launch {
             chatRepository.observeMessages().collect { messages ->
-                updateState { it.copy(historyMessages = messages) }
+                updateState { current ->
+                    val restoredStatus = restoreLatestStatus(messages)
+                    val pendingTypewriterId = detectPendingTypewriterReply(messages, current)
+                    if (pendingTypewriterId != null) {
+                        awaitingTypewriterReply = false
+                    }
+                    current.copy(
+                        historyMessages = messages,
+                        latestStreamingMessageId = pendingTypewriterId ?: current.latestStreamingMessageId,
+                        currentStatus = if (!current.isLoading && restoredStatus != null) {
+                            restoredStatus
+                        } else {
+                            current.currentStatus
+                        }
+                    )
+                }
             }
         }
+    }
+
+    private fun restoreLatestStatus(messages: List<MessageEntity>): AtriStatus? {
+        val mood = messages.asReversed()
+            .firstOrNull { it.isFromAtri && !it.mood.isNullOrBlank() }
+            ?.mood
+            ?: return null
+
+        val label = extractJsonString(mood, "label")?.takeIf { it.isNotBlank() } ?: return null
+        val pillColor = extractJsonString(mood, "pillColor")?.takeIf { it.isNotBlank() } ?: "#E3F2FD"
+        val textColor = extractJsonString(mood, "textColor")?.takeIf { it.isNotBlank() } ?: "#FFFFFF"
+        val reason = extractJsonString(mood, "reason")?.takeIf { it.isNotBlank() }
+        return AtriStatus.LiveStatus(label = label, pillColor = pillColor, textColor = textColor, reason = reason)
+    }
+
+    private fun extractJsonString(json: String, key: String): String? {
+        // 支持 \" 和 \\ 等基本转义；遇到非法字符截断
+        val pattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+        val raw = pattern.find(json)?.groupValues?.getOrNull(1) ?: return null
+        return raw
+            .replace("\\\"", "\"")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\\\", "\\")
     }
 
     fun sendMessage(content: String, attachments: List<PendingAttachment> = emptyList()) {
@@ -184,6 +236,7 @@ class ChatViewModel(
             val selectedReferenceAttachments = referenceSnapshot
                 ?.attachments?.filter { it.selected }?.map { it.attachment }.orEmpty()
 
+            awaitingTypewriterReply = true
             updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
 
             try {
@@ -196,27 +249,22 @@ class ChatViewModel(
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val serverTimestamp = chatResult.replyTimestamp
-                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    val latestUser = _uiState.value.historyMessages.lastOrNull { !it.isFromAtri }?.timestamp
-                    val adjustedTimestamp = latestUser?.let { maxOf(timestamp, it + 1) } ?: timestamp
-
-                    val atriMessage = MessageEntity(
-                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
-                        content = chatResult.reply,
-                        isFromAtri = true,
-                        timestamp = adjustedTimestamp
-                    )
-                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
-                    statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
+                    updateState {
+                        it.copy(
+                            currentStatus = AtriStatus.fromStatus(chatResult.status),
+                            latestStreamingMessageId = unconsumedTypewriterId(it, chatResult.replyLogId)
+                        )
+                    }
+                    awaitingTypewriterReply = false
 
                     if (referenceSnapshot != null) clearReferencedAttachments()
                 } else {
+                    awaitingTypewriterReply = false
                     val errorHint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                     updateState { it.copy(error = "发送失败: $errorHint", currentStatus = AtriStatus.idle()) }
                 }
             } catch (cancel: CancellationException) {
+                awaitingTypewriterReply = false
                 cleanupCancelledSend()
                 throw cancel
             } finally {
@@ -230,6 +278,26 @@ class ChatViewModel(
 
     fun cancelSending() {
         currentSendJob?.cancel()
+    }
+
+    fun markTypewriterStarted(messageId: String) {
+        updateState {
+            it.copy(
+                latestStreamingMessageId = if (it.latestStreamingMessageId == messageId) null else it.latestStreamingMessageId,
+                typewriterConsumedMessageIds = it.typewriterConsumedMessageIds + messageId
+            )
+        }
+        awaitingTypewriterReply = false
+    }
+
+    fun markTypewriterComplete(messageId: String) {
+        updateState {
+            if (it.latestStreamingMessageId == messageId) {
+                it.copy(latestStreamingMessageId = null)
+            } else {
+                it
+            }
+        }
     }
 
     private suspend fun cleanupCancelledSend() = withContext(NonCancellable) {
@@ -279,9 +347,9 @@ class ChatViewModel(
         val index = messages.indexOfFirst { it.id == messageId }
         if (index != -1) {
             val removed = messages.drop(index + 1)
-            removed.forEach { msg -> chatRepository.deleteMessage(msg.id) }
             val removedIds = removed.map { it.id }
             if (removedIds.isNotEmpty()) {
+                chatRepository.deleteMessages(removedIds)
                 chatRepository.deleteConversationLogs(removedIds)
                 // 收集受影响的日期，使对应的向量记忆失效
                 val affectedDates = removed.map { msg ->
@@ -317,37 +385,37 @@ class ChatViewModel(
                     all[index]
                 }
 
+                awaitingTypewriterReply = true
                 updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
                 deleteMessagesAfter(userMessage.id)
                 delay(300)
                 val result = chatRepository.regenerateResponse(
                     userMessageId = userMessage.id,
                     userContent = userMessage.content,
-                    userAttachments = userMessage.attachments
+                    userAttachments = userMessage.attachments,
+                    forceRegenerate = target.isFromAtri
                 )
 
                 if (result.isSuccess) {
                     val chatResult = result.getOrThrow()
-                    val serverTimestamp = chatResult.replyTimestamp
-                    val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                    val adjustedTimestamp = maxOf(timestamp, userMessage.timestamp + 1)
-                    val atriMessage = MessageEntity(
-                        id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
-                        content = chatResult.reply,
-                        isFromAtri = true,
-                        timestamp = adjustedTimestamp
-                    )
-                    chatRepository.persistAtriMessage(atriMessage, chatResult.status)
-                    statusRepository.incrementIntimacy(1)
-                    updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
+                    updateState {
+                        it.copy(
+                            currentStatus = AtriStatus.fromStatus(chatResult.status),
+                            latestStreamingMessageId = unconsumedTypewriterId(it, chatResult.replyLogId)
+                        )
+                    }
+                    awaitingTypewriterReply = false
                 } else {
+                    awaitingTypewriterReply = false
                     val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                     updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
                 }
             } catch (cancel: CancellationException) {
+                awaitingTypewriterReply = false
                 updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
                 throw cancel
             } catch (e: Exception) {
+                awaitingTypewriterReply = false
                 val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                 updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
             } finally {
@@ -380,36 +448,37 @@ class ChatViewModel(
                         deleteMessagesAfter(editedId)
                         delay(300)
 
+                        awaitingTypewriterReply = true
                         updateState { it.copy(isLoading = true, currentStatus = AtriStatus.thinking()) }
                         val result = chatRepository.regenerateResponse(
                             userMessageId = editedMessage.id,
                             userContent = editedMessage.content,
-                            userAttachments = editedMessage.attachments
+                            userAttachments = editedMessage.attachments,
+                            forceRegenerate = true
                         )
 
                         if (result.isSuccess) {
                             val chatResult = result.getOrThrow()
-                            val serverTimestamp = chatResult.replyTimestamp
-                            val timestamp = serverTimestamp?.takeIf { it > 0 } ?: System.currentTimeMillis()
-                            val atriMessage = MessageEntity(
-                                id = chatResult.replyLogId ?: java.util.UUID.randomUUID().toString(),
-                                content = chatResult.reply,
-                                isFromAtri = true,
-                                timestamp = timestamp
-                            )
-                            chatRepository.persistAtriMessage(atriMessage, chatResult.status)
-                            statusRepository.incrementIntimacy(1)
-                            updateState { it.copy(currentStatus = AtriStatus.fromStatus(chatResult.status)) }
+                            updateState {
+                                it.copy(
+                                    currentStatus = AtriStatus.fromStatus(chatResult.status),
+                                    latestStreamingMessageId = unconsumedTypewriterId(it, chatResult.replyLogId)
+                                )
+                            }
+                            awaitingTypewriterReply = false
                         } else {
+                            awaitingTypewriterReply = false
                             val hint = result.exceptionOrNull()?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                             updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
                         }
                     }
                 }
             } catch (cancel: CancellationException) {
+                awaitingTypewriterReply = false
                 updateState { it.copy(isLoading = false, currentStatus = AtriStatus.idle()) }
                 throw cancel
             } catch (e: Exception) {
+                awaitingTypewriterReply = false
                 val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
                 updateState { it.copy(error = "重新生成失败: $hint", currentStatus = AtriStatus.idle()) }
             } finally {
@@ -452,9 +521,5 @@ class ChatViewModel(
 
     fun updateAtriAvatar(path: String) {
         viewModelScope.launch { preferencesStore.setAtriAvatarPath(path) }
-    }
-
-    fun clearAtriAvatar() {
-        viewModelScope.launch { preferencesStore.clearAtriAvatar() }
     }
 }

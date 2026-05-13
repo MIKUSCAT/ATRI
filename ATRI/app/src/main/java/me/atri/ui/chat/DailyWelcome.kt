@@ -1,6 +1,12 @@
 package me.atri.ui.chat
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,9 +43,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -46,6 +55,10 @@ import me.atri.ui.components.AtriAvatar
 import me.atri.ui.components.CircleRevealOverlay
 import me.atri.ui.components.TypewriterText
 import me.atri.ui.components.rememberCircleRevealState
+import me.atri.ui.theme.AtriBlue
+import me.atri.ui.theme.AtriPink
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 fun DailyWelcome(
@@ -83,11 +96,20 @@ fun DailyWelcome(
             ) {
                 Spacer(modifier = Modifier.height(32.dp))
 
-                AtriAvatar(
-                    avatarPath = avatarPath,
-                    size = 180.dp,
-                    showGlow = true
-                )
+                Box(
+                    modifier = Modifier.size(288.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    StarParticleHalo(
+                        modifier = Modifier.fillMaxSize(),
+                        avatarSize = 180.dp
+                    )
+                    AtriAvatar(
+                        avatarPath = avatarPath,
+                        size = 180.dp,
+                        showGlow = true
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
@@ -293,4 +315,47 @@ private fun SessionCard(
             )
         }
     }
+}
+
+@Composable
+private fun StarParticleHalo(modifier: Modifier = Modifier, avatarSize: Dp) {
+    val transition = rememberInfiniteTransition(label = "starHalo")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 8000, easing = LinearEasing)
+        ),
+        label = "starRotation"
+    )
+    val starCount = 6
+    val orbitMultiplier = 1.35f
+    val starRadiusDp = 4.dp
+    Canvas(modifier = modifier) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val orbitR = (avatarSize.toPx() / 2f) * orbitMultiplier
+        val starR = starRadiusDp.toPx()
+        repeat(starCount) { i ->
+            val angleDeg = rotation + i * (360f / starCount)
+            val rad = Math.toRadians(angleDeg.toDouble())
+            val px = center.x + (orbitR * cos(rad)).toFloat()
+            val py = center.y + (orbitR * sin(rad)).toFloat()
+            val color = if (i % 2 == 0) AtriBlue.copy(alpha = 0.7f) else AtriPink.copy(alpha = 0.7f)
+            drawPath(buildStarPath(Offset(px, py), starR), color)
+        }
+    }
+}
+
+private fun buildStarPath(center: Offset, rOuter: Float): Path {
+    val rInner = rOuter * 0.382f
+    val path = Path()
+    for (i in 0 until 10) {
+        val r = if (i % 2 == 0) rOuter else rInner
+        val angle = Math.toRadians(-90.0 + i * 36.0)
+        val x = center.x + (r * cos(angle)).toFloat()
+        val y = center.y + (r * sin(angle)).toFloat()
+        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    }
+    path.close()
+    return path
 }
