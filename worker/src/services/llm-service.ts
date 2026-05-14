@@ -506,6 +506,7 @@ export async function callUpstreamChat(env: Env, params: {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  thinking?: boolean;
   trace?: { scope?: string; userId?: string; loop?: number };
 }): Promise<{ message: { content: string | null; tool_calls: OpenAiToolCall[] }; raw: any }> {
   const format = normalizeFormat(params.format);
@@ -523,7 +524,7 @@ export async function callUpstreamChat(env: Env, params: {
   const versionedApiUrl = withAutoApiVersion(apiUrl, format);
 
   const settings = await getEffectiveRuntimeSettings(env);
-  const thinkingEnabled = settings.thinkingModeEnabled;
+  const thinkingEnabled = params.thinking ?? settings.thinkingModeEnabled;
 
   try {
     if (format === 'openai') {
