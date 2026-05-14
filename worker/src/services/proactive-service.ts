@@ -8,7 +8,7 @@ import {
   saveProactiveMessage,
   saveProactiveUserState
 } from './data-service';
-import { callUpstreamChat } from './llm-service';
+import { callUpstreamChatWith504Retry } from './llm-service';
 import { sendNotification } from './notification-service';
 import type { EffectiveRuntimeSettings } from './runtime-settings';
 
@@ -127,7 +127,7 @@ export async function generateProactiveMessage(env: Env, params: {
     episodeBlock
   ].filter(Boolean).join('\n\n');
 
-  const { message } = await callUpstreamChat(env, {
+  const { message } = await callUpstreamChatWith504Retry(env, {
     format: params.settings.chatApiFormat,
     apiUrl: params.settings.openaiApiUrl,
     apiKey: params.settings.openaiApiKey,

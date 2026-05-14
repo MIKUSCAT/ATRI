@@ -25,8 +25,7 @@ import {
 import { listPendingIntentions, markIntentionUsed } from './memory-intention-service';
 import {
   buildAssistantToolMessageForContinuation,
-  callUpstreamChat,
-  ChatCompletionError,
+  callUpstreamChatWith504Retry,
   OpenAiToolCall,
   UpstreamMessage
 } from './llm-service';
@@ -62,8 +61,6 @@ export type AgentChatResult = {
 };
 
 const MAX_AGENT_LOOPS = 8;
-const UPSTREAM_504_RETRY_LIMIT = 5;
-const UPSTREAM_504_RETRY_BASE_DELAY_MS = 1200;
 
 export async function runAgentChat(env: Env, params: AgentChatParams): Promise<AgentChatResult> {
   const settings = await getEffectiveRuntimeSettings(env);
@@ -241,34 +238,6 @@ async function runInformationToolLoop(env: Env, params: {
   throw new Error('agent_loop_exhausted');
 }
 
-
-async function callUpstreamChatWith504Retry(env: Env, params: Parameters<typeof callUpstreamChat>[1]) {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt <= UPSTREAM_504_RETRY_LIMIT; attempt++) {
-    try {
-      return await callUpstreamChat(env, params);
-    } catch (e) {
-      lastError = e;
-      if (!(e instanceof ChatCompletionError) || e.status !== 504 || attempt >= UPSTREAM_504_RETRY_LIMIT) {
-        throw e;
-      }
-      const delayMs = Math.min(8000, UPSTREAM_504_RETRY_BASE_DELAY_MS * (attempt + 1));
-      console.warn('[ATRI] upstream_504_retry', {
-        userId: params.trace?.userId,
-        scope: params.trace?.scope,
-        loop: params.trace?.loop,
-        attempt: attempt + 1,
-        nextDelayMs: delayMs
-      });
-      await sleep(delayMs);
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'upstream_504_retry_failed'));
-}
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 export async function applySideEffects(env: Env, plan: SideEffectPlan): Promise<void> {
   const now = Date.now();

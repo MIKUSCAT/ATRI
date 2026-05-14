@@ -603,6 +603,47 @@ export async function callUpstreamChat(env: Env, params: {
   }
 }
 
+const UPSTREAM_504_RETRY_LIMIT = 5;
+const UPSTREAM_504_RETRY_BASE_DELAY_MS = 1200;
+const UPSTREAM_504_RETRY_MAX_DELAY_MS = 8000;
+
+export async function callUpstreamChatWith504Retry(
+  env: Env,
+  params: Parameters<typeof callUpstreamChat>[1],
+  options?: { retries?: number; baseDelayMs?: number; maxDelayMs?: number }
+): Promise<{ message: { content: string | null; tool_calls: OpenAiToolCall[] }; raw: any }> {
+  const retries = Math.max(0, Math.trunc(options?.retries ?? UPSTREAM_504_RETRY_LIMIT));
+  const baseDelayMs = Math.max(0, Math.trunc(options?.baseDelayMs ?? UPSTREAM_504_RETRY_BASE_DELAY_MS));
+  const maxDelayMs = Math.max(baseDelayMs, Math.trunc(options?.maxDelayMs ?? UPSTREAM_504_RETRY_MAX_DELAY_MS));
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await callUpstreamChat(env, params);
+    } catch (e) {
+      lastError = e;
+      if (!(e instanceof ChatCompletionError) || e.status !== 504 || attempt >= retries) {
+        throw e;
+      }
+      const delayMs = Math.min(maxDelayMs, baseDelayMs * (attempt + 1));
+      console.warn('[ATRI] upstream_504_retry', {
+        userId: params.trace?.userId,
+        scope: params.trace?.scope,
+        loop: params.trace?.loop,
+        attempt: attempt + 1,
+        nextDelayMs: delayMs
+      });
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'upstream_504_retry_failed'));
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, apiKey: string, body: any, timeoutMs: number) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
