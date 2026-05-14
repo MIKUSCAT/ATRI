@@ -11,6 +11,7 @@ import { registerCompatRoutes } from './routes/compat';
 import { registerProactiveRoutes } from './routes/proactive';
 import { registerMeRoutes } from './routes/me';
 import { runProactiveCron } from './jobs/proactive-cron';
+import { ChatQueueMessage, processChatTaskQueueBatch } from './services/chat-task-service';
 
 const router = Router();
 const DIARY_CRON_EXPR = '59 15 * * *';
@@ -42,6 +43,7 @@ router.all('*', () => new Response('Not Found', { status: 404 }));
 
 export default {
   fetch: (req: Request, env: Env, ctx: ExecutionContext) => router.fetch(req, env, ctx),
+  queue: (batch: MessageBatch<ChatQueueMessage>, env: Env) => processChatTaskQueueBatch(batch, env),
   scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     const cron = String(event.cron || '').trim();
 

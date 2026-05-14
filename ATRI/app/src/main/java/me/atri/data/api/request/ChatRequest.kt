@@ -14,6 +14,7 @@ data class ChatRequest(
     val userName: String? = null,
     val clientTimeIso: String? = null,
     val forceRegenerate: Boolean = false,
+    val asyncChat: Boolean = true,
     val timeZone: String? = null
 ) {
     @Serializable

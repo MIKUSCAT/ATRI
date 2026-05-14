@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -63,6 +64,8 @@ class ChatRepository(
             pattern = "^\\[[^]]+\\]\\s*",
             options = setOf(RegexOption.MULTILINE)
         )
+        private const val CHAT_TASK_POLL_DELAY_MS = 2_000L
+        private const val CHAT_TASK_MAX_POLLS = 300
     }
 
     fun observeMessages(): Flow<List<MessageEntity>> = messageDao.observeAll()
@@ -321,16 +324,41 @@ class ChatRepository(
         if (!response.isSuccessful) {
             throw Exception("API Error: ${response.code()}")
         }
-        val body = response.body()
-        val reply = body?.reply?.trim().orEmpty()
+        val body = response.body() ?: throw Exception("空回复")
+        val taskId = body.taskId?.takeIf { it.isNotBlank() }
+        if (body.pending && taskId != null) {
+            return waitForChatTask(request.userId, taskId)
+        }
+        return parseChatResultBody(body)
+    }
+
+    private suspend fun waitForChatTask(userId: String, taskId: String): ChatResult {
+        repeat(CHAT_TASK_MAX_POLLS) {
+            delay(CHAT_TASK_POLL_DELAY_MS)
+            val response = apiService.getChatTaskStatus(taskId = taskId, userId = userId)
+            if (!response.isSuccessful) {
+                throw Exception("查询回复失败: ${response.code()}")
+            }
+            val body = response.body() ?: throw Exception("查询回复失败: 空响应")
+            if (body.pending) return@repeat
+            return parseChatResultBody(body)
+        }
+        throw Exception("等待回复超时")
+    }
+
+    private fun parseChatResultBody(body: BioChatResponse): ChatResult {
+        if (!body.error.isNullOrBlank()) {
+            throw Exception(body.error)
+        }
+        val reply = body.reply?.trim().orEmpty()
         if (reply.isEmpty()) {
             throw Exception("空回复")
         }
         return ChatResult(
             reply = reply,
-            status = body?.status,
-            replyLogId = body?.replyLogId?.takeIf { it.isNotBlank() },
-            replyTimestamp = body?.replyTimestamp?.takeIf { it > 0 }
+            status = body.status,
+            replyLogId = body.replyLogId?.takeIf { it.isNotBlank() },
+            replyTimestamp = body.replyTimestamp?.takeIf { it > 0 }
         )
     }
 

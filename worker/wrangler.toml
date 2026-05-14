@@ -6,14 +6,14 @@ account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
 [vars]
 OPENAI_API_URL = "https://aigate.binklac.com"
 CHAT_API_FORMAT = "anthropic"
-DEFAULT_CHAT_MODEL = "claude-opus-4-7"
+DEFAULT_CHAT_MODEL = "claude-opus-4-6"
 AGENT_TIMEOUT_MS = "85000"
-AGENT_MAX_TOKENS = "2048"
+AGENT_MAX_TOKENS = "4096"
 AUTO_RECALL_ENABLED = "1"
 AUTO_RECALL_MIN_SCORE = "0.62"
 
 DIARY_API_URL = "https://aigate.binklac.com"
-
+DIARY_API_FORMAT = "anthropic"
 DIARY_MODEL = "claude-opus-4-7"
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
 EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
@@ -53,6 +53,16 @@ database_id = "05def668-b70d-40fc-84a4-b5ba21219217"
 
 [triggers]
 crons = ["59 15 * * *", "*/30 * * * *"]
+
+[[queues.producers]]
+binding = "CHAT_QUEUE"
+queue = "atri-chat-tasks"
+
+[[queues.consumers]]
+queue = "atri-chat-tasks"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
 
 # Custom domain (需要在Cloudflare Dashboard手动添加)
 # Dashboard路径: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain

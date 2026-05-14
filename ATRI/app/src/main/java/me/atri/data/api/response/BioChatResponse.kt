@@ -9,7 +9,11 @@ data class BioChatResponse(
     val action: String? = null,
     val replyLogId: String? = null,
     val replyTimestamp: Long? = null,
-    val replyTo: String? = null
+    val replyTo: String? = null,
+    val pending: Boolean = false,
+    val taskId: String? = null,
+    val taskStatus: String? = null,
+    val error: String? = null
 ) {
     @Serializable
     data class Status(

@@ -28,6 +28,12 @@ interface AtriApiService {
     @POST("/api/v1/chat")
     suspend fun sendBioMessage(@Body request: ChatRequest): Response<BioChatResponse>
 
+    @GET("/api/v1/chat/task")
+    suspend fun getChatTaskStatus(
+        @Query("taskId") taskId: String,
+        @Query("userId") userId: String
+    ): Response<BioChatResponse>
+
     @POST("/conversation/log")
     suspend fun logConversation(@Body request: ConversationLogRequest): Response<ResponseBody>
 

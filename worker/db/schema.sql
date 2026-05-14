@@ -227,6 +227,30 @@ CREATE TABLE IF NOT EXISTS nightly_runs (
 CREATE INDEX IF NOT EXISTS idx_nightly_runs_user_date
   ON nightly_runs(user_id, date, stage);
 
+
+-- 聊天异步任务（POST /api/v1/chat -> taskId -> GET /api/v1/chat/task）
+CREATE TABLE IF NOT EXISTS chat_tasks (
+  task_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  log_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  request_json TEXT NOT NULL,
+  result_json TEXT,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  reply_log_id TEXT NOT NULL,
+  reply_timestamp INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  started_at INTEGER,
+  completed_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_tasks_user_log
+  ON chat_tasks(user_id, log_id);
+CREATE INDEX IF NOT EXISTS idx_chat_tasks_status_updated
+  ON chat_tasks(status, updated_at);
+
 -- 日记重生成异步任务进度（POST /diary/regenerate -> taskId -> GET /diary/regenerate/status）
 CREATE TABLE IF NOT EXISTS regenerate_tasks (
   task_id TEXT PRIMARY KEY,

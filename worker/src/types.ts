@@ -2,6 +2,7 @@ export interface Env {
   ATRI_DB: D1Database;
   VECTORIZE: VectorizeIndex;
   MEDIA_BUCKET: R2Bucket;
+  CHAT_QUEUE: Queue<{ taskId: string }>;
   OPENAI_API_KEY: string;
   OPENAI_API_URL: string;
   CHAT_API_FORMAT?: 'openai' | 'anthropic' | 'gemini';

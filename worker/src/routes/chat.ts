@@ -16,6 +16,11 @@ import {
 } from '../services/data-service';
 import { applySideEffects, runAgentChat } from '../services/agent-service';
 import { getEffectiveRuntimeSettings } from '../services/runtime-settings';
+import {
+  createOrGetChatTask,
+  deleteChatTaskForLog,
+  getChatTaskById
+} from '../services/chat-task-service';
 
 interface ChatRequestBody {
   userId: string;
@@ -25,6 +30,7 @@ interface ChatRequestBody {
   userName?: string;
   clientTimeIso?: string;
   forceRegenerate?: boolean;
+  asyncChat?: boolean;
   imageUrl?: string;
   attachments?: AttachmentPayload[];
   timeZone?: string;
@@ -49,6 +55,7 @@ function parseChatRequest(body: Record<string, unknown>): ChatRequestBody | null
     userName: getString(body, ['userName', 'user_name']),
     clientTimeIso: getString(body, ['clientTimeIso', 'client_time']),
     forceRegenerate: getBoolean(body, ['forceRegenerate', 'force_regenerate']),
+    asyncChat: getBoolean(body, ['asyncChat', 'async_chat', 'async']),
     imageUrl,
     attachments,
     timeZone: getString(body, ['timeZone', 'time_zone'])
@@ -85,6 +92,45 @@ function getBoolean(obj: Record<string, unknown>, keys: string[]): boolean {
 }
 
 export function registerChatRoutes(router: RouterType) {
+  router.get('/api/v1/chat/task', async (request, env: Env) => {
+    try {
+      const auth = requireAppToken(request, env);
+      if (auth) return auth;
+
+      const url = new URL(request.url);
+      const taskId = String(url.searchParams.get('taskId') || url.searchParams.get('task_id') || '').trim();
+      const userId = String(url.searchParams.get('userId') || url.searchParams.get('user_id') || '').trim();
+      if (!taskId || !userId) return jsonResponse({ error: 'invalid_request' }, 400);
+
+      const task = await getChatTaskById(env, taskId);
+      if (!task || task.userId !== userId) return jsonResponse({ error: 'task_not_found' }, 404);
+
+      if (task.status === 'completed' && task.result) {
+        return jsonResponse(task.result);
+      }
+
+      if (task.status === 'failed') {
+        return jsonResponse({
+          pending: false,
+          taskId: task.taskId,
+          taskStatus: task.status,
+          error: task.error || 'chat_task_failed',
+          replyTo: task.request.replyTo
+        });
+      }
+
+      return jsonResponse({
+        pending: true,
+        taskId: task.taskId,
+        taskStatus: task.status,
+        replyTo: task.request.replyTo
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('[ATRI] chat_task_status_failed', { message: msg });
+      return jsonResponse({ error: 'chat_task_status_failed', details: msg }, 500);
+    }
+  });
   router.post('/api/v1/chat', async (request, env: Env, ctx: ExecutionContext) => {
     try {
       const auth = requireAppToken(request, env);
@@ -138,6 +184,7 @@ export function registerChatRoutes(router: RouterType) {
               const staleIds = (staleResult.results || []).map(r => String(r?.id || '').trim()).filter(Boolean);
               if (staleIds.length) await deleteConversationLogsByIds(env, parsed.userId, staleIds);
             }
+            await deleteChatTaskForLog(env, parsed.userId, replyTo);
           }
         } catch (err) {
           console.warn('[ATRI] prune_logs_failed', { userId: parsed.userId, err });
@@ -151,6 +198,50 @@ export function registerChatRoutes(router: RouterType) {
         forceRegenerate: parsed.forceRegenerate,
         hasImage
       });
+
+      if (parsed.asyncChat) {
+        if (!replyTo) return jsonResponse({ error: 'log_id_required' }, 400);
+
+        const { task } = await createOrGetChatTask(env, {
+          userId: parsed.userId,
+          platform: parsed.platform || 'android',
+          userName: parsed.userName,
+          clientTimeIso: parsed.clientTimeIso,
+          messageText,
+          attachments: parsed.attachments || [],
+          inlineImage: parsed.imageUrl,
+          model: modelToUse,
+          logId: replyTo,
+          replyTo,
+          timeZone: parsed.timeZone,
+          anchorTimestamp
+        });
+
+        if (task.status === 'completed' && task.result) {
+          return jsonResponse(task.result);
+        }
+
+        if (task.status === 'failed') {
+          return jsonResponse({
+            pending: false,
+            taskId: task.taskId,
+            taskStatus: task.status,
+            error: task.error || 'chat_task_failed',
+            replyTo
+          });
+        }
+
+        if (task.status === 'queued') {
+          await env.CHAT_QUEUE.send({ taskId: task.taskId });
+        }
+
+        return jsonResponse({
+          pending: true,
+          taskId: task.taskId,
+          taskStatus: task.status,
+          replyTo
+        });
+      }
 
       const result = await runAgentChat(env, {
         userId: parsed.userId,
