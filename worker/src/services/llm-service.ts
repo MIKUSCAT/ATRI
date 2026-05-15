@@ -19,7 +19,7 @@ export class ChatCompletionError extends Error {
 export async function callChatCompletions(
   env: Env,
   payload: Record<string, unknown>,
-  options?: { timeoutMs?: number; model?: string; apiUrl?: string; apiKey?: string }
+  options?: { timeoutMs?: number; model?: string; apiUrl?: string; apiKey?: string; signal?: AbortSignal }
 ): Promise<Response> {
   const timeoutMs = options?.timeoutMs ?? 60000;
   const model = options?.model ?? CHAT_MODEL;
@@ -29,6 +29,13 @@ export async function callChatCompletions(
     throw new ChatCompletionError('openai', 500, 'missing_api_config');
   }
   const controller = new AbortController();
+  let parentAborted = false;
+  const abortFromParent = () => {
+    parentAborted = true;
+    controller.abort();
+  };
+  if (options?.signal?.aborted) abortFromParent();
+  else options?.signal?.addEventListener('abort', abortFromParent, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -53,11 +60,15 @@ export async function callChatCompletions(
     return response;
   } catch (error: any) {
     if (error.name === 'AbortError') {
+      if (parentAborted || options?.signal?.aborted) {
+        throw new ChatCompletionError('openai', 499, 'request_cancelled');
+      }
       throw new ChatCompletionError('openai', 504, `Request timeout after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    options?.signal?.removeEventListener('abort', abortFromParent);
   }
 }
 
@@ -507,6 +518,7 @@ export async function callUpstreamChat(env: Env, params: {
   maxTokens?: number;
   timeoutMs?: number;
   thinking?: boolean;
+  signal?: AbortSignal;
   trace?: { scope?: string; userId?: string; loop?: number };
 }): Promise<{ message: { content: string | null; tool_calls: OpenAiToolCall[] }; raw: any }> {
   const format = normalizeFormat(params.format);
@@ -540,7 +552,7 @@ export async function callUpstreamChat(env: Env, params: {
         body.thinking = { type: 'enabled' };
         body.reasoning_effort = 'max';
       }
-      const response = await callChatCompletions(env, body, { timeoutMs, model, apiUrl: versionedApiUrl, apiKey });
+      const response = await callChatCompletions(env, body, { timeoutMs, model, apiUrl: versionedApiUrl, apiKey, signal: params.signal });
       const data = await response.json();
       const extracted = extractOpenAiAssistantMessage(data);
       return { message: { content: extracted.content, tool_calls: extracted.toolCalls }, raw: data };
@@ -565,7 +577,7 @@ export async function callUpstreamChat(env: Env, params: {
           body.thinking.display = 'hidden';
         }
       }
-      const data = await postJsonWithTimeout('anthropic', joinUrl(versionedApiUrl, 'messages'), apiKey, body, timeoutMs);
+      const data = await postJsonWithTimeout('anthropic', joinUrl(versionedApiUrl, 'messages'), apiKey, body, timeoutMs, params.signal);
       const extracted = extractAnthropicAssistantMessage(data);
       return { message: { content: extracted.content, tool_calls: extracted.toolCalls }, raw: data };
     }
@@ -588,7 +600,7 @@ export async function callUpstreamChat(env: Env, params: {
     if (thinkingEnabled) {
       body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
     }
-    const data = await postJsonWithTimeout('gemini', url.toString(), apiKey, body, timeoutMs);
+    const data = await postJsonWithTimeout('gemini', url.toString(), apiKey, body, timeoutMs, params.signal);
     const extracted = extractGeminiAssistantMessage(data);
     return { message: { content: extracted.content, tool_calls: extracted.toolCalls }, raw: data };
   } catch (error: any) {
@@ -599,7 +611,10 @@ export async function callUpstreamChat(env: Env, params: {
         ? `Request timeout after ${timeoutMs}ms`
         : String(error?.message || error);
     logFailure({ format, status, userId: trace.userId, scope: trace.scope, loop: trace.loop, details: details.slice(0, 2000) });
-    if (error?.name === 'AbortError') throw new ChatCompletionError(format, 504, `Request timeout after ${timeoutMs}ms`);
+    if (error?.name === 'AbortError') {
+      if (params.signal?.aborted) throw new ChatCompletionError(format, 499, 'request_cancelled');
+      throw new ChatCompletionError(format, 504, `Request timeout after ${timeoutMs}ms`);
+    }
     throw error;
   }
 }
@@ -645,8 +660,15 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, apiKey: string, body: any, timeoutMs: number) {
+async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, apiKey: string, body: any, timeoutMs: number, signal?: AbortSignal) {
   const controller = new AbortController();
+  let parentAborted = false;
+  const abortFromParent = () => {
+    parentAborted = true;
+    controller.abort();
+  };
+  if (signal?.aborted) abortFromParent();
+  else signal?.addEventListener('abort', abortFromParent, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
@@ -667,10 +689,14 @@ async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, api
     return await res.json();
   } catch (error: any) {
     if (error?.name === 'AbortError') {
+      if (parentAborted || signal?.aborted) {
+        throw new ChatCompletionError(provider, 499, 'request_cancelled');
+      }
       throw new ChatCompletionError(provider, 504, `Request timeout after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', abortFromParent);
   }
 }

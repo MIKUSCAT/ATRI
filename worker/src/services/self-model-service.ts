@@ -92,6 +92,7 @@ export async function updateSelfModelWithNightlyReflection(env: Env, params: {
   date: string;
   diaryContent: string;
   transcript?: string;
+  signal?: AbortSignal;
 }) {
   const current = await getAtriSelfModel(env, params.userId);
   const settings = await getEffectiveRuntimeSettings(env);
@@ -129,6 +130,7 @@ export async function updateSelfModelWithNightlyReflection(env: Env, params: {
       temperature: 0.6,
       maxTokens: 2048,
       timeoutMs: 90000,
+      signal: params.signal,
       trace: { scope: 'self-model-nightly', userId: params.userId }
     });
     const content = typeof result.message?.content === 'string' ? result.message.content : String(result.message?.content || '');

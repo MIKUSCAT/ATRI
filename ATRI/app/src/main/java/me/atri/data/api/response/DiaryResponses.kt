@@ -37,6 +37,7 @@ data class RegenerateAcceptResponse(
 data class RegenerateStatusResponse(
     val taskId: String,
     val currentPhase: String? = null,
+    val status: String? = null,
     val completedPhases: Int = 0,
     val totalPhases: Int = 0,
     val percent: Int = 0,

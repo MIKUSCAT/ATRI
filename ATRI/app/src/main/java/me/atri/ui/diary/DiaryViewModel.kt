@@ -2,6 +2,7 @@ package me.atri.ui.diary
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,8 @@ class DiaryViewModel(
 
     private val _uiState = MutableStateFlow(DiaryUiState())
     val uiState: StateFlow<DiaryUiState> = _uiState.asStateFlow()
+    private var regenerateJob: Job? = null
+    private var currentRegenerateTaskId: String? = null
 
     init {
         refresh()
@@ -93,7 +96,8 @@ class DiaryViewModel(
     }
 
     fun regenerateEntry(date: String) {
-        viewModelScope.launch {
+        if (regenerateJob?.isActive == true) return
+        regenerateJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isRegeneratingEntry = true,
@@ -105,6 +109,7 @@ class DiaryViewModel(
             diaryRepository.regenerateDiary(date).collect { progress ->
                 when (progress) {
                     is RegenerateProgress.Running -> {
+                        currentRegenerateTaskId = progress.taskId
                         _uiState.update {
                             it.copy(
                                 regeneratePhase = progress.phase,
@@ -114,6 +119,7 @@ class DiaryViewModel(
                     }
 
                     is RegenerateProgress.Success -> {
+                        currentRegenerateTaskId = null
                         val updatedEntry = progress.entry
                         _uiState.update { state ->
                             val newList = if (updatedEntry != null) {
@@ -134,9 +140,23 @@ class DiaryViewModel(
                                 regeneratePercent = 100
                             )
                         }
+                        regenerateJob = null
+                    }
+
+                    is RegenerateProgress.Cancelled -> {
+                        currentRegenerateTaskId = null
+                        _uiState.update {
+                            it.copy(
+                                isRegeneratingEntry = false,
+                                regeneratePhase = null,
+                                regeneratePercent = 0
+                            )
+                        }
+                        regenerateJob = null
                     }
 
                     is RegenerateProgress.Error -> {
+                        currentRegenerateTaskId = null
                         _uiState.update {
                             it.copy(
                                 isRegeneratingEntry = false,
@@ -145,9 +165,35 @@ class DiaryViewModel(
                                 error = progress.message
                             )
                         }
+                        regenerateJob = null
                     }
                 }
             }
+        }
+    }
+
+    fun cancelRegeneration() {
+        val taskId = currentRegenerateTaskId ?: return
+        viewModelScope.launch {
+            val result = diaryRepository.cancelRegenerateDiary(taskId)
+            result.fold(
+                onSuccess = {
+                    regenerateJob?.cancel()
+                    regenerateJob = null
+                    currentRegenerateTaskId = null
+                    _uiState.update {
+                        it.copy(
+                            isRegeneratingEntry = false,
+                            regeneratePhase = null,
+                            regeneratePercent = 0,
+                            error = null
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update { it.copy(error = error.message ?: "取消生成失败") }
+                }
+            )
         }
     }
 }

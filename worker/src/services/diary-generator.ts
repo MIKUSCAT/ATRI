@@ -46,6 +46,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries: number = 2, delayMs: 
       return await fn();
     } catch (e) {
       lastError = e;
+      if (e instanceof ChatCompletionError && e.status === 499) throw e;
       if (i < retries) await new Promise(resolve => setTimeout(resolve, delayMs * (i + 1)));
     }
   }
@@ -60,6 +61,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
   timestamp?: number;
   daysSinceLastChat?: number | null;
   modelKey?: string | null;
+  signal?: AbortSignal;
 }) {
   const settings = await getEffectiveRuntimeSettings(env);
   const diaryPrompts: any = (settings.prompts as any).diary || {};
@@ -104,6 +106,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
       temperature: settings.diaryTemperature,
       maxTokens: settings.diaryMaxTokens,
       timeoutMs: 120000,
+      signal: params.signal,
       trace: { scope: 'diary', userId: params.userId }
     }));
 

@@ -128,6 +128,7 @@ fun DiaryScreen(
                         regeneratePhase = uiState.regeneratePhase,
                         regeneratePercent = uiState.regeneratePercent,
                         onRegenerate = { viewModel.regenerateEntry(it) },
+                        onCancelRegenerate = viewModel::cancelRegeneration,
                         onNavigateBack = viewModel::closeDiary
                     )
                 } else {
@@ -341,6 +342,7 @@ private fun DiaryDetailScreen(
     regeneratePhase: String?,
     regeneratePercent: Int,
     onRegenerate: (String) -> Unit,
+    onCancelRegenerate: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -388,8 +390,9 @@ private fun DiaryDetailScreen(
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(
-                    onClick = { showRegenerateConfirm = true },
-                    enabled = !isRegenerating
+                    onClick = {
+                        if (isRegenerating) onCancelRegenerate() else showRegenerateConfirm = true
+                    }
                 ) {
                     if (isRegenerating) {
                         CircularProgressIndicator(

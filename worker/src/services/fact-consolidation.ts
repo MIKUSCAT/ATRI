@@ -8,6 +8,7 @@ type ConsolidateParams = {
   userName: string;
   modelKey: string | null;
   date: string;
+  signal?: AbortSignal;
 };
 
 type ConsolidationResult = {
@@ -57,6 +58,7 @@ export async function consolidateFactsForUser(
     temperature: 0.3,
     maxTokens: 4096,
     timeoutMs: 60000,
+    signal: params.signal,
     trace: { scope: 'fact-consolidation', userId: params.userId }
   });
 

@@ -12,6 +12,7 @@ import { registerProactiveRoutes } from './routes/proactive';
 import { registerMeRoutes } from './routes/me';
 import { runProactiveCron } from './jobs/proactive-cron';
 import { ChatQueueMessage, processChatTaskQueueBatch } from './services/chat-task-service';
+import { DiaryQueueMessage, processDiaryTaskQueueBatch } from './services/diary-task-service';
 
 const router = Router();
 const DIARY_CRON_EXPR = '59 15 * * *';
@@ -43,7 +44,12 @@ router.all('*', () => new Response('Not Found', { status: 404 }));
 
 export default {
   fetch: (req: Request, env: Env, ctx: ExecutionContext) => router.fetch(req, env, ctx),
-  queue: (batch: MessageBatch<ChatQueueMessage>, env: Env) => processChatTaskQueueBatch(batch, env),
+  queue: (batch: MessageBatch<ChatQueueMessage | DiaryQueueMessage>, env: Env) => {
+    if (batch.queue === 'atri-diary-tasks') {
+      return processDiaryTaskQueueBatch(batch as MessageBatch<DiaryQueueMessage>, env);
+    }
+    return processChatTaskQueueBatch(batch as MessageBatch<ChatQueueMessage>, env);
+  },
   scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     const cron = String(event.cron || '').trim();
 

@@ -4,6 +4,7 @@ import me.atri.data.api.request.ChatRequest
 import me.atri.data.api.request.ConversationDeleteRequest
 import me.atri.data.api.request.ConversationLogRequest
 import me.atri.data.api.request.InvalidateMemoryRequest
+import me.atri.data.api.request.DiaryRegenerateCancelRequest
 import me.atri.data.api.request.DiaryRegenerateRequest
 import me.atri.data.api.response.DiaryEntryResponse
 import me.atri.data.api.response.DiaryListResponse
@@ -80,6 +81,11 @@ interface AtriApiService {
     @GET("/diary/regenerate/status")
     suspend fun getRegenerateStatus(
         @Query("taskId") taskId: String
+    ): Response<RegenerateStatusResponse>
+
+    @POST("/diary/regenerate/cancel")
+    suspend fun cancelRegenerateDiary(
+        @Body request: DiaryRegenerateCancelRequest
     ): Response<RegenerateStatusResponse>
 
     @GET("/conversation/pull")

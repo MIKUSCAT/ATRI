@@ -47,6 +47,7 @@ export async function runNightlyMindForUser(env: Env, params: {
   date: string;
   diaryContent: string;
   transcript?: string;
+  signal?: AbortSignal;
 }) {
   const started = Date.now();
   const runId = await startNightlyStage(env, params.userId, params.date, 'mind');
@@ -72,7 +73,8 @@ export async function runNightlyMindForUser(env: Env, params: {
       userName: params.userName,
       date: params.date,
       diaryContent: params.diaryContent,
-      transcript: params.transcript
+      transcript: params.transcript,
+      signal: params.signal
     });
 
     const details = {
@@ -101,6 +103,7 @@ async function distillNightlyMemoryCandidates(env: Env, params: {
   date: string;
   diaryContent: string;
   transcript?: string;
+  signal?: AbortSignal;
 }): Promise<{ written: number }> {
   const settings = await getEffectiveRuntimeSettings(env);
   const apiUrl = String(settings.diaryApiUrl || settings.openaiApiUrl || '').trim();
@@ -135,6 +138,7 @@ async function distillNightlyMemoryCandidates(env: Env, params: {
     temperature: 0.6,
     maxTokens: 1500,
     timeoutMs: 90000,
+    signal: params.signal,
     trace: { scope: 'nightly-memory', userId: params.userId }
   });
 
@@ -177,6 +181,7 @@ async function consolidateNightlyState(env: Env, params: {
   date: string;
   diaryContent: string;
   transcript?: string;
+  signal?: AbortSignal;
 }): Promise<{ statusLabel?: string; pillColor?: string; valence?: number; arousal?: number; certainty?: number } | null> {
   const settings = await getEffectiveRuntimeSettings(env);
   const apiUrl = String(settings.diaryApiUrl || settings.openaiApiUrl || '').trim();
@@ -211,6 +216,7 @@ async function consolidateNightlyState(env: Env, params: {
     temperature: 0.7,
     maxTokens: 600,
     timeoutMs: 60000,
+    signal: params.signal,
     trace: { scope: 'nightly-state', userId: params.userId }
   });
 
