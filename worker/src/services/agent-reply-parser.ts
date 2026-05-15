@@ -1,4 +1,4 @@
-import { sanitizeText } from '../utils/sanitize';
+import { sanitizeText, stripReasoningText } from '../utils/sanitize';
 
 export type ParsedReply = {
   reply: string;
@@ -18,7 +18,7 @@ export type ParsedReply = {
 };
 
 export function parseStructuredReply(rawText: string): ParsedReply {
-  const text = String(rawText || '').trim();
+  const text = stripReasoningText(String(rawText || '')).trim();
   const empty = emptyParsed();
   if (!text) return empty;
 
@@ -35,6 +35,11 @@ export function parseStructuredReply(rawText: string): ParsedReply {
   if (braceExtracted) {
     const fromBrace = tryParse(braceExtracted);
     if (fromBrace) return sanitizeParsed(fromBrace, text);
+  }
+
+  const looseReply = extractLooseReply(text);
+  if (looseReply) {
+    return { ...empty, reply: sanitizeText(looseReply).trim().slice(0, 4000) };
   }
 
   console.warn('[ATRI] structured_reply_parse_failed', { sample: text.slice(0, 200) });
@@ -66,6 +71,19 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
+function extractLooseReply(text: string): string | null {
+  const match = text.match(/"reply"\s*:\s*"([\s\S]*?)"\s*,\s*"(?:status|rememberFacts|forgetFacts)"\s*:/);
+  const raw = match?.[1];
+  if (!raw) return null;
+  return raw
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
 function sanitizeParsed(raw: any, fallbackText: string): ParsedReply {
   const out = emptyParsed();
   if (!raw || typeof raw !== 'object') {
@@ -73,7 +91,7 @@ function sanitizeParsed(raw: any, fallbackText: string): ParsedReply {
     return out;
   }
 
-  out.reply = sanitizeText(typeof raw.reply === 'string' ? raw.reply : '').trim().slice(0, 4000);
+  out.reply = sanitizeText(stripReasoningText(typeof raw.reply === 'string' ? raw.reply : '')).trim().slice(0, 4000);
 
   const s = raw.status;
   if (s && typeof s === 'object') {

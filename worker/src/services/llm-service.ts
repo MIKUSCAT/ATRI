@@ -1,6 +1,7 @@
 import type { ContentPart, Env } from '../types';
 import { CHAT_MODEL } from '../types';
 import { normalizeMimeType, resolveFetchedImageMimeType } from '../utils/image-mime';
+import { stripReasoningText } from '../utils/sanitize';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
 
 export class ChatCompletionError extends Error {
@@ -417,7 +418,9 @@ function extractOpenAiAssistantMessage(data: any) {
   if (message && typeof message === 'object' && 'reasoning_content' in message) {
     delete (message as any).reasoning_content;
   }
-  const content = typeof message?.content === 'string' ? message.content : message?.content ?? null;
+  const content = typeof message?.content === 'string'
+    ? stripReasoningText(message.content).trim() || null
+    : null;
   const rawToolCalls = Array.isArray(message?.tool_calls)
     ? message.tool_calls
     : Array.isArray(message?.toolCalls)
@@ -451,7 +454,8 @@ function extractAnthropicAssistantMessage(data: any) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'thinking' || block.type === 'redacted_thinking') continue;
     if (block.type === 'text' && typeof block.text === 'string' && block.text) {
-      texts.push(block.text);
+      const text = stripReasoningText(block.text).trim();
+      if (text) texts.push(text);
       continue;
     }
     if (block.type === 'tool_use') {
@@ -478,7 +482,8 @@ function extractGeminiAssistantMessage(data: any) {
     if (!part || typeof part !== 'object') continue;
     if (part.thought === true) continue;
     if (typeof part.text === 'string' && part.text) {
-      texts.push(part.text);
+      const text = stripReasoningText(part.text).trim();
+      if (text) texts.push(text);
       continue;
     }
     const fc = part.functionCall;
