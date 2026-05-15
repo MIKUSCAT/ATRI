@@ -1,0 +1,84 @@
+name = "atri-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+# 发布仓库脱敏：不要在公开仓库写 account_id。部署时用 wrangler login，或设置 CLOUDFLARE_ACCOUNT_ID。
+# account_id = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+
+[vars]
+# 这些是非 secret 运行配置；涉及私有网关/密钥的值请在自己的部署环境中改写。
+OPENAI_API_URL = "https://api.example.com"
+CHAT_API_FORMAT = "anthropic"
+DEFAULT_CHAT_MODEL = "claude-opus-4-6"
+AGENT_TIMEOUT_MS = "85000"
+AGENT_MAX_TOKENS = "4096"
+AUTO_RECALL_ENABLED = "1"
+AUTO_RECALL_MIN_SCORE = "0.62"
+
+DIARY_API_URL = "https://api.example.com"
+DIARY_API_FORMAT = "anthropic"
+DIARY_MODEL = "claude-sonnet-4-6"
+EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
+EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+
+# 主动消息（cron 触发，可按需关闭）
+PROACTIVE_ENABLED = "true"
+PROACTIVE_INTERVAL_MINUTES = "30"
+PROACTIVE_TIME_ZONE = "Asia/Shanghai"
+PROACTIVE_QUIET_START_HOUR = "23"
+PROACTIVE_QUIET_END_HOUR = "7"
+PROACTIVE_MAX_DAILY = "20"
+PROACTIVE_COOLDOWN_HOURS = "1"
+PROACTIVE_RECENT_ACTIVE_MINUTES = "60"
+# 每条主动消息都走外部通知（邮箱）
+PROACTIVE_NOTIFICATION_CHANNEL = "email"
+# 敏感信息请用 secret 设置，不要写入仓库：
+# npx wrangler secret put OPENAI_API_KEY
+# npx wrangler secret put DIARY_API_KEY
+# npx wrangler secret put EMBEDDINGS_API_KEY
+# npx wrangler secret put PROACTIVE_NOTIFICATION_TARGET
+# npx wrangler secret put EMAIL_API_KEY
+
+# Tavily 联网搜索（可选）
+# API Key 通过 secret 设置: npx wrangler secret put TAVILY_API_KEY
+TAVILY_API_URL = "https://api.tavily.com"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "atri-memories"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "atri-media"
+preview_bucket_name = "atri-media"
+
+[[d1_databases]]
+binding = "ATRI_DB"
+database_name = "atri_diary"
+# 发布仓库脱敏：部署前改成自己的 D1 database_id。
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[triggers]
+crons = ["59 15 * * *", "*/30 * * * *"]
+
+[[queues.producers]]
+binding = "CHAT_QUEUE"
+queue = "atri-chat-tasks"
+
+[[queues.producers]]
+binding = "DIARY_QUEUE"
+queue = "atri-diary-tasks"
+
+[[queues.consumers]]
+queue = "atri-chat-tasks"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
+[[queues.consumers]]
+queue = "atri-diary-tasks"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
+# Custom domain 需要在 Cloudflare Dashboard 手动添加。
+# Dashboard: Workers & Pages > atri-worker > Settings > Domains & Routes > Add Custom Domain

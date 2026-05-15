@@ -1,0 +1,35 @@
+# 只用 Git 管理这四个目录：ATRI/ worker/ shared/ scripts/
+# 其它根目录文件一律忽略（但不会删除，只是不进 Git）
+/*
+!/ATRI/
+!/worker/
+!/shared/
+!/scripts/
+!/.gitignore
+
+# ===== Android：构建产物/本机配置（不进 Git）=====
+/ATRI/.gradle/
+/ATRI/.idea/
+/ATRI/.kotlin/
+/ATRI/build/
+/ATRI/app/build/
+/ATRI/local.properties
+/ATRI/compile.log
+*.apk
+*.aab
+
+# ===== Worker：依赖/本机配置/产物（不进 Git）=====
+/worker/node_modules/
+/worker/.wrangler/
+/worker/.config/
+/worker/.home/
+/worker/.wrangler_home/
+/worker/backups/
+/worker/dist/
+/worker/dist-dryrun/
+/worker/.env
+/worker/.env.*
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db

@@ -1,0 +1,199 @@
+package me.atri.ui.diary
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import me.atri.data.api.response.DiaryEntryDto
+import me.atri.data.repository.DiaryRepository
+import me.atri.data.repository.RegenerateProgress
+
+private val PHASE_LABELS: Map<String, String> = mapOf(
+    "cleanup_vectors" to "清理旧记忆…",
+    "generate_diary" to "重新写日记…",
+    "save_diary" to "记下…",
+    "highlights_vector" to "整理重点…",
+    "derived_memories" to "回想细节…",
+    "fact_consolidation" to "整理事实…",
+    "nightly_mind" to "更新情绪…",
+    "vector_sync" to "归档…"
+)
+
+fun regeneratePhaseLabel(phase: String?): String? {
+    if (phase.isNullOrBlank()) return null
+    return PHASE_LABELS[phase] ?: phase
+}
+
+data class DiaryUiState(
+    val isLoading: Boolean = true,
+    val entries: List<DiaryEntryDto> = emptyList(),
+    val error: String? = null,
+    val selectedEntry: DiaryEntryDto? = null,
+    val isRefreshingEntry: Boolean = false,
+    val isRegeneratingEntry: Boolean = false,
+    val regeneratePhase: String? = null,
+    val regeneratePercent: Int = 0
+)
+
+class DiaryViewModel(
+    private val diaryRepository: DiaryRepository
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(DiaryUiState())
+    val uiState: StateFlow<DiaryUiState> = _uiState.asStateFlow()
+    private var regenerateJob: Job? = null
+    private var currentRegenerateTaskId: String? = null
+
+    init {
+        refresh()
+    }
+
+    fun refresh(limit: Int = 365) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            val result = diaryRepository.fetchRemoteDiaries(limit)
+            _uiState.update { state ->
+                result.fold(
+                    onSuccess = { diaries -> state.copy(isLoading = false, entries = diaries, error = null) },
+                    onFailure = { state.copy(isLoading = false, error = it.message ?: "加载失败") }
+                )
+            }
+        }
+    }
+
+    fun openDiary(entry: DiaryEntryDto) {
+        _uiState.update { it.copy(selectedEntry = entry) }
+    }
+
+    fun closeDiary() {
+        _uiState.update { it.copy(selectedEntry = null) }
+    }
+
+    fun refreshEntry(date: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshingEntry = true) }
+            val result = diaryRepository.fetchDiaryDetail(date)
+            _uiState.update { state ->
+                val updatedEntry = result.getOrNull()
+                val newList = if (updatedEntry != null) {
+                    state.entries.map { if (it.date == updatedEntry.date) updatedEntry else it }
+                } else {
+                    state.entries
+                }
+                state.copy(
+                    entries = newList,
+                    selectedEntry = updatedEntry ?: state.selectedEntry,
+                    isRefreshingEntry = false,
+                    error = result.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
+    fun regenerateEntry(date: String) {
+        if (regenerateJob?.isActive == true) return
+        regenerateJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isRegeneratingEntry = true,
+                    regeneratePhase = null,
+                    regeneratePercent = 0,
+                    error = null
+                )
+            }
+            diaryRepository.regenerateDiary(date).collect { progress ->
+                when (progress) {
+                    is RegenerateProgress.Running -> {
+                        currentRegenerateTaskId = progress.taskId
+                        _uiState.update {
+                            it.copy(
+                                regeneratePhase = progress.phase,
+                                regeneratePercent = progress.percent
+                            )
+                        }
+                    }
+
+                    is RegenerateProgress.Success -> {
+                        currentRegenerateTaskId = null
+                        val updatedEntry = progress.entry
+                        _uiState.update { state ->
+                            val newList = if (updatedEntry != null) {
+                                val replaced = state.entries.any { it.date == updatedEntry.date }
+                                if (replaced) {
+                                    state.entries.map { if (it.date == updatedEntry.date) updatedEntry else it }
+                                } else {
+                                    state.entries + updatedEntry
+                                }
+                            } else {
+                                state.entries
+                            }
+                            state.copy(
+                                entries = newList,
+                                selectedEntry = updatedEntry ?: state.selectedEntry,
+                                isRegeneratingEntry = false,
+                                regeneratePhase = null,
+                                regeneratePercent = 100
+                            )
+                        }
+                        regenerateJob = null
+                    }
+
+                    is RegenerateProgress.Cancelled -> {
+                        currentRegenerateTaskId = null
+                        _uiState.update {
+                            it.copy(
+                                isRegeneratingEntry = false,
+                                regeneratePhase = null,
+                                regeneratePercent = 0
+                            )
+                        }
+                        regenerateJob = null
+                    }
+
+                    is RegenerateProgress.Error -> {
+                        currentRegenerateTaskId = null
+                        _uiState.update {
+                            it.copy(
+                                isRegeneratingEntry = false,
+                                regeneratePhase = null,
+                                regeneratePercent = 0,
+                                error = progress.message
+                            )
+                        }
+                        regenerateJob = null
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelRegeneration() {
+        val taskId = currentRegenerateTaskId ?: return
+        viewModelScope.launch {
+            val result = diaryRepository.cancelRegenerateDiary(taskId)
+            result.fold(
+                onSuccess = {
+                    regenerateJob?.cancel()
+                    regenerateJob = null
+                    currentRegenerateTaskId = null
+                    _uiState.update {
+                        it.copy(
+                            isRegeneratingEntry = false,
+                            regeneratePhase = null,
+                            regeneratePercent = 0,
+                            error = null
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update { it.copy(error = error.message ?: "取消生成失败") }
+                }
+            )
+        }
+    }
+}
