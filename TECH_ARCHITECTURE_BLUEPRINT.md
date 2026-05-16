@@ -40,7 +40,7 @@
 <td width="50%">
 
 **创新亮点**
-- [4. 状态胶囊 + 亲密度](#4-创新点-1状态胶囊--亲密度让情绪有视觉表达关系有惯性)
+- [4. 状态胶囊 + 三维情绪](#4-创新点-1状态胶囊--三维情绪让心境有视觉表达也有惯性)
 - [5. 日记 highlights 向量记忆](#5-创新点-2日记-highlights-向量记忆用提炼过的记忆去做检索)
 - [6. 类人记忆系统](#6-创新点-3类人记忆系统fact--episodic--intention-三层分工)
 - [7. 工具注册机制](#7-创新点-4工具注册取代全量注入把查证变成模型能力的一部分)
@@ -51,16 +51,17 @@
 <td>
 
 **工程细节**
-- [8. 附件与媒体控制](#8-附件与媒体访问控制给-app-的长链接给模型的稳链接)
-- [9. API 契约](#9-后端-api-契约完整字段级)
-- [10. 数据模型](#10-数据模型完整cloudflare-d1--r2--vectorize--android-本地)
+- [8. 主动消息 + 外部通知](#8-创新点-5主动消息--外部通知她不是只会等你开口)
+- [9. 附件与媒体控制](#9-附件与媒体访问控制给-app-的长链接给模型的稳链接)
+- [10. API 契约](#10-后端-api-契约完整字段级)
+- [11. 数据模型](#11-数据模型完整cloudflare-d1--r2--vectorize--android-本地)
 
 </td>
 <td>
 
 **开发指南**
-- [11. 开发者上手](#11-开发者上手怎么改东西不讲部署)
-- [12. 未来演进](#12-未来演进你计划的方向写在蓝图里方便后续对齐)
+- [12. 开发者上手](#12-开发者上手怎么改东西不讲部署)
+- [13. 未来演进](#13-未来演进你计划的方向写在蓝图里方便后续对齐)
 - [附录 A. 自检清单](#附录-a最小自检清单不等于部署)
 
 </td>
@@ -165,7 +166,8 @@
 • Room 只保存本地消息和消息版本，不再保存本地 diary/memory 表<br/>
 • DataStore 保存用户 id、接口地址、头像等轻量配置<br/>
 • 上传附件、发送聊天、拉取远端对话/日记/self model<br/>
-• 显示状态胶囊，长按可看 <code>status.reason</code>
+• 显示状态胶囊，长按可看 <code>status.reason</code><br/>
+• 前台/启动时通过远端对话同步拿到主动消息；当前没有直接调用 <code>/proactive/pending</code>
 </td>
 </tr>
 <tr>
@@ -179,7 +181,8 @@
 • <code>/models</code>、<code>/current-model</code>：模型列表和当前模型<br/>
 • <code>/proactive/pending</code>：App 拉取主动消息<br/>
 • <code>/api/v1/me/self-model</code>：“关于她”页面数据<br/>
-• Cron：日记巩固、主动消息评估
+• Cron：日记巩固、主动消息评估<br/>
+• 主动消息可写入聊天记录、pending 队列，并可选发邮箱/企业微信提醒
 </td>
 </tr>
 <tr>
@@ -235,23 +238,31 @@
     │                             │ ④ POST /conversation/log          │
     │                             │─────────────────────────────────>│
     │                             │                                  │
-    │                             │ ⑤ POST /api/v1/chat               │
+    │                             │ ⑤ POST /api/v1/chat asyncChat=true│
     │                             │─────────────────────────────────>│
     │                             │                                  │
     │                             │        ⑥ 鉴权 X-App-Token         │
-    │                             │        ⑦ 读两天对话上下文          │
-    │                             │        ⑧ 召回 fact/episodic       │
-    │                             │        ⑨ 读取 pending proactive    │
-    │                             │        ⑩ 读取 memory_intentions    │
-    │                             │        ⑪ 拼 system prompt          │
-    │                             │        ⑫ 工具循环调用上游模型       │
-    │                             │        ⑬ 保存 reply 到日志          │
-    │                             │        ⑭ 异步落状态/事实/念头副作用  │
-    │                             │                                  │
-    │                             │ ⑮ 返回 reply/status/intimacy/id    │
+    │                             │        ⑦ 创建/复用 chat task       │
+    │                             │        ⑧ 进 CHAT_QUEUE 异步执行     │
     │                             │<─────────────────────────────────│
-    │                             │ ⑯ Room 插入 ATRI 回复              │
-    │<────────────────────────────│ ⑰ UI 显示回复 + 状态胶囊            │
+    │                             │ ⑨ 返回 pending + taskId           │
+    │                             │                                  │
+    │                             │ ⑩ 轮询 GET /api/v1/chat/task       │
+    │                             │─────────────────────────────────>│
+    │                             │                                  │
+    │                             │        ⑪ 读两天对话上下文          │
+    │                             │        ⑫ 召回 fact/episodic       │
+    │                             │        ⑬ 读取 pending proactive    │
+    │                             │        ⑭ 读取 memory_intentions    │
+    │                             │        ⑮ 拼 system prompt          │
+    │                             │        ⑯ 工具循环调用上游模型       │
+    │                             │        ⑰ 保存 reply 到日志          │
+    │                             │        ⑱ 落状态/事实/念头副作用     │
+    │                             │                                  │
+    │                             │ ⑲ 返回 reply/status/id/replyTo     │
+    │                             │<─────────────────────────────────│
+    │                             │ ⑳ Room 插入 ATRI 回复              │
+    │<────────────────────────────│ ㉑ UI 显示回复 + 状态胶囊            │
 ```
 
 ### 💡 3.2 为什么 App 要先写日志
@@ -280,7 +291,18 @@ App 在 `/api/v1/chat` 前先写 `/conversation/log`，主要是为了让后端�
 
 ### 🎭 3.3 聊天为什么是一次性 JSON，不是 SSE
 
-当前 App 和 Worker 的主线是一次性 JSON：
+当前 App 和 Worker 的主线是一次性 JSON。App 默认传 `asyncChat=true`，所以第一次响应通常只是任务状态：
+
+```json
+{
+  "pending": true,
+  "taskId": "chat-task-id",
+  "taskStatus": "queued",
+  "replyTo": "user-message-id"
+}
+```
+
+随后 App 轮询 `/api/v1/chat/task`，完成后拿到真正回复：
 
 ```json
 {
@@ -291,14 +313,17 @@ App 在 `/api/v1/chat` 前先写 `/conversation/log`，主要是为了让后端�
     "textColor": "#FFFFFF",
     "reason": "只说给我自己听的理由"
   },
-  "intimacy": 12,
-  "replyLogId": "..."
+  "action": null,
+  "replyLogId": "atri-message-id",
+  "replyTimestamp": 1778123456789,
+  "replyTo": "user-message-id"
 }
 ```
 
 App 端为了聊天节奏，会在新 ATRI 消息上做逐字显示。也就是说：
 
 - **网络协议不是流式**；
+- **计算可以是队列异步**；
 - **视觉体验有打字机感**；
 - 真 SSE 会放到未来演进，不和当前实现混在一起。
 
@@ -318,7 +343,7 @@ App 端为了聊天节奏，会在新 ATRI 消息上做逐字显示。也就是�
 
 ---
 
-## 4. 创新点 1：状态胶囊 + 亲密度（让情绪有视觉表达，关系有惯性）
+## 4. 创新点 1：状态胶囊 + 三维情绪（让心境有视觉表达，也有惯性）
 
 ### 🎨 4.1 状态胶囊是什么
 
@@ -337,32 +362,32 @@ App 端对应：
 - `BioChatResponse.Status.reason`
 - `AtriStatus.LiveStatus.reason`
 - `ChatTopBar.StatusPill(...)`
+- Room `messages.mood` 保存当时那条 ATRI 回复携带的状态 JSON
 
 当前 UI 行为：状态文字会动画切换；长按胶囊会弹出 reason。
 
-### 💕 4.2 亲密度是什么
+### 💗 4.2 三维情绪是什么
 
-亲密度是 `user_states.intimacy`，范围目前按 `-100 ~ 100` 夹紧。
+当前代码里已经没有 `intimacy` 数值亲密度。`0015_remove_intimacy_add_emotion_dims.sql` 删除了 `user_states.intimacy`，改成三维内部情绪：
 
-它不是“每发一条 +1”的本地计数。旧版前端本地亲密度已经删除，后端是唯一真相。
+| 字段 | 范围 | 大白话解释 |
+|------|------|------------|
+| `valence` | -1 ~ 1 | 心境偏暖还是偏冷。正数更亲近、柔软；负数更低落、疏远。 |
+| `arousal` | -1 ~ 1 | 情绪是激动还是沉静。正数更兴奋/慌乱；负数更安静/收着。 |
+| `certainty` | 0 ~ 1 | 她对当前关系和自己状态有多拿得准。 |
 
-| 场景 | 可能变化 |
-|------|----------|
-| 用户明确表达信任、依赖、承诺 | 小幅上升 |
-| 用户攻击、否认、越界 | 下降 |
-| 普通闲聊 | 通常不动 |
-| 模型不确定 | 宁可不改，也不要乱改 |
+这三个字段主要是“她心里自己的底色”，不是直接展示给用户看的分数。它让状态有惯性，不会每轮对话都大起大落。
 
 ### 🗃️ 4.3 数据落在哪
 
 | 数据 | 位置 | 说明 |
 |------|------|------|
 | 当前状态 | D1 `user_states` | label / color / reason |
-| 当前亲密度 | D1 `user_states.intimacy` | 后端唯一真相 |
-| App 显示 | Room 当前消息 + ViewModel 状态 | 只显示，不维护单独计数 |
+| 内部情绪 | D1 `user_states.valence/arousal/certainty` | 夜间巩固时更新，给心境惯性用 |
+| App 显示 | Room 当前消息 + ViewModel 状态 | 只显示状态胶囊，不维护单独亲密度 |
 | 历史 mood | Room `messages.mood` | 保存当时回复携带的状态 JSON |
 
-### 🔧 4.4 更新机制
+### 🔧 4.4 白天聊天怎么更新状态
 
 模型回复必须输出结构化 JSON，里面可以带：
 
@@ -375,7 +400,6 @@ App 端对应：
     "textColor": "#FFFFFF",
     "reason": "他看起来累了，我不想追问"
   },
-  "intimacyDelta": 1,
   "rememberFacts": [],
   "forgetFacts": []
 }
@@ -383,7 +407,26 @@ App 端对应：
 
 `agent-reply-parser.ts` 负责解析，`agent-service.ts` 负责生成副作用计划，`applySideEffects(...)` 再落库。
 
-### 🎯 4.5 它怎么影响回复
+注意：白天聊天主要更新 `status_*` 和 `last_interaction_at`，不直接让模型每轮乱改 `valence/arousal/certainty`。
+
+### 🌙 4.5 夜间怎么沉淀情绪
+
+每天日记生成后，`nightly-mind-service.ts` 会再跑一次 `nightly_state` 提示词，让模型根据当天日记和对话节选输出：
+
+```json
+{
+  "statusLabel": "今天结尾的状态",
+  "pillColor": "#B5C7FF",
+  "textColor": "#FFFFFF",
+  "valence": 0.4,
+  "arousal": -0.2,
+  "certainty": 0.7
+}
+```
+
+然后后端会做一层情绪惯性限制：`valence/arousal` 相对昨天最多漂移 `±0.4`。所以今天聊得很暖，她会慢慢变暖；今天发生冲突，她也不会毫无过渡地跳成另一个人。
+
+### 🎯 4.6 它怎么影响回复
 
 状态不是只给 UI 看。下一轮聊天时，`agent-prompt-builder.ts` 会把当前状态放进 `<现在>`：
 
@@ -393,7 +436,6 @@ App 端对应：
 上次说话：...
 我现在的状态：陪着你（#E3F2FD）
 上次心境：...
-我们的距离：76
 </现在>
 ```
 
@@ -549,17 +591,21 @@ Cloudflare Cron：`59 15 * * *`，按 UTC 看是每天 15:59，配合北京时�
                     ↓
 ④ 保存 diary_entries
                     ↓
-⑤ highlights 写 Vectorize
+⑤ 清理当天旧 highlight 向量
                     ↓
-⑥ episodic_memories 入 D1，并尝试写向量
+⑥ highlights 写 Vectorize
                     ↓
-⑦ memory_intentions 入 D1
+⑦ episodic_memories 入 D1，并尝试写向量
                     ↓
-⑧ factCandidates 严格筛选后入 fact_memories
+⑧ memory_intentions 入 D1
                     ↓
-⑨ consolidateFactsForUser 合并、归档、清理
+⑨ factCandidates 严格筛选后入 fact_memories
                     ↓
-⑩ atri_self_model 夜间更新
+⑩ consolidateFactsForUser 合并、归档、清理
+                    ↓
+⑪ nightly_mind 更新状态胶囊、三维情绪、自我模型
+                    ↓
+⑫ syncFactVectorsNightly 同步 fact 向量
 ```
 
 ### 🧹 6.5 瘦身后的删除点
@@ -604,12 +650,11 @@ Cloudflare Cron：`59 15 * * *`，按 UTC 看是每天 15:59，配合北京时�
 | `read_conversation` | 读某天聊天原文 |
 | `web_search` | 联网查证 |
 
-状态、亲密度、记事实、忘事实不再作为外部 tool 直接暴露，而是让模型在最终 JSON 里提交：
+状态、记事实、忘事实不再作为外部 tool 直接暴露，而是让模型在最终 JSON 里提交：
 
 ```json
 {
   "status": { "label": "...", "pillColor": "...", "textColor": "...", "reason": "..." },
-  "intimacyDelta": 1,
   "rememberFacts": [{ "content": "...", "type": "preference", "importance": 8, "confidence": 0.9 }],
   "forgetFacts": [{ "factId": "..." }]
 }
@@ -653,9 +698,117 @@ Cloudflare Cron：`59 15 * * *`，按 UTC 看是每天 15:59，配合北京时�
 
 ---
 
-## 8. 附件与媒体访问控制（给 App 的长链接，给模型的稳链接）
 
-### 📤 8.1 上传：`POST /upload`
+## 8. 创新点 5：主动消息 + 外部通知（她不是只会等你开口）
+
+主动消息不是简单的“隔一段时间发一句早安”。它的目标是：只有当她心里真的有理由时，才主动说一句。
+
+### 📮 8.1 主动消息触发流程
+
+Cloudflare Cron 当前配置是 `*/30 * * * *`，也就是每 30 分钟触发一次 `runProactiveCron(...)`。
+
+```text
+① Cron 触发 runProactiveCron
+        ↓
+② 读取运行时配置 getEffectiveRuntimeSettings
+        ↓
+③ listProactiveCandidateUsers 找最近 30 天互动过的用户
+        ↓
+④ 对每个用户 evaluateProactiveForUser
+        ↓
+⑤ 过滤：开关 / 静默时间 / 每日上限 / 冷却 / 最近刚活跃
+        ↓
+⑥ 读取主动理由：memory_intentions + promise 类型 fact
+        ↓
+⑦ 没有理由就跳过，不靠“很久没说话”硬发
+        ↓
+⑧ 调上游模型 generateProactiveMessage
+        ↓
+⑨ 模型输出 [SKIP] 就不发；输出文本才继续
+        ↓
+⑩ 可选发送外部通知：email / wechat_work
+        ↓
+⑪ 写 conversation_logs，角色是 atri
+        ↓
+⑫ 写 proactive_messages，状态 pending
+        ↓
+⑬ 更新 proactive_user_state 的冷却、每日计数
+```
+
+### 🧠 8.2 它靠什么判断“该不该说”
+
+当前不是拿全量历史让模型自由发挥，而是只给它少量关键理由：
+
+| 来源 | 表 / 逻辑 | 用途 |
+|------|-----------|------|
+| 心里挂着的话 | `memory_intentions` pending | 日记里提炼出的“想找机会自然说”的话 |
+| 之前答应过的事 | `fact_memories.type = 'promise'` | 承诺、约定、提醒类理由 |
+| 时间信息 | 本地日期时间、距上次聊天小时数 | 让模型判断现在打扰合不合适 |
+| 主动消息提示词 | `shared/prompts/proactive.md` | 明确要求没理由就输出 `[SKIP]` |
+
+所以主动消息的原则是：**有理由才说，没理由就不打扰。**
+
+### ✉️ 8.3 邮件内容和 App 内容是否一致
+
+当前正常路径下，核心内容是一致的。
+
+`proactive-service.ts` 里生成的同一个 `proactiveReply` 会同时用于：
+
+```text
+sendNotification(content = proactiveReply)      // 发邮件/企业微信
+saveConversationLog(content = proactiveReply)   // 写聊天记录
+saveProactiveMessage(content = proactiveReply)  // 写 pending 队列
+```
+
+邮件会额外包一层展示文案：
+
+```text
+「proactiveReply」
+
+——亚托莉
+
+打开 ATRI 查看完整对话
+```
+
+所以严格说：**邮件正文格式和 App 聊天气泡不完全一样，但中间那段主动消息文本是同一份。**
+
+### ⚠️ 8.4 当前审查出来的风险
+
+| 风险 | 现状 | 影响 |
+|------|------|------|
+| 邮件先发，数据库后写 | 先 `sendNotification`，再写 D1 | 如果邮件成功但 D1 写失败，会出现“收到邮件，但 App 没有这条消息” |
+| App 没直接拉 `/proactive/pending` | Android 现在主要靠 `/conversation/pull` 同步远端日志 | `proactive_messages` 可能一直停在 pending |
+| pending proactive 可能被下一轮误注入 | 聊天 prompt 会把 pending proactive 当成“我之前想说但没说出口” | 如果消息其实已通过邮件/日志发出，会有语义不一致 |
+| `PROACTIVE_INTERVAL_MINUTES` 没真正调度 cron | 代码读取了配置，但 cron 表达式固定 `*/30` | 改配置不会改变触发频率 |
+| 缺少用户级发送锁 | cron 重叠或写库失败时没有强去重 | 极端情况下可能重复发相近主动消息 |
+
+最需要优先修的，是前两个：**把写库和通知顺序理顺**，以及 **让 App 真正消费或清理 pending 队列**。
+
+### 📱 8.5 App 现在怎么看到主动消息
+
+当前 Android 代码没有定义 `/proactive/pending` 的 Retrofit 接口，也没有调用它。
+
+App 能看到主动消息，主要靠这个路径：
+
+```text
+主动消息写入 conversation_logs
+        ↓
+App 启动/回前台触发 syncRemoteHistory
+        ↓
+GET /conversation/pull 拉远端日志
+        ↓
+Room 插入这条 ATRI 消息
+        ↓
+聊天页显示
+```
+
+`/proactive/pending` 这个接口后端已经有，但当前 App 还没接上。它拉到消息后会把 `proactive_messages` 标记为 `delivered`，所以如果后续要把 pending 队列语义做严谨，App 需要补这一段。
+
+---
+
+## 9. 附件与媒体访问控制（给 App 的长链接，给模型的稳链接）
+
+### 📤 9.1 上传：`POST /upload`
 
 App 上传附件时传：
 
@@ -682,7 +835,7 @@ u/<safeUserId>/<timestamp>-<safeFileName>
 | `url` | 给 App 的长签名 URL |
 | `signedUrl` | 给模型的短路径签名 URL |
 
-### 🔐 8.2 为什么要路径签名
+### 🔐 9.2 为什么要路径签名
 
 模型侧经常会丢 query 参数：
 
@@ -700,7 +853,7 @@ u/<safeUserId>/<timestamp>-<safeFileName>
 
 签名在路径里，不容易被模型吃掉。
 
-### 🔒 8.3 访问控制优先级
+### 🔒 9.3 访问控制优先级
 
 | 路径 | 校验方式 |
 |------|----------|
@@ -711,12 +864,12 @@ u/<safeUserId>/<timestamp>-<safeFileName>
 
 ---
 
-## 9. 后端 API 契约（完整｜字段级）
+## 10. 后端 API 契约（完整｜字段级）
 
 > 📌 统一规则：除 `OPTIONS *` 和少量兼容预检外，业务接口都要 `X-App-Token`。
 > 📌 返回 JSON。CORS 当前允许 `*`。
 
-### 9.1 `OPTIONS *`
+### 10.1 `OPTIONS *`
 
 ```http
 Access-Control-Allow-Origin: *
@@ -724,7 +877,7 @@ Access-Control-Allow-Methods: GET, POST, OPTIONS
 Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-Name, X-File-Type, X-File-Size, X-User-Id
 ```
 
-### 9.2 `GET /health`
+### 10.2 `GET /health`
 
 健康检查。
 
@@ -732,7 +885,7 @@ Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-N
 { "ok": true }
 ```
 
-### 9.3 `POST /api/v1/chat`
+### 10.3 `POST /api/v1/chat`
 
 核心聊天接口。
 
@@ -751,7 +904,8 @@ Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-N
   "attachments": [
     { "type": "image", "url": "https://...", "mime": "image/png", "name": "a.png", "sizeBytes": 123 }
   ],
-  "forceRegenerate": false
+  "forceRegenerate": false,
+  "asyncChat": true
 }
 ```
 
@@ -767,14 +921,29 @@ Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-N
     "reason": "她心里为什么这样"
   },
   "action": null,
-  "intimacy": 76,
   "replyLogId": "atri-message-id",
   "replyTimestamp": 1778123456789,
   "replyTo": "user-message-id"
 }
 ```
 
-### 9.4 `POST /conversation/log`
+### 10.4 `GET /api/v1/chat/task`
+
+异步聊天任务轮询接口。
+
+```http
+/api/v1/chat/task?taskId=<task-id>&userId=<uuid>
+```
+
+任务未完成：
+
+```json
+{ "pending": true, "taskId": "...", "taskStatus": "queued|running", "replyTo": "user-message-id" }
+```
+
+任务完成时返回结构和 `POST /api/v1/chat` 的最终响应一致。
+
+### 10.5 `POST /conversation/log`
 
 写入用户或 ATRI 消息。
 
@@ -799,7 +968,7 @@ Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-N
 { "ok": true, "id": "最终 id", "date": "2026-05-07" }
 ```
 
-### 9.5 `POST /conversation/delete`
+### 10.6 `POST /conversation/delete`
 
 软删除日志，并写 tombstone。
 
@@ -807,7 +976,7 @@ Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-N
 { "userId": "uuid", "ids": ["id1", "id2"] }
 ```
 
-### 9.6 `GET /conversation/last`
+### 10.7 `GET /conversation/last`
 
 查最近聊天日期。
 
@@ -815,7 +984,7 @@ Access-Control-Allow-Headers: Content-Type, X-App-Token, Authorization, X-File-N
 /conversation/last?userId=<uuid>&timeZone=Asia/Shanghai&date=2026-05-07
 ```
 
-### 9.7 `GET /conversation/pull`
+### 10.8 `GET /conversation/pull`
 
 App 拉远端日志和 tombstone。
 
@@ -823,23 +992,23 @@ App 拉远端日志和 tombstone。
 /conversation/pull?userId=<uuid>&after=0&limit=200&tombstones=true
 ```
 
-### 9.8 `POST /conversation/invalidate-memory`
+### 10.9 `POST /conversation/invalidate-memory`
 
 用于删除/改写消息后，把相关事实软归档或标记失效。
 
-### 9.9 `GET /diary`
+### 10.10 `GET /diary`
 
 ```http
 /diary?userId=<uuid>&date=2026-05-07
 ```
 
-### 9.10 `GET /diary/list`
+### 10.11 `GET /diary/list`
 
 ```http
 /diary/list?userId=<uuid>&limit=7
 ```
 
-### 9.11 `POST /diary/regenerate`
+### 10.12 `POST /diary/regenerate`
 
 手动重生成某天日记。
 
@@ -847,7 +1016,7 @@ App 拉远端日志和 tombstone。
 { "userId": "uuid", "date": "2026-05-07" }
 ```
 
-### 9.12 `GET /api/v1/me/self-model`
+### 10.13 `GET /api/v1/me/self-model`
 
 “关于她”页面。
 
@@ -869,35 +1038,57 @@ App 拉远端日志和 tombstone。
 }
 ```
 
-### 9.13 `GET /proactive/pending`
+### 10.14 `GET /proactive/pending`
 
-App 拉取待展示主动消息。
+App 拉取待展示主动消息。后端会返回 pending 消息列表，并把这些消息标记为 delivered。
 
 ```http
-/proactive/pending?userId=<uuid>
+/proactive/pending?userId=<uuid>&limit=20
 ```
 
-### 9.14 `POST /upload`
+返回：
 
-上传附件到 R2。见 [8.1](#81-上传post-upload)。
+```json
+{
+  "messages": [
+    {
+      "id": "pm:...",
+      "userId": "uuid",
+      "content": "主动消息正文",
+      "status": "pending",
+      "notificationChannel": "email",
+      "notificationSent": true,
+      "notificationError": null,
+      "createdAt": 1778123456789,
+      "expiresAt": 1778382656789
+    }
+  ]
+}
+```
 
-### 9.15 `GET/HEAD /media/:key+`
+> 当前 Android App 还没有直接调用这个接口，主动消息主要靠 `/conversation/pull` 同步 `conversation_logs` 后展示。
+
+### 10.15 `POST /upload`
+
+上传附件到 R2。见 [9.1](#91-上传post-upload)。
+
+### 10.16 `GET/HEAD /media/:key+`
 
 读取 R2 对象。
 
-### 9.16 `GET/HEAD /media-s/:exp/:sig/:key+`
+### 10.17 `GET/HEAD /media-s/:exp/:sig/:key+`
 
 读取路径签名对象，主要给模型用。
 
-### 9.17 `GET /models`
+### 10.18 `GET /models`
 
 拉上游模型列表。失败时返回 fallback。
 
-### 9.18 `GET /current-model`
+### 10.19 `GET /current-model`
 
 返回当前默认模型。
 
-### 9.19 `POST /admin/clear-user`
+### 10.20 `POST /admin/clear-user`
 
 管理清理接口，需要 `Authorization: Bearer <ADMIN_API_KEY>`。
 
@@ -913,7 +1104,7 @@ App 拉取待展示主动消息。
 - memory intentions
 - user state
 
-### 9.20 兼容 API
+### 10.21 兼容 API
 
 | 路径 | 用途 |
 |------|------|
@@ -923,20 +1114,20 @@ App 拉取待展示主动消息。
 
 ---
 
-## 10. 数据模型（完整｜Cloudflare D1 / R2 / Vectorize / Android 本地）
+## 11. 数据模型（完整｜Cloudflare D1 / R2 / Vectorize / Android 本地）
 
-### 🗄️ 10.1 D1 表
+### 🗄️ 11.1 D1 表
 
 表定义在 `worker/db/schema.sql`，迁移在 `worker/migrations/`。
 
 | 表 | 用途 |
 |----|------|
-| `conversation_logs` | 对话日志，含 role/content/date/attachments/reply_to/deleted_at |
+| `conversation_logs` | 对话日志，含 role/content/date/attachments/reply_to |
 | `conversation_log_tombstones` | 删除同步 tombstone |
-| `user_states` | 状态胶囊、亲密度、最后互动时间 |
+| `user_states` | 状态胶囊、三维情绪、最后互动时间 |
 | `diary_entries` | 每日第一人称日记、highlights、status |
 | `user_settings` | 用户偏好设置 |
-| `proactive_messages` | 主动消息待取队列 |
+| `proactive_messages` | 主动消息待取队列，含 notification_channel/sent/error |
 | `proactive_user_state` | 主动消息频率/冷却状态 |
 | `fact_memories` | 长期稳定事实 |
 | `episodic_memories` | 情景记忆 |
@@ -950,7 +1141,7 @@ App 拉取待展示主动消息。
 
 > 📌 `memory_events` 已删除。远端旧库需要跑 `0014_drop_memory_events.sql`。
 
-### 🪣 10.2 R2 对象
+### 🪣 11.2 R2 对象
 
 R2 只保存附件二进制，路径：
 
@@ -960,7 +1151,7 @@ u/<safeUserId>/<timestamp>-<safeFileName>
 
 D1 `conversation_logs.attachments` 保存附件 JSON，不保存文件本体。
 
-### 🧭 10.3 Vectorize
+### 🧭 11.3 Vectorize
 
 当前向量大致有三类：
 
@@ -972,7 +1163,7 @@ D1 `conversation_logs.attachments` 保存附件 JSON，不保存文件本体。
 
 Vectorize 查不到时，系统会降级用 D1 里的重要度/更新时间排序。
 
-### 📱 10.4 Android Room
+### 📱 11.4 Android Room
 
 `AtriDatabase` 当前 version = 8，只保留：
 
@@ -986,7 +1177,7 @@ Vectorize 查不到时，系统会降级用 D1 里的重要度/更新时间排�
 - `diary`
 - `memories`
 
-### 🧰 10.5 Android DataStore
+### 🧰 11.5 Android DataStore
 
 DataStore 保存轻量配置，例如：
 
@@ -995,13 +1186,13 @@ DataStore 保存轻量配置，例如：
 - atri avatar path
 - 输入/设置相关状态
 
-不再保存本地亲密度。
+不再保存本地亲密度。当前发布代码也不再维护 `intimacy` 字段。
 
 ---
 
-## 11. 开发者上手（怎么改东西，不讲部署）
+## 12. 开发者上手（怎么改东西，不讲部署）
 
-### 🔧 11.1 你最常改的东西 → 改哪儿
+### 🔧 12.1 你最常改的东西 → 改哪儿
 
 | 想改什么 | 主要文件 |
 |----------|----------|
@@ -1015,13 +1206,13 @@ DataStore 保存轻量配置，例如：
 | 心里念头 | `worker/src/services/memory-intention-service.ts` |
 | 日记生成 | `worker/src/services/diary-generator.ts` |
 | 夜间任务 | `worker/src/jobs/diary-cron.ts` |
-| 主动消息 | `worker/src/services/proactive-service.ts` / `worker/src/jobs/proactive-cron.ts` |
+| 主动消息 | `worker/src/services/proactive-service.ts` / `worker/src/jobs/proactive-cron.ts` / `worker/src/services/notification-service.ts` |
 | App 聊天页 | `ATRI/app/src/main/java/me/atri/ui/chat/` |
 | App 设置/关于她 | `ATRI/app/src/main/java/me/atri/ui/settings/` |
 | App API 契约 | `ATRI/app/src/main/java/me/atri/data/api/` |
 | App 本地 DB | `ATRI/app/src/main/java/me/atri/data/db/` |
 
-### 🚀 11.2 新增一个工具的标准姿势
+### 🚀 12.2 新增一个工具的标准姿势
 
 1. 在 `agent-tools.ts` 加 tool schema；
 2. 在 `executeInfoTool(...)` 里写执行逻辑；
@@ -1029,7 +1220,7 @@ DataStore 保存轻量配置，例如：
 4. 跑 `npm run typecheck`；
 5. 至少手动测一次模型真的会调用，而不是只写了工具没人用。
 
-### 🧱 11.3 新增 D1 字段/表
+### 🧱 12.3 新增 D1 字段/表
 
 1. 改 `worker/db/schema.sql`；
 2. 新增 `worker/migrations/00xx_xxx.sql`；
@@ -1040,7 +1231,7 @@ DataStore 保存轻量配置，例如：
 npx wrangler d1 migrations apply ATRI_DB --remote
 ```
 
-### 📱 11.4 新增 App 字段
+### 📱 12.4 新增 App 字段
 
 1. 后端 response 加字段；
 2. Android `data/api/response/*` 加字段；
@@ -1051,30 +1242,32 @@ npx wrangler d1 migrations apply ATRI_DB --remote
 
 ---
 
-## 12. 未来演进（你计划的方向，写在蓝图里方便后续对齐）
+## 13. 未来演进（你计划的方向，写在蓝图里方便后续对齐）
 
-### ✅ 12.1 已完成：后端瘦身
+### ✅ 13.1 已完成：后端瘦身
 
 - 发布主线聚焦 Worker；
 - 删除旧 dead code；
 - `memory_events` 已从 schema 移除；
 - 前端本地 Room 只保留聊天相关表。
 
-### ✅ 12.2 已完成：类人记忆三层分工
+### ✅ 13.2 已完成：类人记忆三层分工
 
 - fact：长期稳定事实；
 - episodic：自然想起的场景；
 - intention：未说出口但心里挂着的话。
 
-### ✅ 12.3 已完成：关于她
+### ✅ 13.3 已完成：关于她
 
 `GET /api/v1/me/self-model` + App 设置页“关于她”，把 `atri_self_model` 变成用户可见的成长记录。
 
-### ✅ 12.4 已完成：主动消息
+### ✅ 13.4 已完成：主动消息
 
-Worker Cron 每 30 分钟评估一次是否该主动说话，支持 pending 队列和外部通知。
+Worker Cron 每 30 分钟评估一次是否该主动说话，支持写入聊天记录、pending 队列和外部通知。
 
-### 🔊 12.5 待做：真正 SSE 流式输出
+当前还要注意两个工程风险：一是通知发送在写库之前，极端情况下可能邮件到了但 App 没记录；二是 Android 还没直接消费 `/proactive/pending`，主要靠 `/conversation/pull` 展示主动消息。
+
+### 🔊 13.5 待做：真正 SSE 流式输出
 
 现在是一次性 JSON + App 逐字显示。以后如果要真流式，需要同时改：
 
@@ -1083,7 +1276,7 @@ Worker Cron 每 30 分钟评估一次是否该主动说话，支持 pending 队�
 - 中途 tool call / 最终 status 的协议；
 - 失败重试和 Room 写入时机。
 
-### 🎨 12.6 待做：状态 reason 的更拟人 UI
+### 🎨 13.6 待做：状态 reason 的更拟人 UI
 
 当前是长按胶囊弹窗。以后可以改成更轻的 Popup、模糊背景、渐变出现，但这属于 UI 优化，不影响当前协议。
 
@@ -1113,7 +1306,7 @@ ATRI/app/build/outputs/apk/release/app-release.apk
 
 ### A.3 远端 D1 迁移
 
-这次包含 `0014_drop_memory_events.sql`，所以部署前/后都要记得跑远端迁移：
+当前迁移包含 `0014_drop_memory_events.sql` 和 `0015_remove_intimacy_add_emotion_dims.sql` 等变更，所以部署前/后都要记得跑远端迁移：
 
 ```bash
 cd worker
@@ -1138,12 +1331,12 @@ export CLOUDFLARE_API_TOKEN=<SECRET>
 | 项目 | 验证方式 |
 |------|----------|
 | 健康检查 | `GET /health` 返回 `{ ok: true }` |
-| 聊天 | App 发一条消息，能返回 reply/status/intimacy |
+| 聊天 | App 发一条消息，能完成 task 轮询并返回 reply/status |
 | 状态 reason | 长按状态胶囊能看到 reason 或默认文案 |
 | 日记 | 有聊天记录的日期能生成/查询日记 |
 | 关于她 | 设置页进入“关于她”能拉到 self model |
 | 附件 | 上传图片后，App 能显示，模型能读取签名 URL |
-| 主动消息 | `/proactive/pending?userId=...` 能取 pending 或空数组 |
+| 主动消息 | `/conversation/pull` 能同步主动消息；`/proactive/pending?userId=...` 能取 pending 或空数组并标记 delivered |
 
 ---
 
