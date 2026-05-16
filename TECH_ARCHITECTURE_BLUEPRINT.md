@@ -772,21 +772,29 @@ saveProactiveMessage(content = proactiveReply)  // 写 pending 队列
 
 所以严格说：**邮件正文格式和 App 聊天气泡不完全一样，但中间那段主动消息文本是同一份。**
 
-### ⚠️ 8.4 当前审查出来的风险
+### ⚠️ 8.4 当前处理结果和剩余风险
 
-| 风险 | 现状 | 影响 |
-|------|------|------|
-| 邮件先发，数据库后写 | 先 `sendNotification`，再写 D1 | 如果邮件成功但 D1 写失败，会出现“收到邮件，但 App 没有这条消息” |
-| App 没直接拉 `/proactive/pending` | Android 现在主要靠 `/conversation/pull` 同步远端日志 | `proactive_messages` 可能一直停在 pending |
-| pending proactive 可能被下一轮误注入 | 聊天 prompt 会把 pending proactive 当成“我之前想说但没说出口” | 如果消息其实已通过邮件/日志发出，会有语义不一致 |
-| `PROACTIVE_INTERVAL_MINUTES` 没真正调度 cron | 代码读取了配置，但 cron 表达式固定 `*/30` | 改配置不会改变触发频率 |
-| 缺少用户级发送锁 | cron 重叠或写库失败时没有强去重 | 极端情况下可能重复发相近主动消息 |
+这次已经把主动消息的语义拆干净了：
 
-最需要优先修的，是前两个：**把写库和通知顺序理顺**，以及 **让 App 真正消费或清理 pending 队列**。
+```text
+conversation_logs = 她真的说过什么
+proactive_messages = 外部通知/客户端拉取状态
+memory_intentions = 她还没说出口、心里挂着什么
+```
+
+| 项目 | 当前处理 |
+|------|----------|
+| App 没直接拉 `/proactive/pending` | 已处理：`/conversation/pull` 拉到对应 ATRI 日志时，会把 `pm:<logId>` 标记成 delivered。 |
+| pending proactive 被下一轮误注入 | 已处理：聊天 prompt 不再读取、不再注入 `proactive_messages.pending`。说没说过只看 `conversation_logs`。 |
+| 邮件先发，数据库后写 | 仍是剩余风险：如果邮件成功但 D1 写失败，可能出现“收到邮件，但 App 没有这条消息”。 |
+| `PROACTIVE_INTERVAL_MINUTES` 没真正调度 cron | 仍是剩余风险：代码读取了配置，但 cron 表达式固定 `*/30`。 |
+| 缺少用户级发送锁 | 仍是剩余风险：cron 重叠或写库失败时没有强去重。 |
 
 ### 📱 8.5 App 现在怎么看到主动消息
 
 当前 Android 代码没有定义 `/proactive/pending` 的 Retrofit 接口，也没有调用它。
+
+现在后端已经让 `/conversation/pull` 同时承担“用户已拉取主动消息”的确认动作，所以 App 不需要额外补一个 pending 拉取接口，也能把主动消息标记成 delivered。
 
 App 能看到主动消息，主要靠这个路径：
 
@@ -802,7 +810,7 @@ Room 插入这条 ATRI 消息
 聊天页显示
 ```
 
-`/proactive/pending` 这个接口后端已经有，但当前 App 还没接上。它拉到消息后会把 `proactive_messages` 标记为 `delivered`，所以如果后续要把 pending 队列语义做严谨，App 需要补这一段。
+`/proactive/pending` 这个接口后端仍然保留。以后如果要做独立收件箱、红点或系统通知页，可以再让 App 接它；但聊天人格上下文不再依赖这个队列。
 
 ---
 
@@ -1265,7 +1273,7 @@ npx wrangler d1 migrations apply ATRI_DB --remote
 
 Worker Cron 每 30 分钟评估一次是否该主动说话，支持写入聊天记录、pending 队列和外部通知。
 
-当前还要注意两个工程风险：一是通知发送在写库之前，极端情况下可能邮件到了但 App 没记录；二是 Android 还没直接消费 `/proactive/pending`，主要靠 `/conversation/pull` 展示主动消息。
+这次已经清掉两个语义问题：`proactive_messages.pending` 不再进入聊天 prompt；`/conversation/pull` 拉到主动消息后会标记 delivered。剩下还要注意的是通知发送仍在写库之前，以及 cron 触发频率目前仍由 `wrangler.toml` 的表达式决定。
 
 ### 🔊 13.5 待做：真正 SSE 流式输出
 

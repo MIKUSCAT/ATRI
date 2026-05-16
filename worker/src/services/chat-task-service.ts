@@ -5,7 +5,6 @@ import {
   fetchLatestAtriReplyToLog,
   getUserState,
   isConversationLogDeleted,
-  markProactiveMessagesDelivered,
   saveConversationLog
 } from './data-service';
 
@@ -298,18 +297,6 @@ export async function processChatTask(env: Env, taskId: string) {
       await applySideEffects(env, result.sideEffects);
     } catch (e) {
       console.warn('[ATRI] chat_task_side_effects_failed', { taskId: task.taskId, userId: request.userId, e });
-    }
-
-    if (result.usedPendingProactive?.id) {
-      try {
-        await markProactiveMessagesDelivered(env, {
-          userId: request.userId,
-          ids: [result.usedPendingProactive.id],
-          deliveredAt: Date.now()
-        });
-      } catch (e) {
-        console.warn('[ATRI] chat_task_pending_proactive_mark_failed', { taskId: task.taskId, userId: request.userId, e });
-      }
     }
   } catch (e: any) {
     const msg = e instanceof Error ? e.message : String(e);

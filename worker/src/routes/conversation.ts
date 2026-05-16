@@ -10,7 +10,8 @@ import {
   getLastConversationDate,
   deleteConversationLogsByIds,
   isConversationLogDeleted,
-  markDiaryPending
+  markDiaryPending,
+  markProactiveMessagesDelivered
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { requireAppToken } from '../utils/auth';
@@ -145,6 +146,16 @@ export function registerConversationRoutes(router: RouterType) {
         limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
         roles: roles as Array<'user' | 'atri'>
       });
+      const proactiveMessageIds = logs
+        .filter((log) => log.role === 'atri' && String(log.id || '').trim())
+        .map((log) => `pm:${log.id}`);
+      if (proactiveMessageIds.length) {
+        await markProactiveMessagesDelivered(env, {
+          userId,
+          ids: proactiveMessageIds,
+          deliveredAt: Date.now()
+        });
+      }
 
       if (includeTombstones) {
         const tombstones = await fetchTombstonesAfter(env, {

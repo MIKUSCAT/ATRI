@@ -11,7 +11,6 @@ import {
   getUserState,
   isConversationLogDeleted,
   listConversationReplyIds,
-  markProactiveMessagesDelivered,
   saveConversationLog
 } from '../services/data-service';
 import { applySideEffects, runAgentChat } from '../services/agent-service';
@@ -265,17 +264,6 @@ export function registerChatRoutes(router: RouterType) {
           await applySideEffects(env, result.sideEffects);
         } catch (e) {
           console.warn('[ATRI] side_effects_failed', { userId: parsed.userId, e });
-        }
-        if (result.usedPendingProactive?.id) {
-          try {
-            await markProactiveMessagesDelivered(env, {
-              userId: parsed.userId,
-              ids: [result.usedPendingProactive.id],
-              deliveredAt: Date.now()
-            });
-          } catch (e) {
-            console.warn('[ATRI] pending_proactive_mark_failed', { userId: parsed.userId, e });
-          }
         }
         const skip = replyTo ? await isConversationLogDeleted(env, parsed.userId, replyTo) : false;
         if (!skip) {

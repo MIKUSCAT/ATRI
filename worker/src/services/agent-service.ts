@@ -8,7 +8,6 @@ import { composeAgentSystemPrompt } from './agent-prompt-builder';
 import { parseStructuredReply, ParsedReply } from './agent-reply-parser';
 import { executeInfoTool, INFO_TOOLS } from './agent-tools';
 import {
-  fetchLatestPendingProactive,
   getConversationLogDate,
   getFirstConversationTimestamp,
   getUserState,
@@ -57,7 +56,6 @@ export type AgentChatResult = {
   status: { label: string; pillColor: string; textColor: string; reason?: string };
   action: string | null;
   sideEffects: SideEffectPlan;
-  usedPendingProactive?: { id: string; content: string } | null;
 };
 
 const MAX_AGENT_LOOPS = 8;
@@ -70,7 +68,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     logId: params.logId
   });
 
-  const [historyPack, recalls, facts, state, firstAt, pendingProactive, intentions] = await Promise.all([
+  const [historyPack, recalls, facts, state, firstAt, intentions] = await Promise.all([
     loadTwoDaysConversationLogs(env, {
       userId: params.userId,
       today: contextDate,
@@ -80,7 +78,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     getRelevantFacts(env, params.userId, params.messageText, 8),
     getUserState(env, params.userId),
     safeFirstInteraction(env, params.userId),
-    fetchLatestPendingProactive(env, params.userId),
     safeListPendingIntentions(env, params.userId, 5)
   ]);
 
@@ -100,9 +97,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     clientTimeIso: params.clientTimeIso,
     recalls,
     facts,
-    pendingProactive: pendingProactive
-      ? { content: pendingProactive.content, createdAt: pendingProactive.createdAt }
-      : null,
     intentions
   });
   const systemPrompt = promptResult.prompt;
@@ -170,7 +164,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
         }
       : { label: touchedState.statusLabel, pillColor: touchedState.statusPillColor, textColor: touchedState.statusTextColor },
     action: null,
-    usedPendingProactive: pendingProactive ? { id: pendingProactive.id, content: pendingProactive.content } : null,
     sideEffects: {
       userId: params.userId,
       statusUpdate: parsed.status,

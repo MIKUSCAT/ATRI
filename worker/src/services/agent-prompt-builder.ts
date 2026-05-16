@@ -18,21 +18,12 @@ export function composeAgentSystemPrompt(params: {
   clientTimeIso?: string;
   recalls: AutoRecallResult;
   facts: Array<{ id: string; text: string; importance?: number }>;
-  pendingProactive?: { content: string; createdAt: number } | null;
   intentions?: MemoryIntentionRecord[];
 }): ComposeAgentPromptResult {
   const parts: string[] = [];
   parts.push(params.coreSelf.trim());
   parts.push(params.agent.trim());
   parts.push(buildContextBlock(params));
-
-  if (params.pendingProactive) {
-    parts.push([
-      '<我之前想说的话>',
-      `（刚才其实我在心里想：${params.pendingProactive.content}——但他还没来，我没说出口）`,
-      '</我之前想说的话>'
-    ].join('\n'));
-  }
 
   const recallBlock = formatRecallsAsNaturalThoughts(params.recalls);
   if (recallBlock) parts.push(recallBlock);
