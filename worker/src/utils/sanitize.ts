@@ -48,3 +48,15 @@ export function sanitizeAssistantReply(text: string): string {
     .replace(CHAT_TIME_PREFIX_PLAIN_PATTERN, '')
     .trim();
 }
+
+export function stripVisibleThinking(text: string): string {
+  if (!text) return '';
+  let out = stripReasoningText(text);
+
+  const openTag = out.match(/<\s*(?:thinking|think)\s*>/i);
+  if (openTag?.index !== undefined) {
+    out = out.slice(0, openTag.index).trim();
+  }
+
+  return out;
+}

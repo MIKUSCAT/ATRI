@@ -1,6 +1,6 @@
 import { Env } from '../types';
 import { formatDateInZone, formatTimeInZone } from '../utils/date';
-import { sanitizeAssistantReply } from '../utils/sanitize';
+import { sanitizeAssistantReply, stripVisibleThinking } from '../utils/sanitize';
 import {
   getProactiveUserState,
   getUserState,
@@ -137,12 +137,12 @@ export async function generateProactiveMessage(env: Env, params: {
       { role: 'user', content: userPrompt }
     ],
     temperature: params.settings.agentTemperature,
-    maxTokens: 512,
+    maxTokens: params.settings.agentMaxTokens,
     timeoutMs: params.settings.agentTimeoutMs,
     trace: { scope: 'proactive', userId: params.userId }
   });
 
-  const text = String(message.content || '').trim();
+  const text = stripVisibleThinking(String(message.content || '')).trim();
   if (!text || text.includes('[SKIP]')) return null;
   const reply = sanitizeAssistantReply(text).trim();
   return reply ? reply.slice(0, 600) : null;

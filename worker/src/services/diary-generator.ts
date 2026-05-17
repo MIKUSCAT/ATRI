@@ -104,7 +104,7 @@ export async function generateDiaryFromConversation(env: Env, params: {
         { role: 'user', content: userPrompt }
       ],
       temperature: settings.diaryTemperature,
-      maxTokens: settings.diaryMaxTokens,
+      maxTokens: settings.agentMaxTokens,
       timeoutMs: 120000,
       signal: params.signal,
       trace: { scope: 'diary', userId: params.userId }

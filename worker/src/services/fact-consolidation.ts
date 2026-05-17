@@ -56,7 +56,7 @@ export async function consolidateFactsForUser(
       { role: 'user', content: userPrompt }
     ],
     temperature: 0.3,
-    maxTokens: 4096,
+    maxTokens: settings.agentMaxTokens,
     timeoutMs: 60000,
     signal: params.signal,
     trace: { scope: 'fact-consolidation', userId: params.userId }
