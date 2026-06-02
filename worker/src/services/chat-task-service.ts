@@ -259,7 +259,8 @@ export async function processChatTask(env: Env, taskId: string) {
       attachments: request.attachments || [],
       inlineImage: request.inlineImage,
       model: request.model,
-      logId: request.logId
+      logId: request.logId,
+      anchorTimestamp: request.anchorTimestamp
     });
 
     const replyText = sanitizeAssistantReply(result.reply).trim();

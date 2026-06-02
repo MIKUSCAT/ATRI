@@ -40,6 +40,7 @@ export type AgentChatParams = {
   userName?: string;
   clientTimeIso?: string;
   logId?: string;
+  anchorTimestamp?: number | null;
 };
 
 export type SideEffectPlan = {
@@ -72,7 +73,8 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     loadTwoDaysConversationLogs(env, {
       userId: params.userId,
       today: contextDate,
-      excludeLogId: params.logId
+      excludeLogId: params.logId,
+      maxTimestamp: params.anchorTimestamp
     }),
     autoRecallMemories(env, params.userId, params.messageText),
     getRelevantFacts(env, params.userId, params.messageText, 8),

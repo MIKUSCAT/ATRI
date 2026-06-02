@@ -393,7 +393,7 @@ class ChatViewModel(
                     userMessageId = userMessage.id,
                     userContent = userMessage.content,
                     userAttachments = userMessage.attachments,
-                    forceRegenerate = target.isFromAtri
+                    forceRegenerate = true
                 )
 
                 if (result.isSuccess) {
