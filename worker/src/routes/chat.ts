@@ -201,7 +201,7 @@ export function registerChatRoutes(router: RouterType) {
       if (parsed.asyncChat) {
         if (!replyTo) return jsonResponse({ error: 'log_id_required' }, 400);
 
-        const { task } = await createOrGetChatTask(env, {
+        const taskRequest = {
           userId: parsed.userId,
           platform: parsed.platform || 'android',
           userName: parsed.userName,
@@ -214,7 +214,19 @@ export function registerChatRoutes(router: RouterType) {
           replyTo,
           timeZone: parsed.timeZone,
           anchorTimestamp
-        });
+        };
+        let task = (await createOrGetChatTask(env, taskRequest)).task;
+
+        if (task.status === 'failed') {
+          console.warn('[ATRI] chat_task_failed_reset', {
+            userId: parsed.userId,
+            logId: replyTo,
+            taskId: task.taskId,
+            error: task.error
+          });
+          await deleteChatTaskForLog(env, parsed.userId, replyTo);
+          task = (await createOrGetChatTask(env, taskRequest)).task;
+        }
 
         if (task.status === 'completed' && task.result) {
           return jsonResponse(task.result);

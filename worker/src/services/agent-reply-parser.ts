@@ -41,6 +41,11 @@ export function parseStructuredReply(rawText: string): ParsedReply {
   const loose = parseLooseStructuredReply(text);
   if (loose) return sanitizeParsed(loose, text);
 
+  if (looksLikeUpstreamErrorText(text)) {
+    console.warn('[ATRI] upstream_error_text_rejected', { sample: text.slice(0, 200) });
+    return empty;
+  }
+
   console.warn('[ATRI] structured_reply_parse_failed', { sample: text.slice(0, 200) });
   const fallback = sanitizeText(text).trim();
   if (looksLikeBrokenStructuredReply(fallback)) return empty;
@@ -248,6 +253,20 @@ function looksLikeBrokenStructuredReply(text: string): boolean {
     || /<\s*(?:thinking|think)\b/i.test(trimmed);
 }
 
+function looksLikeUpstreamErrorText(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('model output must contain either output text or tool calls')) return true;
+  if (lower.includes('model output error')) return true;
+  if (lower.includes('these cannot both be empty')) return true;
+  if (lower.includes('llm api error')) return true;
+  if (lower.includes('empty_agent_reply') || lower.includes('empty_llm_content')) return true;
+  if (/^error\s*:/i.test(trimmed) && /(model output|output text|tool calls|upstream|llm api)/i.test(trimmed)) return true;
+  if (/(输出不能为空|空回复)/.test(trimmed) && /(重试|错误|error|retry)/i.test(trimmed)) return true;
+  return false;
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -260,6 +279,7 @@ function sanitizeParsed(raw: any, fallbackText: string): ParsedReply {
   }
 
   out.reply = sanitizeText(stripVisibleThinking(typeof raw.reply === 'string' ? raw.reply : '')).trim().slice(0, 4000);
+  if (looksLikeUpstreamErrorText(out.reply)) out.reply = '';
 
   const s = raw.status;
   if (s && typeof s === 'object') {
