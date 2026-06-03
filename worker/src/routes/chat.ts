@@ -18,6 +18,7 @@ import { getEffectiveRuntimeSettings } from '../services/runtime-settings';
 import {
   createOrGetChatTask,
   deleteChatTaskForLog,
+  deleteChatTasksForLogs,
   getChatTaskById
 } from '../services/chat-task-service';
 
@@ -104,6 +105,17 @@ export function registerChatRoutes(router: RouterType) {
       const task = await getChatTaskById(env, taskId);
       if (!task || task.userId !== userId) return jsonResponse({ error: 'task_not_found' }, 404);
 
+      const taskReplyTo = String(task.request.replyTo || task.logId || '').trim();
+      if (taskReplyTo && await isConversationLogDeleted(env, userId, taskReplyTo)) {
+        return jsonResponse({
+          pending: false,
+          taskId: task.taskId,
+          taskStatus: 'failed',
+          error: 'message_deleted',
+          replyTo: taskReplyTo
+        });
+      }
+
       if (task.status === 'completed' && task.result) {
         return jsonResponse(task.result);
       }
@@ -150,6 +162,10 @@ export function registerChatRoutes(router: RouterType) {
 
       if (replyTo) {
         try {
+          if (await isConversationLogDeleted(env, parsed.userId, replyTo)) {
+            return jsonResponse({ error: 'message_deleted', replyTo }, 409);
+          }
+
           if (!parsed.forceRegenerate) {
             const existing = await fetchLatestAtriReplyToLog(env, parsed.userId, replyTo);
             const existingText = sanitizeText(String(existing?.content || '')).trim();
@@ -173,17 +189,19 @@ export function registerChatRoutes(router: RouterType) {
 
           anchorTimestamp = await getConversationLogTimestamp(env, parsed.userId, replyTo);
           if (parsed.forceRegenerate) {
-            await isConversationLogDeleted(env, parsed.userId, replyTo);
+            const taskDeleteIds = new Set<string>([replyTo]);
             const ids = await listConversationReplyIds(env, parsed.userId, [replyTo]);
+            ids.forEach((id) => taskDeleteIds.add(id));
             if (ids.length) await deleteConversationLogsByIds(env, parsed.userId, ids);
             if (typeof anchorTimestamp === 'number') {
               const staleResult = await env.ATRI_DB.prepare(
                 `SELECT id FROM conversation_logs WHERE user_id = ? AND timestamp > ?`
               ).bind(parsed.userId, anchorTimestamp).all<{ id: string }>();
               const staleIds = (staleResult.results || []).map(r => String(r?.id || '').trim()).filter(Boolean);
+              staleIds.forEach((id) => taskDeleteIds.add(id));
               if (staleIds.length) await deleteConversationLogsByIds(env, parsed.userId, staleIds);
             }
-            await deleteChatTaskForLog(env, parsed.userId, replyTo);
+            await deleteChatTasksForLogs(env, parsed.userId, Array.from(taskDeleteIds));
           }
         } catch (err) {
           console.warn('[ATRI] prune_logs_failed', { userId: parsed.userId, err });
@@ -263,8 +281,13 @@ export function registerChatRoutes(router: RouterType) {
         attachments: parsed.attachments || [],
         inlineImage: parsed.imageUrl,
         model: modelToUse,
-        logId: parsed.logId
+        logId: replyTo,
+        anchorTimestamp
       });
+
+      if (replyTo && await isConversationLogDeleted(env, parsed.userId, replyTo)) {
+        return jsonResponse({ error: 'message_deleted', replyTo }, 409);
+      }
 
       const replyLogId = crypto.randomUUID();
       const replyTimestamp = typeof anchorTimestamp === 'number'
@@ -272,28 +295,28 @@ export function registerChatRoutes(router: RouterType) {
         : Date.now();
 
       ctx.waitUntil((async () => {
+        const skip = replyTo ? await isConversationLogDeleted(env, parsed.userId, replyTo) : false;
+        if (skip) return;
+
         try {
           await applySideEffects(env, result.sideEffects);
         } catch (e) {
           console.warn('[ATRI] side_effects_failed', { userId: parsed.userId, e });
         }
-        const skip = replyTo ? await isConversationLogDeleted(env, parsed.userId, replyTo) : false;
-        if (!skip) {
-          try {
-            await saveConversationLog(env, {
-              id: replyLogId,
-              userId: parsed.userId,
-              role: 'atri',
-              content: result.reply,
-              attachments: [],
-              replyTo,
-              timestamp: replyTimestamp,
-              userName: parsed.userName,
-              timeZone: parsed.timeZone
-            });
-          } catch (e) {
-            console.warn('[ATRI] save_atri_log_failed', { userId: parsed.userId, e });
-          }
+        try {
+          await saveConversationLog(env, {
+            id: replyLogId,
+            userId: parsed.userId,
+            role: 'atri',
+            content: result.reply,
+            attachments: [],
+            replyTo,
+            timestamp: replyTimestamp,
+            userName: parsed.userName,
+            timeZone: parsed.timeZone
+          });
+        } catch (e) {
+          console.warn('[ATRI] save_atri_log_failed', { userId: parsed.userId, e });
         }
       })());
 

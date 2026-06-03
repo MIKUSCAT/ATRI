@@ -131,11 +131,13 @@ class ChatRepository(
         try {
             val userId = preferencesStore.ensureUserId()
             val sourceMessage = messageDao.getMessageById(userMessageId)
+            val currentContent = sourceMessage?.content ?: userContent
+            val currentAttachments = sourceMessage?.attachments ?: userAttachments
             val request = buildChatRequest(
                 userId = userId,
                 logId = userMessageId,
-                content = userContent,
-                attachments = userAttachments,
+                content = currentContent,
+                attachments = currentAttachments,
                 forceRegenerate = forceRegenerate
             )
 

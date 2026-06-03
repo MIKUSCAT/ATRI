@@ -10,12 +10,14 @@ import {
   getLastConversationDate,
   deleteConversationLogsByIds,
   isConversationLogDeleted,
+  listConversationReplyIds,
   markDiaryPending,
   markProactiveMessagesDelivered
 } from '../services/data-service';
 import { DEFAULT_TIMEZONE, formatDateInZone } from '../utils/date';
 import { requireAppToken } from '../utils/auth';
 import { deleteDiaryVectors } from '../services/memory-service';
+import { deleteChatTasksForLogs } from '../services/chat-task-service';
 
 const VALID_ROLES = new Set(['user', 'atri']);
 
@@ -85,8 +87,10 @@ export function registerConversationRoutes(router: RouterType) {
       if (!userId || !ids.length) {
         return jsonResponse({ error: 'invalid_params' }, 400);
       }
+      const replyIds = await listConversationReplyIds(env, userId, ids);
       const changes = await deleteConversationLogsByIds(env, userId, ids);
-      return jsonResponse({ ok: true, deleted: changes });
+      const taskDeleted = await deleteChatTasksForLogs(env, userId, [...ids, ...replyIds]);
+      return jsonResponse({ ok: true, deleted: changes, tasksDeleted: taskDeleted });
     } catch (error: unknown) {
       console.error('[ATRI] conversation delete error');
       return jsonResponse({ error: 'delete_failed' }, 500);

@@ -96,17 +96,32 @@ export async function ensureChatTaskTables(env: Env) {
 }
 
 export async function deleteChatTaskForLog(env: Env, userId: string, logId: string) {
+  return deleteChatTasksForLogs(env, userId, [logId]);
+}
+
+export async function deleteChatTasksForLogs(env: Env, userId: string, logIds: string[]) {
   await ensureChatTaskTables(env);
   const trimmedUserId = String(userId || '').trim();
-  const trimmedLogId = String(logId || '').trim();
-  if (!trimmedUserId || !trimmedLogId) return 0;
-  const result = await env.ATRI_DB.prepare(
-    `DELETE FROM chat_tasks
-      WHERE user_id = ? AND log_id = ?`
-  )
-    .bind(trimmedUserId, trimmedLogId)
-    .run();
-  return Number(result?.meta?.changes ?? 0);
+  const ids = Array.isArray(logIds)
+    ? Array.from(new Set(logIds.map((id) => String(id || '').trim()).filter(Boolean)))
+    : [];
+  if (!trimmedUserId || !ids.length) return 0;
+
+  let deleted = 0;
+  const chunkSize = 100;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const batch = ids.slice(i, i + chunkSize);
+    const placeholders = batch.map(() => '?').join(', ');
+    const result = await env.ATRI_DB.prepare(
+      `DELETE FROM chat_tasks
+        WHERE user_id = ?
+          AND (log_id IN (${placeholders}) OR reply_log_id IN (${placeholders}))`
+    )
+      .bind(trimmedUserId, ...batch, ...batch)
+      .run();
+    deleted += Number(result?.meta?.changes ?? 0);
+  }
+  return deleted;
 }
 
 export async function createOrGetChatTask(env: Env, request: ChatTaskRequest): Promise<{ task: ChatTaskRecord; created: boolean }> {
@@ -244,6 +259,12 @@ export async function processChatTask(env: Env, taskId: string) {
 
   try {
     const request = task.request;
+    const deletedBeforeRun = await isConversationLogDeleted(env, request.userId, request.replyTo);
+    if (deletedBeforeRun) {
+      await failChatTask(env, task.taskId, 'message_deleted');
+      return;
+    }
+
     const existing = await fetchExistingReplyPayload(env, task);
     if (existing) {
       await completeChatTask(env, task.taskId, existing);
@@ -271,6 +292,8 @@ export async function processChatTask(env: Env, taskId: string) {
       await failChatTask(env, task.taskId, 'message_deleted');
       return;
     }
+    const currentTask = await getChatTaskById(env, task.taskId);
+    if (!currentTask || currentTask.status !== 'running') return;
 
     const payload: ChatTaskResultPayload = {
       reply: replyText,

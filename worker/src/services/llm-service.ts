@@ -1,7 +1,6 @@
 import type { ContentPart, Env } from '../types';
 import { CHAT_MODEL } from '../types';
 import { normalizeMimeType, resolveFetchedImageMimeType } from '../utils/image-mime';
-import { stripReasoningText } from '../utils/sanitize';
 import { getEffectiveRuntimeSettings } from './runtime-settings';
 
 export class ChatCompletionError extends Error {
@@ -20,7 +19,7 @@ export class ChatCompletionError extends Error {
 export async function callChatCompletions(
   env: Env,
   payload: Record<string, unknown>,
-  options?: { timeoutMs?: number; model?: string; apiUrl?: string; apiKey?: string; signal?: AbortSignal }
+  options?: { timeoutMs?: number; model?: string; apiUrl?: string; apiKey?: string; signal?: AbortSignal; sessionId?: string }
 ): Promise<Response> {
   const timeoutMs = options?.timeoutMs ?? 60000;
   const model = options?.model ?? CHAT_MODEL;
@@ -44,7 +43,8 @@ export async function callChatCompletions(
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(options?.sessionId ? { 'x-zg-session-id': options.sessionId } : {})
       },
       body: JSON.stringify({
         model,
@@ -117,6 +117,14 @@ function normalizeFormat(raw: unknown): UpstreamApiFormat {
   if (text === 'gemini') return 'gemini';
   return 'openai';
 }
+function buildUpstreamSessionId(trace?: { scope?: string; userId?: string; loop?: number }) {
+  const userId = String(trace?.userId || '').trim();
+  if (!userId) return undefined;
+  const scope = String(trace?.scope || 'chat').trim() || 'chat';
+  const raw = `atri-${scope}-${userId}`;
+  return raw.replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 160);
+}
+
 
 function parseDataUrl(dataUrl: string): { mimeType: string; base64: string } | null {
   const text = String(dataUrl || '').trim();
@@ -321,7 +329,10 @@ async function openAiMessagesToGemini(env: Env, messages: UpstreamMessage[]) {
     if (msg.role === 'tool') {
       const name = typeof msg.name === 'string' ? msg.name.trim() : '';
       const content = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '');
-      if (name) pendingToolResponses.push({ functionResponse: { name, response: { result: content } } });
+      if (name) {
+        const id = typeof msg.tool_call_id === 'string' ? msg.tool_call_id.trim() : '';
+        pendingToolResponses.push({ functionResponse: { name, response: { result: content }, ...(id ? { id } : {}) } });
+      }
       continue;
     }
 
@@ -347,7 +358,7 @@ async function openAiMessagesToGemini(env: Env, messages: UpstreamMessage[]) {
         } catch {
           args = {};
         }
-        parts.push({ functionCall: { name, args } });
+        parts.push({ functionCall: { name, args, ...(call.id ? { id: call.id } : {}) } });
       }
       contents.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] });
     }
@@ -418,9 +429,7 @@ function extractOpenAiAssistantMessage(data: any) {
   if (message && typeof message === 'object' && 'reasoning_content' in message) {
     delete (message as any).reasoning_content;
   }
-  const content = typeof message?.content === 'string'
-    ? stripReasoningText(message.content).trim() || null
-    : null;
+  const content = typeof message?.content === 'string' ? message.content : message?.content ?? null;
   const rawToolCalls = Array.isArray(message?.tool_calls)
     ? message.tool_calls
     : Array.isArray(message?.toolCalls)
@@ -454,8 +463,7 @@ function extractAnthropicAssistantMessage(data: any) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'thinking' || block.type === 'redacted_thinking') continue;
     if (block.type === 'text' && typeof block.text === 'string' && block.text) {
-      const text = stripReasoningText(block.text).trim();
-      if (text) texts.push(text);
+      texts.push(block.text);
       continue;
     }
     if (block.type === 'tool_use') {
@@ -482,15 +490,15 @@ function extractGeminiAssistantMessage(data: any) {
     if (!part || typeof part !== 'object') continue;
     if (part.thought === true) continue;
     if (typeof part.text === 'string' && part.text) {
-      const text = stripReasoningText(part.text).trim();
-      if (text) texts.push(text);
+      texts.push(part.text);
       continue;
     }
     const fc = part.functionCall;
     const name = typeof fc?.name === 'string' ? fc.name.trim() : '';
     if (!name) continue;
     const argsObj = fc.args && typeof fc.args === 'object' ? fc.args : {};
-    toolCalls.push({ id: `gemini_${Date.now()}_${i}`, type: 'function', function: { name, arguments: JSON.stringify(argsObj) } });
+    const id = typeof fc?.id === 'string' && fc.id.trim() ? fc.id.trim() : `gemini_${Date.now()}_${i}`;
+    toolCalls.push({ id, type: 'function', function: { name, arguments: JSON.stringify(argsObj) } });
   }
 
   const content = texts.join('\n').trim();
@@ -538,6 +546,7 @@ export async function callUpstreamChat(env: Env, params: {
   }
 
   logCall({ format, model, scope: trace.scope, userId: trace.userId, loop: trace.loop });
+  const upstreamSessionId = buildUpstreamSessionId(trace);
   const versionedApiUrl = withAutoApiVersion(apiUrl, format);
 
   const settings = await getEffectiveRuntimeSettings(env);
@@ -558,7 +567,7 @@ export async function callUpstreamChat(env: Env, params: {
         body.thinking = { type: 'enabled' };
         body.reasoning_effort = 'max';
       }
-      const response = await callChatCompletions(env, body, { timeoutMs, model, apiUrl: versionedApiUrl, apiKey, signal: params.signal });
+      const response = await callChatCompletions(env, body, { timeoutMs, model, apiUrl: versionedApiUrl, apiKey, signal: params.signal, sessionId: upstreamSessionId });
       const data = await response.json();
       const extracted = extractOpenAiAssistantMessage(data);
       return { message: { content: extracted.content, tool_calls: extracted.toolCalls }, raw: data };
@@ -583,7 +592,7 @@ export async function callUpstreamChat(env: Env, params: {
           body.thinking.display = 'hidden';
         }
       }
-      const data = await postJsonWithTimeout('anthropic', joinUrl(versionedApiUrl, 'messages'), apiKey, body, timeoutMs, params.signal);
+      const data = await postJsonWithTimeout('anthropic', joinUrl(versionedApiUrl, 'messages'), apiKey, body, timeoutMs, params.signal, upstreamSessionId);
       const extracted = extractAnthropicAssistantMessage(data);
       return { message: { content: extracted.content, tool_calls: extracted.toolCalls }, raw: data };
     }
@@ -606,7 +615,7 @@ export async function callUpstreamChat(env: Env, params: {
     if (thinkingEnabled) {
       body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
     }
-    const data = await postJsonWithTimeout('gemini', url.toString(), apiKey, body, timeoutMs, params.signal);
+    const data = await postJsonWithTimeout('gemini', url.toString(), apiKey, body, timeoutMs, params.signal, upstreamSessionId);
     const extracted = extractGeminiAssistantMessage(data);
     return { message: { content: extracted.content, tool_calls: extracted.toolCalls }, raw: data };
   } catch (error: any) {
@@ -666,7 +675,7 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, apiKey: string, body: any, timeoutMs: number, signal?: AbortSignal) {
+async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, apiKey: string, body: any, timeoutMs: number, signal?: AbortSignal, sessionId?: string) {
   const controller = new AbortController();
   let parentAborted = false;
   const abortFromParent = () => {
@@ -683,7 +692,8 @@ async function postJsonWithTimeout(provider: UpstreamApiFormat, url: string, api
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'x-goog-api-key': apiKey,
-        'authorization': `Bearer ${apiKey}`
+        'authorization': `Bearer ${apiKey}`,
+        ...(sessionId ? { 'x-zg-session-id': sessionId } : {})
       },
       body: JSON.stringify(body),
       signal: controller.signal
