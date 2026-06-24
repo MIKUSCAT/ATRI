@@ -136,7 +136,7 @@ async function distillNightlyMemoryCandidates(env: Env, params: {
       { role: 'user', content: user }
     ],
     temperature: 0.6,
-    maxTokens: 1500,
+    maxTokens: settings.agentMaxTokens,
     timeoutMs: 90000,
     signal: params.signal,
     trace: { scope: 'nightly-memory', userId: params.userId }
@@ -214,7 +214,7 @@ async function consolidateNightlyState(env: Env, params: {
       { role: 'user', content: user }
     ],
     temperature: 0.7,
-    maxTokens: 600,
+    maxTokens: settings.agentMaxTokens,
     timeoutMs: 60000,
     signal: params.signal,
     trace: { scope: 'nightly-state', userId: params.userId }

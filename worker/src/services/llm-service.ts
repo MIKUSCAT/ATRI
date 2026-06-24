@@ -551,6 +551,7 @@ export async function callUpstreamChat(env: Env, params: {
 
   const settings = await getEffectiveRuntimeSettings(env);
   const thinkingEnabled = params.thinking ?? settings.thinkingModeEnabled;
+  const maxTokens = Math.max(1, Math.trunc(params.maxTokens ?? settings.agentMaxTokens));
 
   try {
     if (format === 'openai') {
@@ -560,7 +561,7 @@ export async function callUpstreamChat(env: Env, params: {
         tool_choice: params.tools?.length ? 'auto' : undefined,
         temperature: params.temperature,
         stream: false,
-        max_tokens: params.maxTokens
+        max_tokens: maxTokens
       };
       if (thinkingEnabled) {
         body.thinking = { type: 'enabled' };
@@ -577,7 +578,7 @@ export async function callUpstreamChat(env: Env, params: {
       const anthropicTools = openAiToolsToAnthropic(params.tools || []);
       const body: any = {
         model,
-        max_tokens: Math.max(1, Math.trunc(params.maxTokens ?? 1024)),
+        max_tokens: maxTokens,
         temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
         system: system || undefined,
         messages,
@@ -606,7 +607,7 @@ export async function callUpstreamChat(env: Env, params: {
       systemInstruction,
       generationConfig: {
         temperature: typeof params.temperature === 'number' ? params.temperature : undefined,
-        maxOutputTokens: Math.max(1, Math.trunc(params.maxTokens ?? 1024))
+        maxOutputTokens: maxTokens
       },
       tools: decls.length ? [{ functionDeclarations: decls }] : undefined,
       toolConfig: decls.length ? { functionCallingConfig: { mode: 'AUTO' } } : undefined

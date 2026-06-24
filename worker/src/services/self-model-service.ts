@@ -128,7 +128,7 @@ export async function updateSelfModelWithNightlyReflection(env: Env, params: {
         { role: 'user', content: user }
       ],
       temperature: 0.6,
-      maxTokens: 2048,
+      maxTokens: settings.agentMaxTokens,
       timeoutMs: 90000,
       signal: params.signal,
       trace: { scope: 'self-model-nightly', userId: params.userId }

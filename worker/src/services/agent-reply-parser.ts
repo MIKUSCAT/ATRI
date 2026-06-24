@@ -1,4 +1,4 @@
-import { sanitizeText } from '../utils/sanitize';
+import { sanitizeText, stripVisibleThinking } from '../utils/sanitize';
 
 export type ParsedReply = {
   reply: string;
@@ -18,7 +18,8 @@ export type ParsedReply = {
 };
 
 export function parseStructuredReply(rawText: string): ParsedReply {
-  const text = String(rawText || '').trim();
+  const originalText = String(rawText || '').trim();
+  const text = stripVisibleThinking(originalText).trim();
   const empty = emptyParsed();
   if (!text) return empty;
 
@@ -37,8 +38,18 @@ export function parseStructuredReply(rawText: string): ParsedReply {
     if (fromBrace) return sanitizeParsed(fromBrace, text);
   }
 
+  const loose = parseLooseStructuredReply(text);
+  if (loose) return sanitizeParsed(loose, text);
+
+  if (looksLikeUpstreamErrorText(text)) {
+    console.warn('[ATRI] upstream_error_text_rejected', { sample: text.slice(0, 200) });
+    return empty;
+  }
+
   console.warn('[ATRI] structured_reply_parse_failed', { sample: text.slice(0, 200) });
-  return { ...empty, reply: sanitizeText(text).trim().slice(0, 4000) };
+  const fallback = sanitizeText(text).trim();
+  if (looksLikeBrokenStructuredReply(fallback)) return empty;
+  return { ...empty, reply: fallback.slice(0, 4000) };
 }
 
 function tryParse(text: string): any | null {
@@ -66,6 +77,200 @@ function extractFirstJsonObject(text: string): string | null {
   return null;
 }
 
+function parseLooseStructuredReply(text: string): any | null {
+  const jsonish = extractJsonishText(text);
+  if (!jsonish) return null;
+
+  const reply = extractLooseStringField(jsonish, 'reply', ['status', 'rememberFacts', 'forgetFacts']);
+  if (reply == null || !reply.trim()) return null;
+
+  const out: any = { reply };
+
+  const statusText = extractLooseJsonValueField(jsonish, 'status');
+  if (statusText) {
+    const status = tryParse(statusText) ?? parseLooseStatusObject(statusText);
+    if (status !== null) out.status = status;
+  }
+
+  const rememberFactsText = extractLooseJsonValueField(jsonish, 'rememberFacts');
+  if (rememberFactsText) {
+    const rememberFacts = tryParse(rememberFactsText);
+    if (Array.isArray(rememberFacts)) out.rememberFacts = rememberFacts;
+  }
+
+  const forgetFactsText = extractLooseJsonValueField(jsonish, 'forgetFacts');
+  if (forgetFactsText) {
+    const forgetFacts = tryParse(forgetFactsText);
+    if (Array.isArray(forgetFacts)) out.forgetFacts = forgetFacts;
+  }
+
+  return out;
+}
+
+function extractJsonishText(text: string): string | null {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const source = fenceMatch ? fenceMatch[1] : text;
+  const start = source.indexOf('{');
+  const end = source.lastIndexOf('}');
+  if (start < 0 || end < start) return null;
+  return source.slice(start, end + 1);
+}
+
+function extractLooseStringField(text: string, field: string, nextFields: string[]): string | null {
+  const key = new RegExp(`"${escapeRegExp(field)}"\\s*:\\s*"`, 'i');
+  const match = key.exec(text);
+  if (!match || match.index < 0) return null;
+
+  const valueStart = match.index + match[0].length;
+  let valueEnd = -1;
+
+  for (const next of nextFields) {
+    const delimiter = new RegExp(`"\\s*,\\s*"${escapeRegExp(next)}"\\s*:`, 'ig');
+    delimiter.lastIndex = valueStart;
+    const found = delimiter.exec(text);
+    if (found && (valueEnd < 0 || found.index < valueEnd)) {
+      valueEnd = found.index;
+    }
+  }
+
+  if (valueEnd < 0) {
+    valueEnd = findLooseStringEndBeforeObjectEnd(text, valueStart);
+  }
+
+  if (valueEnd < valueStart) return null;
+  return decodeLooseJsonString(text.slice(valueStart, valueEnd));
+}
+
+function findLooseStringEndBeforeObjectEnd(text: string, start: number): number {
+  for (let i = text.length - 1; i >= start; i--) {
+    const c = text[i];
+    if (c === '"' && !isEscaped(text, i)) return i;
+    if (c === '}') continue;
+    if (/\s/.test(c)) continue;
+  }
+  return -1;
+}
+
+function extractLooseJsonValueField(text: string, field: string): string | null {
+  const key = new RegExp(`"${escapeRegExp(field)}"\\s*:`, 'i');
+  const match = key.exec(text);
+  if (!match || match.index < 0) return null;
+
+  let start = match.index + match[0].length;
+  while (start < text.length && /\s/.test(text[start])) start++;
+  if (text.slice(start, start + 4).toLowerCase() === 'null') return 'null';
+
+  const first = text[start];
+  if (first === '{' || first === '[') {
+    const end = findBalancedEnd(text, start, first, first === '{' ? '}' : ']');
+    return end >= start ? text.slice(start, end + 1) : null;
+  }
+
+  if (first === '"') {
+    const end = findStrictStringEnd(text, start + 1);
+    return end > start ? text.slice(start, end + 1) : null;
+  }
+
+  const primitive = text.slice(start).match(/^(true|false|null|-?\d+(?:\.\d+)?)/i);
+  return primitive ? primitive[0] : null;
+}
+
+function parseLooseStatusObject(text: string): any | null {
+  const source = String(text || '').trim();
+  if (!source.startsWith('{')) return null;
+
+  const label = extractLooseStringField(source, 'label', ['pillColor', 'pill_color', 'textColor', 'text_color', 'reason']);
+  const pillColor =
+    extractLooseStringField(source, 'pillColor', ['textColor', 'text_color', 'reason'])
+    ?? extractLooseStringField(source, 'pill_color', ['textColor', 'text_color', 'reason']);
+  const textColor =
+    extractLooseStringField(source, 'textColor', ['reason'])
+    ?? extractLooseStringField(source, 'text_color', ['reason']);
+  const reason = extractLooseStringField(source, 'reason', []);
+
+  if (label == null && pillColor == null && textColor == null && reason == null) return null;
+  return { label, pillColor, textColor, reason };
+}
+
+function findBalancedEnd(text: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (escape) { escape = false; continue; }
+    if (c === '\\') { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
+}
+
+function findStrictStringEnd(text: string, start: number): number {
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '"' && !isEscaped(text, i)) return i;
+  }
+  return -1;
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let slashCount = 0;
+  for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) slashCount++;
+  return slashCount % 2 === 1;
+}
+
+function decodeLooseJsonString(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c !== '\\' || i + 1 >= raw.length) {
+      out += c;
+      continue;
+    }
+    const next = raw[++i];
+    if (next === 'n') out += '\n';
+    else if (next === 'r') out += '\r';
+    else if (next === 't') out += '\t';
+    else if (next === '"' || next === '\\' || next === '/') out += next;
+    else out += next;
+  }
+  return out;
+}
+
+function looksLikeBrokenStructuredReply(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  return trimmed.startsWith('{')
+    || trimmed.startsWith('```')
+    || /"reply"\s*:/.test(trimmed)
+    || /<\s*(?:thinking|think)\b/i.test(trimmed);
+}
+
+function looksLikeUpstreamErrorText(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('model output must contain either output text or tool calls')) return true;
+  if (lower.includes('model output error')) return true;
+  if (lower.includes('these cannot both be empty')) return true;
+  if (lower.includes('llm api error')) return true;
+  if (lower.includes('empty_agent_reply') || lower.includes('empty_llm_content')) return true;
+  if (/^error\s*:/i.test(trimmed) && /(model output|output text|tool calls|upstream|llm api)/i.test(trimmed)) return true;
+  if (/(输出不能为空|空回复)/.test(trimmed) && /(重试|错误|error|retry)/i.test(trimmed)) return true;
+  return false;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function sanitizeParsed(raw: any, fallbackText: string): ParsedReply {
   const out = emptyParsed();
   if (!raw || typeof raw !== 'object') {
@@ -73,7 +278,8 @@ function sanitizeParsed(raw: any, fallbackText: string): ParsedReply {
     return out;
   }
 
-  out.reply = sanitizeText(typeof raw.reply === 'string' ? raw.reply : '').trim().slice(0, 4000);
+  out.reply = sanitizeText(stripVisibleThinking(typeof raw.reply === 'string' ? raw.reply : '')).trim().slice(0, 4000);
+  if (looksLikeUpstreamErrorText(out.reply)) out.reply = '';
 
   const s = raw.status;
   if (s && typeof s === 'object') {

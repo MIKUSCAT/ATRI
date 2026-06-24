@@ -26,19 +26,25 @@ function resolveYesterdayIsoDate(todayIsoDate: string) {
 
 async function loadConversationLogsForDate(
   env: Env,
-  params: { userId: string; date: string; excludeLogId?: string }
+  params: { userId: string; date: string; excludeLogId?: string; maxTimestamp?: number | null }
 ): Promise<ConversationLogRecord[]> {
   const date = String(params.date || '').trim();
   if (!date) return [];
   const logs = await fetchConversationLogs(env, params.userId, date);
   const exclude = typeof params.excludeLogId === 'string' ? params.excludeLogId.trim() : '';
-  if (!exclude) return logs;
-  return logs.filter((log) => log.id !== exclude);
+  const maxTimestamp = typeof params.maxTimestamp === 'number' && Number.isFinite(params.maxTimestamp)
+    ? params.maxTimestamp
+    : null;
+  return logs.filter((log) => {
+    if (exclude && log.id === exclude) return false;
+    if (maxTimestamp !== null && typeof log.timestamp === 'number' && log.timestamp > maxTimestamp) return false;
+    return true;
+  });
 }
 
 export async function loadTwoDaysConversationLogs(
   env: Env,
-  params: { userId: string; today: string; excludeLogId?: string }
+  params: { userId: string; today: string; excludeLogId?: string; maxTimestamp?: number | null }
 ): Promise<{ todayLogs: ConversationLogRecord[]; yesterdayLogs: ConversationLogRecord[]; yesterdayDate: string | null }> {
   const today = String(params.today || '').trim();
   if (!today) {
@@ -47,8 +53,8 @@ export async function loadTwoDaysConversationLogs(
 
   const yesterday = resolveYesterdayIsoDate(today);
   const [todayLogs, yesterdayLogs] = await Promise.all([
-    loadConversationLogsForDate(env, { userId: params.userId, date: today, excludeLogId: params.excludeLogId }),
-    yesterday ? loadConversationLogsForDate(env, { userId: params.userId, date: yesterday }) : Promise.resolve([])
+    loadConversationLogsForDate(env, { userId: params.userId, date: today, excludeLogId: params.excludeLogId, maxTimestamp: params.maxTimestamp }),
+    yesterday ? loadConversationLogsForDate(env, { userId: params.userId, date: yesterday, maxTimestamp: params.maxTimestamp }) : Promise.resolve([])
   ]);
 
   return { todayLogs, yesterdayLogs, yesterdayDate: yesterday };

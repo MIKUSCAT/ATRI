@@ -6,9 +6,8 @@ import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
 import { autoRecallMemories } from './auto-recall-service';
 import { composeAgentSystemPrompt } from './agent-prompt-builder';
 import { parseStructuredReply, ParsedReply } from './agent-reply-parser';
-import { executeInfoTool, INFO_TOOLS } from './agent-tools';
+import { executeInfoTool, INFO_TOOLS, InfoToolContext } from './agent-tools';
 import {
-  fetchLatestPendingProactive,
   getConversationLogDate,
   getFirstConversationTimestamp,
   getUserState,
@@ -41,6 +40,7 @@ export type AgentChatParams = {
   userName?: string;
   clientTimeIso?: string;
   logId?: string;
+  anchorTimestamp?: number | null;
 };
 
 export type SideEffectPlan = {
@@ -57,7 +57,6 @@ export type AgentChatResult = {
   status: { label: string; pillColor: string; textColor: string; reason?: string };
   action: string | null;
   sideEffects: SideEffectPlan;
-  usedPendingProactive?: { id: string; content: string } | null;
 };
 
 const MAX_AGENT_LOOPS = 8;
@@ -70,18 +69,19 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     logId: params.logId
   });
 
-  const [historyPack, recalls, facts, state, firstAt, pendingProactive, intentions] = await Promise.all([
+  const isRegeneration = typeof params.anchorTimestamp === 'number' && Number.isFinite(params.anchorTimestamp);
+  const [historyPack, recalls, facts, state, firstAt, intentions] = await Promise.all([
     loadTwoDaysConversationLogs(env, {
       userId: params.userId,
       today: contextDate,
-      excludeLogId: params.logId
+      excludeLogId: params.logId,
+      maxTimestamp: params.anchorTimestamp
     }),
-    autoRecallMemories(env, params.userId, params.messageText),
-    getRelevantFacts(env, params.userId, params.messageText, 8),
+    isRegeneration ? Promise.resolve(null) : autoRecallMemories(env, params.userId, params.messageText),
+    isRegeneration ? Promise.resolve([]) : getRelevantFacts(env, params.userId, params.messageText, 8),
     getUserState(env, params.userId),
     safeFirstInteraction(env, params.userId),
-    fetchLatestPendingProactive(env, params.userId),
-    safeListPendingIntentions(env, params.userId, 5)
+    isRegeneration ? Promise.resolve([]) : safeListPendingIntentions(env, params.userId, 5)
   ]);
 
   const touchedState = { ...state, lastInteractionAt: Date.now(), updatedAt: Date.now() };
@@ -100,9 +100,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     clientTimeIso: params.clientTimeIso,
     recalls,
     facts,
-    pendingProactive: pendingProactive
-      ? { content: pendingProactive.content, createdAt: pendingProactive.createdAt }
-      : null,
     intentions
   });
   const systemPrompt = promptResult.prompt;
@@ -150,7 +147,10 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     apiKey: settings.openaiApiKey,
     temperature: settings.agentTemperature,
     maxTokens: settings.agentMaxTokens,
-    timeoutMs: settings.agentTimeoutMs
+    timeoutMs: settings.agentTimeoutMs,
+    toolContext: isRegeneration
+      ? { maxTimestamp: params.anchorTimestamp, excludeLogId: params.logId }
+      : undefined
   });
 
   const parsed = parseStructuredReply(finalText);
@@ -170,7 +170,6 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
         }
       : { label: touchedState.statusLabel, pillColor: touchedState.statusPillColor, textColor: touchedState.statusTextColor },
     action: null,
-    usedPendingProactive: pendingProactive ? { id: pendingProactive.id, content: pendingProactive.content } : null,
     sideEffects: {
       userId: params.userId,
       statusUpdate: parsed.status,
@@ -193,6 +192,7 @@ async function runInformationToolLoop(env: Env, params: {
   temperature: number;
   maxTokens: number;
   timeoutMs: number;
+  toolContext?: InfoToolContext;
 }): Promise<string> {
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     const { message } = await callUpstreamChatWith504Retry(env, {
@@ -218,7 +218,7 @@ async function runInformationToolLoop(env: Env, params: {
       params.messages.push(buildAssistantToolMessageForContinuation(message));
       for (let j = 0; j < toolCalls.length; j++) {
         const call = toolCalls[j];
-        const output = await executeInfoTool(env, call, params.userId, params.userName);
+        const output = await executeInfoTool(env, call, params.userId, params.userName, params.toolContext);
         params.messages.push({
           role: 'tool',
           tool_call_id: call.id || `tool_${Date.now()}_${j}`,

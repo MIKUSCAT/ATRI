@@ -1,6 +1,7 @@
 import { Env } from '../types';
 import { formatDateInZone, formatTimeInZone } from '../utils/date';
-import { sanitizeAssistantReply } from '../utils/sanitize';
+import { sanitizeAssistantReply, stripVisibleThinking } from '../utils/sanitize';
+import { buildTwoDaysHistoryMessagesFromLogs, loadTwoDaysConversationLogs } from './history-context';
 import {
   getProactiveUserState,
   getUserState,
@@ -8,7 +9,7 @@ import {
   saveProactiveMessage,
   saveProactiveUserState
 } from './data-service';
-import { callUpstreamChatWith504Retry } from './llm-service';
+import { callUpstreamChatWith504Retry, UpstreamMessage } from './llm-service';
 import { sendNotification } from './notification-service';
 import type { EffectiveRuntimeSettings } from './runtime-settings';
 
@@ -113,6 +114,7 @@ export async function generateProactiveMessage(env: Env, params: {
   hoursSince: number;
   clockTime: string;
   episodeSignals: EpisodeSignals;
+  historyMessages: UpstreamMessage[];
   settings: EffectiveRuntimeSettings;
 }): Promise<string | null> {
   const coreSelf = String(params.settings.prompts.core_self?.system || '').trim();
@@ -134,15 +136,16 @@ export async function generateProactiveMessage(env: Env, params: {
     model: params.settings.defaultChatModel,
     messages: [
       { role: 'system', content: systemPrompt },
+      ...(params.historyMessages || []),
       { role: 'user', content: userPrompt }
     ],
     temperature: params.settings.agentTemperature,
-    maxTokens: 512,
+    maxTokens: params.settings.agentMaxTokens,
     timeoutMs: params.settings.agentTimeoutMs,
     trace: { scope: 'proactive', userId: params.userId }
   });
 
-  const text = String(message.content || '').trim();
+  const text = stripVisibleThinking(String(message.content || '')).trim();
   if (!text || text.includes('[SKIP]')) return null;
   const reply = sanitizeAssistantReply(text).trim();
   return reply ? reply.slice(0, 600) : null;
@@ -179,15 +182,24 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
     return { triggered: false, reason: 'recent_active' };
   }
 
-  const episodeSignals = await loadEpisodeSignals(env, userId, now);
-  if (!episodeSignals.pendingIntention && !episodeSignals.promises.length) {
-    return { triggered: false, reason: 'no_episode_signal' };
-  }
-
   const hoursSince = userState.lastInteractionAt > 0
     ? Math.max(1, Math.floor((now - userState.lastInteractionAt) / 3600000))
     : 24;
   const clockTime = `${formatDateInZone(now, timeZone)} ${formatTimeInZone(now, timeZone)}`;
+  const [episodeSignals, historyPack] = await Promise.all([
+    loadEpisodeSignals(env, userId, now),
+    loadTwoDaysConversationLogs(env, { userId, today })
+  ]);
+  const recentHistoryCount = historyPack.todayLogs.length + historyPack.yesterdayLogs.length;
+  if (!episodeSignals.pendingIntention && !episodeSignals.promises.length && recentHistoryCount === 0) {
+    return { triggered: false, reason: 'no_episode_signal' };
+  }
+  const historyMessages = buildTwoDaysHistoryMessagesFromLogs({
+    today,
+    todayLogs: historyPack.todayLogs,
+    yesterday: historyPack.yesterdayDate,
+    yesterdayLogs: historyPack.yesterdayLogs
+  }) as UpstreamMessage[];
 
   let proactiveReply = '';
   try {
@@ -196,6 +208,7 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
       hoursSince,
       clockTime,
       episodeSignals,
+      historyMessages,
       settings
     }) || '').trim();
   } catch (error: any) {
@@ -240,7 +253,8 @@ export async function evaluateProactiveForUser(env: Env, params: ProactiveEvalua
       timeZone,
       reason: 'scheduler',
       hasPendingIntention: Boolean(episodeSignals.pendingIntention),
-      promiseCount: episodeSignals.promises.length
+      promiseCount: episodeSignals.promises.length,
+      recentHistoryCount
     }),
     status: 'pending',
     notificationChannel,

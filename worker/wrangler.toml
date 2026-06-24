@@ -4,17 +4,17 @@ compatibility_date = "2024-01-01"
 account_id = "0ae643d61aaad72f6e649bc9e7dfcf06"
 
 [vars]
-OPENAI_API_URL = "https://aigate.binklac.com"
+OPENAI_API_URL = "https://zero.bvz.me"
 CHAT_API_FORMAT = "anthropic"
-DEFAULT_CHAT_MODEL = "claude-opus-4-6"
+DEFAULT_CHAT_MODEL = "gemini-3-flash-agent"
 AGENT_TIMEOUT_MS = "85000"
-AGENT_MAX_TOKENS = "4096"
+AGENT_MAX_TOKENS = "8192"
 AUTO_RECALL_ENABLED = "1"
 AUTO_RECALL_MIN_SCORE = "0.62"
 
-DIARY_API_URL = "https://aigate.binklac.com"
-DIARY_API_FORMAT = "anthropic"
-DIARY_MODEL = "claude-sonnet-4-6"
+DIARY_API_URL = "https://glm-free-api-neo.mikuscat001.workers.dev"
+DIARY_API_FORMAT = "openai"
+DIARY_MODEL = "glm5"
 EMBEDDINGS_API_URL = "https://api.siliconflow.cn/v1"
 EMBEDDINGS_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 

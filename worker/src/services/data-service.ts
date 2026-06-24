@@ -1138,56 +1138,6 @@ export async function fetchPendingProactiveMessages(env: Env, params: {
   }));
 }
 
-
-export async function fetchLatestPendingProactive(env: Env, userId: string): Promise<ProactiveMessageRecord | null> {
-  await ensureProactiveTables(env);
-  const safeUserId = String(userId || '').trim();
-  if (!safeUserId) return null;
-  const now = Date.now();
-
-  await env.ATRI_DB.prepare(
-    `UPDATE proactive_messages
-        SET status = 'expired'
-      WHERE user_id = ? AND status = 'pending' AND expires_at <= ?`
-  ).bind(safeUserId, now).run();
-
-  const row = await env.ATRI_DB.prepare(
-    `SELECT id,
-            user_id as userId,
-            content,
-            trigger_context as triggerContext,
-            status,
-            notification_channel as notificationChannel,
-            notification_sent as notificationSent,
-            notification_error as notificationError,
-            created_at as createdAt,
-            delivered_at as deliveredAt,
-            expires_at as expiresAt
-       FROM proactive_messages
-      WHERE user_id = ? AND status = 'pending' AND expires_at > ?
-      ORDER BY created_at DESC
-      LIMIT 1`
-  ).bind(safeUserId, now).first<ProactiveMessageRecord>();
-
-  if (!row) return null;
-  return {
-    id: String(row.id || ''),
-    userId: String(row.userId || safeUserId),
-    content: String(row.content || ''),
-    triggerContext: row.triggerContext == null ? null : String(row.triggerContext),
-    status: row.status as ProactiveMessageStatus,
-    notificationChannel:
-      row.notificationChannel === 'email' || row.notificationChannel === 'wechat_work' || row.notificationChannel === 'none'
-        ? row.notificationChannel
-        : null,
-    notificationSent: Boolean(Number((row as any).notificationSent ?? 0)),
-    notificationError: row.notificationError == null ? null : String(row.notificationError),
-    createdAt: Number(row.createdAt || 0),
-    deliveredAt: row.deliveredAt == null ? null : Number(row.deliveredAt),
-    expiresAt: Number(row.expiresAt || 0)
-  };
-}
-
 export async function markProactiveMessagesDelivered(env: Env, params: {
   userId: string;
   ids: string[];

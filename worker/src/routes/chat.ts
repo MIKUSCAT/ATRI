@@ -11,7 +11,6 @@ import {
   getUserState,
   isConversationLogDeleted,
   listConversationReplyIds,
-  markProactiveMessagesDelivered,
   saveConversationLog
 } from '../services/data-service';
 import { applySideEffects, runAgentChat } from '../services/agent-service';
@@ -19,6 +18,7 @@ import { getEffectiveRuntimeSettings } from '../services/runtime-settings';
 import {
   createOrGetChatTask,
   deleteChatTaskForLog,
+  deleteChatTasksForLogs,
   getChatTaskById
 } from '../services/chat-task-service';
 
@@ -105,6 +105,17 @@ export function registerChatRoutes(router: RouterType) {
       const task = await getChatTaskById(env, taskId);
       if (!task || task.userId !== userId) return jsonResponse({ error: 'task_not_found' }, 404);
 
+      const taskReplyTo = String(task.request.replyTo || task.logId || '').trim();
+      if (taskReplyTo && await isConversationLogDeleted(env, userId, taskReplyTo)) {
+        return jsonResponse({
+          pending: false,
+          taskId: task.taskId,
+          taskStatus: 'failed',
+          error: 'message_deleted',
+          replyTo: taskReplyTo
+        });
+      }
+
       if (task.status === 'completed' && task.result) {
         return jsonResponse(task.result);
       }
@@ -151,6 +162,10 @@ export function registerChatRoutes(router: RouterType) {
 
       if (replyTo) {
         try {
+          if (await isConversationLogDeleted(env, parsed.userId, replyTo)) {
+            return jsonResponse({ error: 'message_deleted', replyTo }, 409);
+          }
+
           if (!parsed.forceRegenerate) {
             const existing = await fetchLatestAtriReplyToLog(env, parsed.userId, replyTo);
             const existingText = sanitizeText(String(existing?.content || '')).trim();
@@ -174,20 +189,35 @@ export function registerChatRoutes(router: RouterType) {
 
           anchorTimestamp = await getConversationLogTimestamp(env, parsed.userId, replyTo);
           if (parsed.forceRegenerate) {
-            await isConversationLogDeleted(env, parsed.userId, replyTo);
+            await saveConversationLog(env, {
+              id: replyTo,
+              userId: parsed.userId,
+              role: 'user',
+              content: messageText,
+              attachments: parsed.attachments || [],
+              timestamp: typeof anchorTimestamp === 'number' ? anchorTimestamp : undefined,
+              userName: parsed.userName,
+              timeZone: parsed.timeZone
+            });
+
+            const taskDeleteIds = new Set<string>([replyTo]);
             const ids = await listConversationReplyIds(env, parsed.userId, [replyTo]);
+            ids.forEach((id) => taskDeleteIds.add(id));
             if (ids.length) await deleteConversationLogsByIds(env, parsed.userId, ids);
             if (typeof anchorTimestamp === 'number') {
               const staleResult = await env.ATRI_DB.prepare(
                 `SELECT id FROM conversation_logs WHERE user_id = ? AND timestamp > ?`
               ).bind(parsed.userId, anchorTimestamp).all<{ id: string }>();
               const staleIds = (staleResult.results || []).map(r => String(r?.id || '').trim()).filter(Boolean);
+              staleIds.forEach((id) => taskDeleteIds.add(id));
               if (staleIds.length) await deleteConversationLogsByIds(env, parsed.userId, staleIds);
             }
-            await deleteChatTaskForLog(env, parsed.userId, replyTo);
+            await deleteChatTasksForLogs(env, parsed.userId, Array.from(taskDeleteIds));
           }
         } catch (err) {
           console.warn('[ATRI] prune_logs_failed', { userId: parsed.userId, err });
+          const details = err instanceof Error ? err.message : String(err);
+          return jsonResponse({ error: 'regenerate_prepare_failed', details }, 500);
         }
       }
 
@@ -202,7 +232,7 @@ export function registerChatRoutes(router: RouterType) {
       if (parsed.asyncChat) {
         if (!replyTo) return jsonResponse({ error: 'log_id_required' }, 400);
 
-        const { task } = await createOrGetChatTask(env, {
+        const taskRequest = {
           userId: parsed.userId,
           platform: parsed.platform || 'android',
           userName: parsed.userName,
@@ -215,7 +245,19 @@ export function registerChatRoutes(router: RouterType) {
           replyTo,
           timeZone: parsed.timeZone,
           anchorTimestamp
-        });
+        };
+        let task = (await createOrGetChatTask(env, taskRequest)).task;
+
+        if (task.status === 'failed') {
+          console.warn('[ATRI] chat_task_failed_reset', {
+            userId: parsed.userId,
+            logId: replyTo,
+            taskId: task.taskId,
+            error: task.error
+          });
+          await deleteChatTaskForLog(env, parsed.userId, replyTo);
+          task = (await createOrGetChatTask(env, taskRequest)).task;
+        }
 
         if (task.status === 'completed' && task.result) {
           return jsonResponse(task.result);
@@ -252,8 +294,13 @@ export function registerChatRoutes(router: RouterType) {
         attachments: parsed.attachments || [],
         inlineImage: parsed.imageUrl,
         model: modelToUse,
-        logId: parsed.logId
+        logId: replyTo,
+        anchorTimestamp
       });
+
+      if (replyTo && await isConversationLogDeleted(env, parsed.userId, replyTo)) {
+        return jsonResponse({ error: 'message_deleted', replyTo }, 409);
+      }
 
       const replyLogId = crypto.randomUUID();
       const replyTimestamp = typeof anchorTimestamp === 'number'
@@ -261,39 +308,28 @@ export function registerChatRoutes(router: RouterType) {
         : Date.now();
 
       ctx.waitUntil((async () => {
+        const skip = replyTo ? await isConversationLogDeleted(env, parsed.userId, replyTo) : false;
+        if (skip) return;
+
         try {
           await applySideEffects(env, result.sideEffects);
         } catch (e) {
           console.warn('[ATRI] side_effects_failed', { userId: parsed.userId, e });
         }
-        if (result.usedPendingProactive?.id) {
-          try {
-            await markProactiveMessagesDelivered(env, {
-              userId: parsed.userId,
-              ids: [result.usedPendingProactive.id],
-              deliveredAt: Date.now()
-            });
-          } catch (e) {
-            console.warn('[ATRI] pending_proactive_mark_failed', { userId: parsed.userId, e });
-          }
-        }
-        const skip = replyTo ? await isConversationLogDeleted(env, parsed.userId, replyTo) : false;
-        if (!skip) {
-          try {
-            await saveConversationLog(env, {
-              id: replyLogId,
-              userId: parsed.userId,
-              role: 'atri',
-              content: result.reply,
-              attachments: [],
-              replyTo,
-              timestamp: replyTimestamp,
-              userName: parsed.userName,
-              timeZone: parsed.timeZone
-            });
-          } catch (e) {
-            console.warn('[ATRI] save_atri_log_failed', { userId: parsed.userId, e });
-          }
+        try {
+          await saveConversationLog(env, {
+            id: replyLogId,
+            userId: parsed.userId,
+            role: 'atri',
+            content: result.reply,
+            attachments: [],
+            replyTo,
+            timestamp: replyTimestamp,
+            userName: parsed.userName,
+            timeZone: parsed.timeZone
+          });
+        } catch (e) {
+          console.warn('[ATRI] save_atri_log_failed', { userId: parsed.userId, e });
         }
       })());
 

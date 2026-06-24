@@ -6,6 +6,11 @@ import { searchMemoryVectors } from './memory-service';
 import type { OpenAiToolCall } from './llm-service';
 import { webSearch } from './web-search-service';
 
+export type InfoToolContext = {
+  maxTimestamp?: number | null;
+  excludeLogId?: string;
+};
+
 export const INFO_TOOLS = [
   {
     type: 'function',
@@ -61,7 +66,8 @@ export async function executeInfoTool(
   env: Env,
   call: OpenAiToolCall,
   userId: string,
-  userName?: string
+  userName?: string,
+  context?: InfoToolContext
 ): Promise<string> {
   const name = String(call?.function?.name || '').trim();
   let args: any = {};
@@ -71,14 +77,18 @@ export async function executeInfoTool(
     args = {};
   }
 
-  if (name === 'read_diary') return runReadDiary(env, userId, args);
-  if (name === 'read_conversation') return runReadConversation(env, userId, userName, args);
-  if (name === 'search_memory') return runSearchMemory(env, userId, args);
+  if (name === 'read_diary') return runReadDiary(env, userId, args, context);
+  if (name === 'read_conversation') return runReadConversation(env, userId, userName, args, context);
+  if (name === 'search_memory') return runSearchMemory(env, userId, args, context);
   if (name === 'web_search') return runWebSearch(env, args);
   return `未知工具：${name}`;
 }
 
-async function runReadDiary(env: Env, userId: string, args: any) {
+async function runReadDiary(env: Env, userId: string, args: any, context?: InfoToolContext) {
+  if (typeof context?.maxTimestamp === 'number') {
+    return '这次是在重新生成旧消息。那之后写下来的日记不能拿来看，不然会把后来的事带回这句话里。';
+  }
+
   const timeRange = sanitizeText(String(args?.date || args?.time_range || '').trim());
   const query = sanitizeText(String(args?.query || '').trim());
   const isoDateMatch = timeRange.match(/^(\d{4}-\d{2}-\d{2})$/);
@@ -105,14 +115,22 @@ async function runReadDiary(env: Env, userId: string, args: any) {
   return '请给我 date=YYYY-MM-DD。';
 }
 
-async function runReadConversation(env: Env, userId: string, userName: string | undefined, args: any) {
+async function runReadConversation(env: Env, userId: string, userName: string | undefined, args: any, context?: InfoToolContext) {
   const date = sanitizeText(String(args?.date || '').trim());
   const isoDateMatch = date.match(/^(\d{4}-\d{2}-\d{2})$/);
   if (!isoDateMatch) return '请给我 date=YYYY-MM-DD。';
   const targetDate = isoDateMatch[1];
 
   try {
-    const logs = await fetchConversationLogs(env, userId, targetDate);
+    const maxTimestamp = typeof context?.maxTimestamp === 'number' && Number.isFinite(context.maxTimestamp)
+      ? context.maxTimestamp
+      : null;
+    const excludeLogId = String(context?.excludeLogId || '').trim();
+    const logs = (await fetchConversationLogs(env, userId, targetDate)).filter((log) => {
+      if (excludeLogId && log.id === excludeLogId) return false;
+      if (maxTimestamp !== null && typeof log.timestamp === 'number' && log.timestamp > maxTimestamp) return false;
+      return true;
+    });
     if (!logs.length) return `那天（${targetDate}）没有聊天记录。`;
 
     const fallbackUserName = (userName || '').trim() || '你';
@@ -134,7 +152,11 @@ async function runReadConversation(env: Env, userId: string, userName: string | 
   }
 }
 
-async function runSearchMemory(env: Env, userId: string, args: any) {
+async function runSearchMemory(env: Env, userId: string, args: any, context?: InfoToolContext) {
+  if (typeof context?.maxTimestamp === 'number') {
+    return '这次是在重新生成旧消息。我不能从后来的记忆里找东西，不然会把当时还不知道的事说出来。';
+  }
+
   const query = sanitizeText(String(args?.query || '').trim());
   if (!query) return '请给我 query。';
 
