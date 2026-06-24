@@ -160,32 +160,32 @@ class ChatRepository(
         val message = messageDao.getMessageById(id) ?: return@withContext
         val attachmentsToUse = newAttachments ?: message.attachments
 
-        val updated = saveMessageVersion(
+        if (syncRemote) {
+            val userId = preferencesStore.ensureUserId()
+            val userNameForLog = if (message.isFromAtri) null else preferencesStore.userName.first().takeIf { it.isNotBlank() }
+            logConversationSafely(
+                logId = message.id,
+                userId = userId,
+                userName = userNameForLog,
+                role = if (message.isFromAtri) "atri" else "user",
+                content = newContent,
+                timestamp = message.timestamp,
+                attachments = attachmentsToUse
+            )
+        }
+
+        saveMessageVersion(
             message = message,
             newContent = newContent,
             newAttachments = attachmentsToUse
         )
-
-        if (syncRemote) {
-            val userId = preferencesStore.ensureUserId()
-            val userNameForLog = if (updated.isFromAtri) null else preferencesStore.userName.first().takeIf { it.isNotBlank() }
-            logConversationSafely(
-                logId = updated.id,
-                userId = userId,
-                userName = userNameForLog,
-                role = if (updated.isFromAtri) "atri" else "user",
-                content = updated.content,
-                timestamp = updated.timestamp,
-                attachments = updated.attachments
-            )
-        }
     }
 
     suspend fun deleteMessage(id: String, syncRemote: Boolean = false) = withContext(Dispatchers.IO) {
-        messageDao.softDelete(id)
         if (syncRemote) {
             deleteConversationLogs(listOf(id))
         }
+        messageDao.softDelete(id)
     }
 
     suspend fun deleteMessages(ids: List<String>) = withContext(Dispatchers.IO) {
@@ -198,20 +198,16 @@ class ChatRepository(
         if (normalizedIds.isEmpty()) return@withContext
         val userId = preferencesStore.ensureUserId()
         for (batch in normalizedIds.chunked(50)) {
-            runCatching {
-                val response = apiService.deleteConversationLogs(
-                    ConversationDeleteRequest(
-                        userId = userId,
-                        ids = batch
-                    )
+            val response = apiService.deleteConversationLogs(
+                ConversationDeleteRequest(
+                    userId = userId,
+                    ids = batch
                 )
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("conversation delete failed: ${response.code()}")
-                }
-                response.body()?.close()
-            }.onFailure {
-                println("对话日志删除失败(${batch.size}条): ${it.message}")
+            )
+            if (!response.isSuccessful) {
+                throw IllegalStateException("conversation delete failed: ${response.code()}")
             }
+            response.body()?.close()
         }
     }
 
@@ -314,7 +310,7 @@ class ChatRepository(
             content = requestContent,
             logId = logId,
             imageUrl = imageUrl,
-            attachments = emptyList(),
+            attachments = attachments.map { it.toPayload() },
             userName = userName.takeIf { it.isNotBlank() },
             clientTimeIso = currentClientTimeIso(),
             forceRegenerate = forceRegenerate
@@ -512,15 +508,11 @@ class ChatRepository(
             date = date,
             mood = mood
         )
-        runCatching {
-            val response = apiService.logConversation(request)
-            if (!response.isSuccessful) {
-                throw IllegalStateException("conversation log failed: ${response.code()}")
-            }
-            response.body()?.close()
-        }.onFailure {
-            println("对话日志写入失败: ${it.message}")
+        val response = apiService.logConversation(request)
+        if (!response.isSuccessful) {
+            throw IllegalStateException("conversation log failed: ${response.code()}")
         }
+        response.body()?.close()
     }
 
     private class ContentUriRequestBody(

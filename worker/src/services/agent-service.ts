@@ -6,7 +6,7 @@ import { sanitizeAssistantReply, sanitizeText } from '../utils/sanitize';
 import { autoRecallMemories } from './auto-recall-service';
 import { composeAgentSystemPrompt } from './agent-prompt-builder';
 import { parseStructuredReply, ParsedReply } from './agent-reply-parser';
-import { executeInfoTool, INFO_TOOLS } from './agent-tools';
+import { executeInfoTool, INFO_TOOLS, InfoToolContext } from './agent-tools';
 import {
   getConversationLogDate,
   getFirstConversationTimestamp,
@@ -69,6 +69,7 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     logId: params.logId
   });
 
+  const isRegeneration = typeof params.anchorTimestamp === 'number' && Number.isFinite(params.anchorTimestamp);
   const [historyPack, recalls, facts, state, firstAt, intentions] = await Promise.all([
     loadTwoDaysConversationLogs(env, {
       userId: params.userId,
@@ -76,11 +77,11 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
       excludeLogId: params.logId,
       maxTimestamp: params.anchorTimestamp
     }),
-    autoRecallMemories(env, params.userId, params.messageText),
-    getRelevantFacts(env, params.userId, params.messageText, 8),
+    isRegeneration ? Promise.resolve(null) : autoRecallMemories(env, params.userId, params.messageText),
+    isRegeneration ? Promise.resolve([]) : getRelevantFacts(env, params.userId, params.messageText, 8),
     getUserState(env, params.userId),
     safeFirstInteraction(env, params.userId),
-    safeListPendingIntentions(env, params.userId, 5)
+    isRegeneration ? Promise.resolve([]) : safeListPendingIntentions(env, params.userId, 5)
   ]);
 
   const touchedState = { ...state, lastInteractionAt: Date.now(), updatedAt: Date.now() };
@@ -146,7 +147,10 @@ export async function runAgentChat(env: Env, params: AgentChatParams): Promise<A
     apiKey: settings.openaiApiKey,
     temperature: settings.agentTemperature,
     maxTokens: settings.agentMaxTokens,
-    timeoutMs: settings.agentTimeoutMs
+    timeoutMs: settings.agentTimeoutMs,
+    toolContext: isRegeneration
+      ? { maxTimestamp: params.anchorTimestamp, excludeLogId: params.logId }
+      : undefined
   });
 
   const parsed = parseStructuredReply(finalText);
@@ -188,6 +192,7 @@ async function runInformationToolLoop(env: Env, params: {
   temperature: number;
   maxTokens: number;
   timeoutMs: number;
+  toolContext?: InfoToolContext;
 }): Promise<string> {
   for (let i = 0; i < MAX_AGENT_LOOPS; i++) {
     const { message } = await callUpstreamChatWith504Retry(env, {
@@ -213,7 +218,7 @@ async function runInformationToolLoop(env: Env, params: {
       params.messages.push(buildAssistantToolMessageForContinuation(message));
       for (let j = 0; j < toolCalls.length; j++) {
         const call = toolCalls[j];
-        const output = await executeInfoTool(env, call, params.userId, params.userName);
+        const output = await executeInfoTool(env, call, params.userId, params.userName, params.toolContext);
         params.messages.push({
           role: 'tool',
           tool_call_id: call.id || `tool_${Date.now()}_${j}`,

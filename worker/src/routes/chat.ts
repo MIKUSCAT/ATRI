@@ -189,6 +189,17 @@ export function registerChatRoutes(router: RouterType) {
 
           anchorTimestamp = await getConversationLogTimestamp(env, parsed.userId, replyTo);
           if (parsed.forceRegenerate) {
+            await saveConversationLog(env, {
+              id: replyTo,
+              userId: parsed.userId,
+              role: 'user',
+              content: messageText,
+              attachments: parsed.attachments || [],
+              timestamp: typeof anchorTimestamp === 'number' ? anchorTimestamp : undefined,
+              userName: parsed.userName,
+              timeZone: parsed.timeZone
+            });
+
             const taskDeleteIds = new Set<string>([replyTo]);
             const ids = await listConversationReplyIds(env, parsed.userId, [replyTo]);
             ids.forEach((id) => taskDeleteIds.add(id));
@@ -205,6 +216,8 @@ export function registerChatRoutes(router: RouterType) {
           }
         } catch (err) {
           console.warn('[ATRI] prune_logs_failed', { userId: parsed.userId, err });
+          const details = err instanceof Error ? err.message : String(err);
+          return jsonResponse({ error: 'regenerate_prepare_failed', details }, 500);
         }
       }
 

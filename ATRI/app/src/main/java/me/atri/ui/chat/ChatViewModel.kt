@@ -335,9 +335,17 @@ class ChatViewModel(
 
     fun editMessage(message: MessageEntity, newContent: String) {
         viewModelScope.launch {
-            chatRepository.editMessage(message.id, newContent, syncRemote = true)
-            if (!message.isFromAtri) {
-                updateState { it.copy(showRegeneratePrompt = true, editedMessageId = message.id) }
+            try {
+                chatRepository.editMessage(message.id, newContent, syncRemote = true)
+                if (!message.isFromAtri) {
+                    val editedDate = Instant.ofEpochMilli(message.timestamp).atZone(zoneId).toLocalDate()
+                        .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                    chatRepository.invalidateMemoryForDates(setOf(editedDate))
+                    updateState { it.copy(showRegeneratePrompt = true, editedMessageId = message.id) }
+                }
+            } catch (e: Exception) {
+                val hint = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                updateState { it.copy(error = "编辑同步失败: $hint") }
             }
         }
     }
@@ -349,10 +357,10 @@ class ChatViewModel(
             val removed = messages.drop(index + 1)
             val removedIds = removed.map { it.id }
             if (removedIds.isNotEmpty()) {
-                chatRepository.deleteMessages(removedIds)
                 chatRepository.deleteConversationLogs(removedIds)
+                chatRepository.deleteMessages(removedIds)
                 // 收集受影响的日期，使对应的向量记忆失效
-                val affectedDates = removed.map { msg ->
+                val affectedDates = (listOf(messages[index]) + removed).map { msg ->
                     Instant.ofEpochMilli(msg.timestamp).atZone(zoneId).toLocalDate()
                         .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
                 }.toSet()
