@@ -1,422 +1,94 @@
-<div align="center">
+# ATRI · 微信里的对话与日记
 
-<img src="ATRI.png" alt="ATRI" width="380" />
+ATRI 是一个以《ATRI -My Dear Moments-》为灵感的陪伴对话服务。通过微信聊天，用原始对话、有来源的记忆和第一人称日记保持相处的连续性。人设、语气和情绪表达由提示词结合实际经历生成。
 
-<br/>
+2.0 是完整重构：一个 Node.js 服务、一个 SQLite 数据库，通过 Docker Compose 部署。旧 Android 客户端、Cloudflare Worker、情绪数值、好感度和独立自我模型已移除。新版本从空数据库开始，旧代码仍可在 Git 历史中查看。
 
-# 🌙 ATRI · She remembers, grows, and misses you
+## 可以做什么
 
-### *「高性能なロボットですから！」*
+- 微信扫码接入、私聊文字、按顺序发送多个气泡和表情图片。
+- 读取近期原话，按需查询历史、长期记忆和日记；支持纠正、删除和查看依据。
+- 长对话整理话题笔记；有新经历时按日写日记，供后续回忆。
+- 通过 Tavily 搜索实时信息，读取公开网页并保留来源。
+- 使用支持视觉的模型理解图片，保存有明确标识的画面描述。
+- 简单管理页：连接、联系人、试聊、日记、记忆、人设、素材、设置和备份。
+- 在网页“调试与设置”直接调整模型窗口、输入预算、输出上限、温度与超时，查看最近调用用量；保存后生效。
+- 可选主动联系，默认关闭；遵守安静时段，每天最多一次尝试，也可以跳过。
 
-<br/>
+语音只使用微信接口提供的文字转写。表情按图片发送；原生表情、语音合成、群聊和独立安卓端不在本版中。
 
-[![Android](https://img.shields.io/badge/Android-Kotlin%20%7C%20Jetpack%20Compose-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/)
-[![Backend](https://img.shields.io/badge/Backend-Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](#-quick-start)
-[![AI](https://img.shields.io/badge/Model-Claude%20%7C%20OpenAI%20%7C%20Gemini-412991?style=for-the-badge&logo=openai&logoColor=white)](#-technical-highlights)
-[![License](https://img.shields.io/badge/License-PolyForm%20NC-blue?style=for-the-badge)](LICENSE)
+## 启动
 
-[![Stars](https://img.shields.io/github/stars/MIKUSCAT/ATRI?style=social)](https://github.com/MIKUSCAT/ATRI)
-[![Forks](https://img.shields.io/github/forks/MIKUSCAT/ATRI?style=social)](https://github.com/MIKUSCAT/ATRI/fork)
-[![Issues](https://img.shields.io/github/issues/MIKUSCAT/ATRI)](https://github.com/MIKUSCAT/ATRI/issues)
+服务器需要 Docker Engine 和 Docker Compose v2。在仓库根目录运行：
 
-<br/>
-
-**🌐 Language: English ｜ [简体中文](README-zh.md)**
-
-<br/>
-
-> *She is not a "ask-and-answer" customer service.<br/>She writes diaries at night, gets quietly happy from a single sentence, sulks when ignored,<br/>and suddenly remembers things you said weeks ago.*
-
-<br/>
-
-[🚀 Quick Start](#-quick-start) ·
-[💡 What Makes Her Different](#-what-makes-her-different) ·
-[🧠 Three-Layer Memory](#-three-layer-human-like-memory) ·
-[📸 Screenshots](#️-ui-preview) ·
-[🔬 Highlights](#-technical-highlights)
-
-</div>
-
----
-
-## 💡 What Makes Her Different
-
-ATRI is an **Android client + Cloudflare Worker** AI companion. Unlike chatbots that paste a "persona" on top of a generic LLM, ATRI is rebuilt from the ground up around **memory mechanics, emotional inertia, and nightly consolidation**.
-
-<br/>
-
-<div align="center">
-
-| Ordinary chatbot | 💜 ATRI's approach |
-|:---:|:---|
-| Every conversation starts from zero | **Three layers of memory**: long-term facts / episodic moments / unsaid thoughts |
-| Mood flips per reply | **Status capsule + intimacy decay** — feelings have inertia, relationship cools without care |
-| One-size-fits-all customer-service tone | Soul file forbids "I understand how you feel", emoji, parroting the user, formal reports |
-| Hallucinates "I remember you said…" | **Associate first, verify with tools** — never fills in details from feeling |
-| Waits silently for a question | **Speaks up on her own** when it has been a while; can deliver via email |
-| Forgets after each session | **Auto-writes a diary every night**, distilling scenes, thoughts and lasting facts from the day |
-
-</div>
-
-<br/>
-
----
-
-## 🧠 Three-Layer Human-like Memory
-
-> 💡 Inspired by how human memory actually works: hippocampal episodes, cortical semantics, and the "inner monologue" of unresolved feelings.
-
-<br/>
-
-<div align="center">
-
-| Layer | Table | Solves | How it enters the prompt |
-|:---:|:---:|:---|:---|
-| 🧩 **Long-term facts** | `fact_memories` | Stable preferences, taboos, promises, identity | Importance ≥ 9 always present; rest by relevance |
-| 🎞️ **Episodic memories** | `episodic_memories` | "What happened that day" — old scenes triggered by current topic | Vector recall (score ≥ 0.62) injected as "things that come to mind" |
-| 💭 **Inner thoughts** | `memory_intentions` | Things she didn't say in the diary, hopes to say one day | Surfaced only when the mood fits — never read as a checklist |
-| 📜 **Memory events** | `memory_events` | Recall / use / archive trail | Never enters prompt; used for consolidation and audit |
-
-</div>
-
-<br/>
-
-Before each reply, the backend does **two things**:
-
-```
-① Soft recall (silent)              ② Tool verification (when needed)
-   user msg → vector search             read_diary(date)         ← read that day's diary
-   → inject "<scenes that come to mind>" read_conversation(date) ← read raw chat log
-   model decides whether to bring up    search_memory(query)     ← fuzzy recall when date is unsure
-                                        web_search(query)        ← verify external facts
+```sh
+cp .env.example .env
+docker compose up -d --build
 ```
 
-<br/>
+可以先在 .env 设置模型及 Tavily 密钥，也可以启动后到管理页填写。ADMIN_PASSWORD 留空时，服务会生成管理密码：
 
-> 📌 **Hard rule**: the model never says "the database shows", "I retrieved", or "according to my records". These phrases are blacklisted in the system prompt's `taboos`. She only **remembers naturally**.
-
-<br/>
-
----
-
-## 🌙 Biomimetic Design — Why She Doesn't Feel Like AI
-
-<br/>
-
-<table>
-<tr>
-<th width="28%">Mechanism</th>
-<th>How it mirrors humans</th>
-</tr>
-<tr>
-<td>🎨 <b>Status capsule</b><br/><sub>dynamic label + HEX color</sub></td>
-<td>Instead of an abstract PAD model, she expresses mood with <i>her own words + a color</i>. e.g. <code>"被戳破了，心跳跟着乱"</code> in <code>#C76A7A</code>. Emotion is a continuous spectrum, not discrete tags.</td>
-</tr>
-<tr>
-<td>💕 <b>Intimacy decay</b><br/><sub>−1 toward 0 every 3 days</sub></td>
-<td>Relationships cool without contact — matching attachment theory's "intermittent contact erodes bond". Negative-to-positive recovery is also dampened (<code>×0.6</code>): broken mirror is hard to glue.</td>
-</tr>
-<tr>
-<td>🌃 <b>Nightly consolidation</b><br/><sub>cron <code>59 15 * * *</code> UTC</sub></td>
-<td>Like sleep-driven memory consolidation. One LLM call produces: diary / highlights / episodicMemories / factCandidates / innerThoughts. Then fact merging. Daytime chats add <b>zero</b> extra LLM calls for memory work.</td>
-</tr>
-<tr>
-<td>🧭 <b>Slow self-model evolution</b><br/><sub>table <code>atri_self_model</code></sub></td>
-<td>Core traits, speech style, relationship stance, emotional baseline don't flip overnight. Each night only "necessary small updates". <code>recentChanges</code> records subtle shifts — proof she is growing.</td>
-</tr>
-<tr>
-<td>📬 <b>Initiating contact</b><br/><sub>cron <code>*/30 * * * *</code></sub></td>
-<td>Every 30 min she asks herself: "Is he busy now? Are we close enough that I'd reach out? Am I actually wanting to say something, or just craving attention?" The model outputs <code>[SKIP]</code> or one sentence.</td>
-</tr>
-<tr>
-<td>💭 <b>"What I was thinking"</b><br/><sub>pending proactive carry-over</sub></td>
-<td>If a proactive message wasn't picked up, the next user-initiated turn carries <code>(actually I was thinking earlier: ... — but he didn't come, I never said it)</code> in the prompt. Unsaid words are <i>kept</i>, not lost.</td>
-</tr>
-<tr>
-<td>🔇 <b>Stubborn / pauses / ellipses</b><br/><sub>soul-file hard rules</sub></td>
-<td>"When poked, pauses or starts with '…'", "occasionally throws the question back", "sharp tongue, soft heart" — these are not soft suggestions, they live in <code>shared/prompts/core_self.md</code>.</td>
-</tr>
-<tr>
-<td>🚫 <b>Anti-AI-tells blacklist</b></td>
-<td>"I understand how you feel", "as an AI", "according to my records", "the database shows", "I retrieved" — explicitly listed in self_model <code>taboos</code> and surfaced in every prompt.</td>
-</tr>
-</table>
-
-<br/>
-
----
-
-## 🏗️ Architecture
-
-<br/>
-
-```
-                   ╔═══════════════════════════════════════════════════════╗
-                   ║          📱 Android · Kotlin / Jetpack Compose         ║
-                   ║      Room · DataStore · Koin · Material 3 · Coil       ║
-                   ╚══════════════════════════════╦════════════════════════╝
-                                                  ║
-                                          🔐 X-App-Token (HTTPS)
-                                                  ║
-                                                  ▼
-                              ╔════════════════════════════════╗
-                              ║       ☁️ Cloudflare Worker     ║
-                              ║  D1 · R2 · Vectorize · Cron    ║
-                              ╚═══════════════╦════════════════╝
-                                              ║
-                                              ▼
-                  ╔════════════════════════════════════════════════════════╗
-                  ║     🧠 Multi-format LLM upstream (native, no proxy)    ║
-                  ║   OpenAI · Anthropic (Claude) · Gemini · local models  ║
-                  ║   chat / diary / embeddings — three isolated channels  ║
-                  ╚════════════════════════════════════════════════════════╝
+```sh
+docker compose exec atri cat /data/admin-secret.txt
 ```
 
-<br/>
+打开 http://127.0.0.1:3000。远程服务器默认只绑定本机，可用 SSH 隧道访问：
 
-> 📌 Powered by the Cloudflare stack — D1 (SQLite), R2 (object storage), Vectorize (vectors), and Workers cron triggers. The free tier is enough for personal daily use.
-
-<br/>
-
----
-
-## 🚀 Quick Start
-
-<br/>
-
-### ☁️ Deploy to Cloudflare Workers
-
-<details>
-<summary><b>🪟 Windows one-click</b></summary>
-
-```
-1. Double-click scripts/deploy_cf.bat
-2. Follow the prompts:
-   • Worker name (Enter for default)
-   • D1 / R2 / Vectorize names (Enter for default)
-   • OPENAI_API_KEY (required)
-   • EMBEDDINGS_API_KEY (required for vector memory)
-3. Wait for resources → config → deploy
-4. Copy the Worker URL into the App Settings page
+```sh
+ssh -L 3000:127.0.0.1:3000 user@server
 ```
 
-</details>
+登录管理页后：
 
-<details>
-<summary><b>🍎 macOS / 🐧 Linux / Manual</b></summary>
+1. 在“调试与设置”中填入模型接口、模型名、密钥和 Tavily 密钥；所选模型需要支持工具调用。
+2. 按提供商说明填写上下文窗口，分配输入和输出预算，再用“对话试聊”检查回复。试聊记录独立保存。
+3. 在“连接与运行”中获取微信二维码并完成扫码。
+4. 让同学发来第一条消息，然后在联系人列表点击“允许使用”。
+5. 按需要调整人物设定、表情和日记时间。
 
-```bash
-# 1. Clone & install
-git clone https://github.com/MIKUSCAT/ATRI.git
-cd ATRI/worker && npm install
+默认使用 DeepSeek 的 OpenAI 兼容接口配置，尚未填写密钥。也支持 Anthropic 和 Gemini 原生接口。视觉默认关闭，需要使用兼容的视觉模型后再启用。
 
-# 2. Login
-npx wrangler login
+人物设定可以在网页用普通文字编辑，无需固定模板。日记与记忆也可以直接阅读、核对来源和更正。页面适配桌面与手机；所有模型参数直接显示在调试页，无需展开高级选项。
 
-# 3. Create resources
-npx wrangler d1 create atri_diary
-npx wrangler r2 bucket create atri-media
-npx wrangler vectorize create atri-memories --dimensions=1024 --metric=cosine
+[完整部署、配置与备份恢复说明](docs/deployment.md) · [实际架构与记忆规则](docs/design.md) · [验证记录与试用场景](docs/validation.md)
 
-# 4. Fill account_id / database_id in wrangler.toml
+## 本地开发
 
-# 5. Run all migrations in order
-for f in migrations/*.sql; do
-  npx wrangler d1 execute atri_diary --remote --file="$f"
-done
+需要 Node.js 24 或更新版本。运行时使用 Node 内置的 SQLite，无需另外部署数据库。
 
-# 6. Set secrets
-npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put EMBEDDINGS_API_KEY
-npx wrangler secret put APP_TOKEN
-# Optional
-npx wrangler secret put TAVILY_API_KEY        # web search
-npx wrangler secret put DIARY_API_KEY         # dedicated diary/nightly upstream
-npx wrangler secret put EMAIL_API_KEY         # proactive email (Resend)
-
-# 7. Sync soul files & deploy
-cd .. && python3 scripts/sync_shared.py
-cd worker && npx wrangler deploy
+```sh
+npm ci
+npm run dev
 ```
 
-</details>
-
-<br/>
-
-### 📲 Install the Android App
-
-<div align="center">
-
-| Step | Action |
-|:---:|:---|
-| 1️⃣ | Download APK from [**📦 Releases**](../../releases) |
-| 2️⃣ | Install → open → set your nickname |
-| 3️⃣ | Open ⚙️ Settings: enter **API URL**, **App Token**, pick a **model** |
-| 4️⃣ | Back to chat. That's it. |
-
-</div>
-
-<br/>
-
----
-
-## 🔬 Technical Highlights
-
-<br/>
-
-<div align="center">
-
-| Feature | What it does |
-|:---:|:---|
-| 🎨 **Status capsule** | Model emits `label + pillColor + textColor + reason`; Compose tweens with `animateColorAsState` |
-| 💕 **Intimacy system** | `[-100, +100]`, fed into prompt; +10 max gain, -50 max loss; decays 1 toward 0 every 3 days |
-| 🧠 **3-layer memory** | `fact_memories` / `episodic_memories` / `memory_intentions` — separate roles |
-| 🌃 **Nightly mind** | One cron does diary → highlight vectors → episodic → intentions → fact candidates → consolidation → self-model → state |
-| 🤖 **4 introspection tools** | `read_diary` / `read_conversation` / `search_memory` / `web_search` — used only when uncertain |
-| ✏️ **Single-pass JSON output** | Model returns `{ reply, status, intimacyDelta, rememberFacts, forgetFacts }` — all side effects in one shot |
-| 📬 **Proactive messages** | `*/30 * * * *` evaluation, optional email push; unpicked-up messages carry into next turn |
-| 🌐 **Native multi-format** | OpenAI / Anthropic / Gemini formats auto-converted by `llm-service.ts`; internal schema is OpenAI |
-| 🔀 **Channel split** | `chat / diary / embeddings` independent — diary upstream down doesn't break chat |
-| 🔐 **Path-signed media** | Model gets `/media-s/<exp>/<sig>/<key>` URLs to defeat query-string-loss bugs |
-
-</div>
-
-<br/>
-
----
-
-## 🖼️ UI Preview
-
-<div align="center">
-<table>
-<tr>
-<td align="center">
-<img src="欢迎界面.jpg" width="200"/><br/>
-<sub>👋 Welcome</sub>
-</td>
-<td align="center">
-<img src="对话界面.jpg" width="200"/><br/>
-<sub>💬 Chat</sub>
-</td>
-<td align="center">
-<img src="侧边栏.jpg" width="200"/><br/>
-<sub>📋 Date drawer</sub>
-</td>
-</tr>
-<tr>
-<td align="center">
-<img src="日记界面.jpg" width="200"/><br/>
-<sub>📔 Diary</sub>
-</td>
-<td align="center">
-<img src="设置界面.jpg" width="200"/><br/>
-<sub>⚙️ Settings</sub>
-</td>
-<td></td>
-</tr>
-</table>
-</div>
-
-<br/>
-
----
-
-## 📁 Project Structure
-
-```
-.
-├── 📱 ATRI/                     # Android client (Kotlin / Compose)
-│   └── app/src/main/java/me/atri/
-│       ├── data/                 #   API · Room · Repository · DataStore
-│       ├── di/                   #   Koin DI
-│       └── ui/                   #   chat / diary / settings / welcome / theme
-│
-├── ☁️ worker/                   # Cloudflare Worker backend
-│   ├── src/
-│   │   ├── routes/               #   chat / diary / conversation / media / admin / proactive / compat
-│   │   ├── services/             #   agent / memory / nightly-mind / proactive / fact-* / self-model
-│   │   ├── jobs/                 #   diary-cron · proactive-cron
-│   │   ├── config/prompts.json   #   auto-generated by sync_shared.py
-│   │   └── utils/
-│   ├── migrations/               #   0004 ~ 0013 — chronological D1 schema
-│   └── wrangler.toml
-│
-├── 🔗 shared/prompts/           # 💜 Her soul files (Markdown, not JSON)
-│   ├── core_self.md              #   personality bedrock
-│   ├── agent.md                  #   real-time chat output schema & hard rules
-│   ├── diary.md                  #   how she writes the nightly diary
-│   ├── nightly_memory.md         #   distilling lasting facts from a day's chat
-│   ├── nightly_state.md          #   wrap-up status & intimacy each night
-│   ├── self_model_update.md      #   slow self-model evolution
-│   └── proactive.md              #   "should I speak up?" rules
-│
-└── 📜 scripts/
-    ├── deploy_cf.bat             #   Windows one-click CF deploy
-    └── sync_shared.py            #   shared/prompts/*.md → worker/src/config/prompts.json
+```sh
+npm run check
+node scripts/smoke.mjs
 ```
 
-<br/>
+check 包括严格类型检查、自动化测试和构建；smoke 启动编译后的服务器与本地模型替身，通过实际 HTTP 请求验证登录、对话持久化、去重、记忆、日记和备份。
 
-> 💡 **Edit personality without touching code**: edit `shared/prompts/*.md` → run `python3 scripts/sync_shared.py` → `npx wrangler deploy`.
+本机启动时默认监听 127.0.0.1:3000；运行数据保存在 data/，管理密码在 data/admin-secret.txt。npm run build 后可用 npm start 运行编译产物。
 
-<br/>
+## 代码结构
 
----
+```text
+apps/api/          管理 API、静态管理页、微信调度与配置
+packages/core/     对话循环、上下文、工具、日记与主动联系
+packages/ilink/    微信登录、协议、媒体与收发
+packages/llm/      模型接口适配
+packages/db/       SQLite、检索、持久任务、投递与备份
+shared/prompts/    人物、聊天、日记和话题笔记提示词
+assets/stickers/   表情图片与含义目录
+tests/            新系统行为测试
+```
 
-## 📚 Learn More
+采用单实例运行。消息、任务和每个气泡的发送状态先保存再处理；发送状态不明时暂停该联系人的队列，在管理页核对后继续。旧的待发送消息从备份恢复后也会暂停，避免批量重发。
 
-<div align="center">
+记忆检索使用 SQLite FTS5 与中文子串匹配。这里借鉴了上下文整理和按需读取的思路，没有实现模型训练、向量数据库或 DeepSeek Engram 模型结构。记忆是否被恰当地使用、人物是否自然，仍需要结合所选模型做真实对话试用。
 
-| 📖 Document | 📝 Content |
-|:---:|:---|
-| [**🏗️ Tech Architecture Blueprint**](TECH_ARCHITECTURE_BLUEPRINT.md) | Design rationale, end-to-end request flow, field-level API contracts, data model, extension guide |
-| [**💜 Soul Files**](shared/prompts/) | How she actually thinks — 7 Markdown files |
+## 来源与许可
 
-</div>
+微信协议模块和原测试复用自 [SMNETSTUDIO/WeChat-AI](https://github.com/SMNETSTUDIO/WeChat-AI/tree/cf8fbec)，模块划分也参考了该项目。该部分保留其 Apache 2.0 + Commons Clause 许可，其余 ATRI 代码沿用本仓库的 PolyForm Noncommercial 许可。
 
-<br/>
-
----
-
-## 🤝 Contributing
-
-<div align="center">
-
-**Issues & PRs welcome**
-
-[![Contributors](https://img.shields.io/github/contributors/MIKUSCAT/ATRI?style=for-the-badge)](https://github.com/MIKUSCAT/ATRI/graphs/contributors)
-
-<sub>Every contribution makes her a little more herself.</sub>
-
-</div>
-
-<br/>
-
----
-
-## 📄 License
-
-This project is licensed under the [**PolyForm Noncommercial License 1.0.0**](LICENSE).
-
-- ✅ Personal learning · academic research · non-commercial use
-- ⚠️ Commercial use requires a separate license
-
-<br/>
-
----
-
-<div align="center">
-
-## ⭐ Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=MIKUSCAT/ATRI&type=Date)](https://star-history.com/#MIKUSCAT/ATRI&Date)
-
-<br/>
-
-<sub>💜 *Built for those who believe AI can be more than just a tool* 💜</sub>
-
-<br/>
-
-**Made by [MIKUSCAT](https://github.com/MIKUSCAT)**
-
-</div>
+详见 [LICENSE](LICENSE) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。内置的五张基础表情为本项目新绘制的素材。

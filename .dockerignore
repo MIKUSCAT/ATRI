@@ -1,0 +1,17 @@
+.git
+**/node_modules
+dist
+data
+backups
+coverage
+.env
+.env.*
+!.env.example
+*.bat
+*.log
+ATRI
+worker
+**/*.db
+**/*.db-wal
+**/*.db-shm
+restore.compose.yaml

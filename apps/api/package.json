@@ -1,0 +1,12 @@
+{
+  "name": "@atri/api",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@atri/core": "*",
+    "@atri/db": "*",
+    "@atri/llm": "*",
+    "@atri/ilink": "*"
+  }
+}

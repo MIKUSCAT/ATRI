@@ -1,0 +1,22 @@
+services:
+  atri:
+    build: .
+    image: atri-wechat:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      HOST: 0.0.0.0
+      PORT: 3000
+    ports:
+      - '${ATRI_BIND:-127.0.0.1}:${ATRI_PORT:-3000}:3000'
+    volumes:
+      - atri-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    stop_grace_period: 45s
+volumes:
+  atri-data:

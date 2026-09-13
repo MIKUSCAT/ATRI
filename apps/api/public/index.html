@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#eef5f7" />
+    <title>ATRI · 日记与对话</title>
+    <link rel="icon" type="image/webp" href="/avatar.webp" />
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z" />
+      </symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24">
+        <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H6l-4 2 1.5-6A8.5 8.5 0 1 1 21 11.5Z" />
+        <path d="M7 10h10M7 14h6" />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path d="M12 5c-3-2-7-2-10-1v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Z" />
+        <path d="M12 5v15" />
+      </symbol>
+      <symbol id="i-person" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+      </symbol>
+      <symbol id="i-smile" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 14s1 3 4 3 4-3 4-3M8 8v1M16 8v1" />
+      </symbol>
+      <symbol id="i-tune" viewBox="0 0 24 24">
+        <path d="M4 4v5m0 6v5M12 4v9m0 6v1M20 4v1m0 6v9M1 9h6M9 13h6M17 5h6" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6" /></symbol>
+    </svg>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="ATRI 首页"
+        ><span class="brand-mark">A<span>·</span></span
+        ><span class="brand-word">ATRI<small>日记与对话</small></span></a
+      >
+      <div class="header-right">
+        <span id="connection" class="connection-badge">管理空间</span
+        ><button id="logout" class="ghost small" hidden>退出登录</button>
+      </div>
+    </header>
+    <main>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="login" class="login-layout">
+        <div class="login-art">
+          <img src="/atri.webp" alt="海边张开双臂的亚托莉" fetchpriority="high" />
+          <div class="art-caption">
+            <span class="eyebrow">EVERY LITTLE MOMENT</span>
+            <h1>今天的故事，<br />也想好好记住。</h1>
+            <p>从一声问候，到一本慢慢写满的日记。</p>
+          </div>
+        </div>
+        <div class="login-panel">
+          <span class="eyebrow">WELCOME BACK</span>
+          <h2>回到我们的<br />日常里。</h2>
+          <p>连接微信，调整人物，<br />翻翻她记下的那些小事。</p>
+          <form id="login-form">
+            <label for="password">管理密码</label
+            ><input
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="输入管理密码"
+              required
+            /><button class="wide" type="submit">
+              进入管理空间 <svg class="icon"><use href="#i-arrow" /></svg>
+            </button>
+          </form>
+          <p class="hint login-help">
+            首次密码在服务器数据目录的 <code>admin-secret.txt</code>，也可以自行配置
+            ADMIN_PASSWORD。
+          </p>
+          <span class="login-signature">ATRI · a place to remember</span>
+        </div>
+      </section>
+      <div id="dashboard" class="dashboard" hidden>
+        <aside class="sidebar">
+          <div class="sidebar-caption">我们的日常</div>
+          <nav aria-label="管理栏目" role="tablist" aria-orientation="vertical">
+            <button
+              id="tab-overview"
+              data-tab="overview"
+              class="selected"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panel-overview"
+            >
+              <svg class="icon"><use href="#i-home" /></svg>连接与运行
+            </button>
+            <button
+              id="tab-chat"
+              data-tab="chat"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-chat"
+            >
+              <svg class="icon"><use href="#i-chat" /></svg>对话试聊
+            </button>
+            <button
+              id="tab-journal"
+              data-tab="journal"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-journal"
+            >
+              <svg class="icon"><use href="#i-book" /></svg>日记与记忆
+            </button>
+            <button
+              id="tab-persona"
+              data-tab="persona"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-persona"
+            >
+              <svg class="icon"><use href="#i-person" /></svg>人物设定
+            </button>
+            <button
+              id="tab-stickers"
+              data-tab="stickers"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-stickers"
+            >
+              <svg class="icon"><use href="#i-smile" /></svg>表情收藏
+            </button>
+            <button
+              id="tab-settings"
+              data-tab="settings"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-settings"
+            >
+              <svg class="icon"><use href="#i-tune" /></svg>调试与设置
+            </button>
+          </nav>
+          <div class="sidebar-note">
+            <img src="/avatar.webp" alt="" width="42" height="42" />
+            <div><strong>亚托莉的记事本</strong><span>把经历，留给明天。</span></div>
+          </div>
+        </aside>
+        <div class="workspace">
+          <section
+            id="panel-overview"
+            data-panel="overview"
+            role="tabpanel"
+            aria-labelledby="tab-overview"
+          >
+            <div class="hero">
+              <img src="/atri.webp" alt="" class="hero-art" />
+              <div class="hero-copy">
+                <span class="eyebrow">A PLACE TO CONTINUE</span>
+                <h1>把每次相遇，<br />接续下去。</h1>
+                <p>一个人物，一本日记。<br />从今天的对话，开始新的故事。</p>
+                <div class="actions">
+                  <button data-open="chat">
+                    聊一会儿 <svg class="icon"><use href="#i-arrow" /></svg></button
+                  ><button class="ghost" data-open="journal">翻开日记</button>
+                </div>
+              </div>
+            </div>
+            <div class="stats-grid">
+              <div class="stat">
+                <span>正在使用的模型</span><strong id="overview-model">—</strong
+                ><button class="text-button" data-open="settings">调整配置 ↗</button>
+              </div>
+              <div class="stat">
+                <span>已允许的微信联系人</span><strong id="overview-peers">—</strong
+                ><small>每个人的经历独立保存</small>
+              </div>
+              <div class="stat">
+                <span>累计模型调用</span><strong id="overview-calls">—</strong
+                ><small>对话、日记与话题整理</small>
+              </div>
+            </div>
+            <div class="grid">
+              <article class="card">
+                <div class="card-heading">
+                  <span class="section-icon"
+                    ><svg class="icon"><use href="#i-chat" /></svg
+                  ></span>
+                  <div>
+                    <h2>连接微信</h2>
+                    <p class="hint">让对话发生在熟悉的地方。</p>
+                  </div>
+                </div>
+                <p id="wechat-state" class="state-title"></p>
+                <p id="wechat-error" class="hint"></p>
+                <img id="qr" alt="微信登录二维码" width="240" height="240" hidden />
+                <div class="actions">
+                  <button id="wechat-login">扫码登录</button
+                  ><button id="wechat-logout" class="ghost">断开连接</button>
+                </div>
+              </article>
+              <article class="card">
+                <div class="card-heading">
+                  <span class="section-icon"
+                    ><svg class="icon"><use href="#i-person" /></svg
+                  ></span>
+                  <div>
+                    <h2>一起聊天的人</h2>
+                    <p class="hint">收到第一条消息后，在这里允许使用。</p>
+                  </div>
+                </div>
+                <div id="peers"></div>
+              </article>
+            </div>
+            <article class="card">
+              <div class="card-heading">
+                <div>
+                  <h2>需要留意的事</h2>
+                  <p class="hint">任务和发送异常会出现在这里。</p>
+                </div>
+              </div>
+              <div id="issues"></div>
+            </article>
+            <article class="card">
+              <div class="card-heading">
+                <div>
+                  <h2>运行记录</h2>
+                  <p class="hint">查看调用用量，给相处的记录留一份备份。</p>
+                </div>
+                <button id="backup" class="ghost">创建备份</button>
+              </div>
+              <div id="usage" class="usage-grid"></div>
+              <p class="hint footnote">备份保存在服务器数据目录，恢复步骤见部署说明。</p>
+            </article>
+          </section>
+          <section
+            id="panel-chat"
+            data-panel="chat"
+            role="tabpanel"
+            aria-labelledby="tab-chat"
+            hidden
+          >
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">CONVERSATIONS</span>
+                <h1>有话，慢慢说。</h1>
+                <p>查看微信对话，也可以在这里试试新的人物设定。</p>
+              </div>
+              <select id="chat-peer" aria-label="选择对话"></select>
+            </div>
+            <article class="card chat-card">
+              <div class="chat-topline">
+                <img src="/avatar.webp" alt="" width="36" height="36" />
+                <div><strong>亚托莉</strong><span>每一次对话，都有迹可循。</span></div>
+                <button class="text-button" data-open="settings">调试参数 ↗</button>
+              </div>
+              <div
+                id="messages"
+                class="messages"
+                aria-live="polite"
+                aria-relevant="additions"
+              ></div>
+              <form id="chat-form" class="composer">
+                <label class="sr-only" for="chat-input">试聊消息</label
+                ><textarea
+                  id="chat-input"
+                  rows="2"
+                  placeholder="发一条消息，试试她的回应……"
+                  maxlength="12000"
+                  required
+                ></textarea
+                ><button type="submit">
+                  发送 <svg class="icon"><use href="#i-arrow" /></svg>
+                </button>
+              </form>
+              <p id="chat-hint" class="hint">本地试聊不会发送到微信。</p>
+            </article>
+          </section>
+          <section
+            id="panel-journal"
+            data-panel="journal"
+            role="tabpanel"
+            aria-labelledby="tab-journal"
+            hidden
+          >
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">DEAR DIARY</span>
+                <h1>日记与记忆</h1>
+                <p>有些小事，值得好好记住。</p>
+              </div>
+              <select id="journal-peer" aria-label="选择联系人"></select>
+            </div>
+            <div class="journal-toolbar">
+              <span>沿着原话，回看那些经历。</span><button id="write-diary">整理新的经历</button>
+            </div>
+            <div class="journal-grid">
+              <article class="card paper">
+                <div class="paper-heading">
+                  <span>ATRI'S JOURNAL</span>
+                  <h2>她的日记</h2>
+                  <small>写下经历，也慢慢理解自己的感受。</small>
+                </div>
+                <div id="diaries"></div>
+              </article>
+              <article class="card memory-card">
+                <div class="card-heading">
+                  <svg class="icon"><use href="#i-book" /></svg>
+                  <h2>记住的事</h2>
+                </div>
+                <p class="hint">偏好、约定，以及仍可以被修正的理解。</p>
+                <div id="memories"></div>
+              </article>
+            </div>
+          </section>
+          <section
+            id="panel-persona"
+            data-panel="persona"
+            role="tabpanel"
+            aria-labelledby="tab-persona"
+            hidden
+          >
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">A PERSONALITY OF HER OWN</span>
+                <h1>人物设定</h1>
+                <p>用你自己的话，写下她是谁，以及如何相处。</p>
+              </div>
+            </div>
+            <form id="persona-form" class="card persona-card">
+              <div class="persona-intro">
+                <img src="/avatar.webp" alt="" width="64" height="64" />
+                <div>
+                  <h2>从文字开始认识她</h2>
+                  <p class="hint">普通文字即可，无需固定模板。情绪和语气会结合真实上下文生成。</p>
+                </div>
+              </div>
+              <label for="persona-content">人物提示词</label
+              ><textarea
+                id="persona-content"
+                rows="19"
+                maxlength="12000"
+                required
+                spellcheck="false"
+              ></textarea>
+              <div class="form-footer">
+                <span id="persona-count" class="hint">保存后从下一次生成生效。</span
+                ><button type="submit">保存人物</button>
+              </div>
+            </form>
+          </section>
+          <section
+            id="panel-stickers"
+            data-panel="stickers"
+            role="tabpanel"
+            aria-labelledby="tab-stickers"
+            hidden
+          >
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">LITTLE EXPRESSIONS</span>
+                <h1>表情收藏</h1>
+                <p>有时候，一张表情就刚刚好。最多同时启用 32 张。</p>
+              </div>
+            </div>
+            <div id="sticker-list" class="sticker-grid"></div>
+            <form id="sticker-form" class="card">
+              <div class="card-heading">
+                <div>
+                  <h2>收藏一张新表情</h2>
+                  <p class="hint">写清含义，她就能在合适的时候使用。</p>
+                </div>
+              </div>
+              <div class="grid form-grid">
+                <label
+                  >标识<input
+                    id="sticker-slug"
+                    pattern="[a-z0-9_-]{1,40}"
+                    placeholder="英文、数字、下划线或短横线"
+                    required /></label
+                ><label
+                  >表情含义<input
+                    id="sticker-description"
+                    maxlength="200"
+                    placeholder="开心地挥手打招呼"
+                    required /></label
+                ><label>标签<input id="sticker-tags" placeholder="打招呼, 开心" /></label
+                ><label
+                  >图片<input
+                    id="sticker-file"
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    required
+                  /><small>PNG / JPEG / GIF / WebP，3 MB 以内。</small></label
+                >
+              </div>
+              <button type="submit">加入表情目录</button>
+            </form>
+          </section>
+          <section
+            id="panel-settings"
+            data-panel="settings"
+            role="tabpanel"
+            aria-labelledby="tab-settings"
+            hidden
+          >
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">MAKE IT YOURS</span>
+                <h1>调试与设置</h1>
+                <p>直接调整参数，保存后在下一轮对话中使用。</p>
+              </div>
+              <button class="ghost" data-open="chat">
+                去试聊 <svg class="icon"><use href="#i-arrow" /></svg>
+              </button>
+            </div>
+            <form id="settings-form">
+              <div class="settings-layout">
+                <div>
+                  <article class="card">
+                    <div class="card-heading">
+                      <span class="card-number">01</span>
+                      <div>
+                        <h2>模型与联网</h2>
+                        <p class="hint">选择她使用的模型和搜索服务。</p>
+                      </div>
+                    </div>
+                    <div class="grid form-grid">
+                      <label
+                        >接口格式<select id="format">
+                          <option value="openai">OpenAI 兼容（含 DeepSeek）</option>
+                          <option value="anthropic">Anthropic Messages</option>
+                          <option value="gemini">Gemini</option>
+                        </select></label
+                      >
+                      <label
+                        >模型名称<input id="model" required placeholder="deepseek-chat"
+                      /></label>
+                      <label class="full-width"
+                        >API 地址<input
+                          id="baseUrl"
+                          type="url"
+                          required
+                          placeholder="https://api.deepseek.com"
+                      /></label>
+                      <label
+                        >模型密钥<input
+                          id="apiKey"
+                          type="password"
+                          autocomplete="new-password"
+                          placeholder="留空保持原值"
+                      /></label>
+                      <label
+                        >Tavily 搜索密钥<input
+                          id="tavilyKey"
+                          type="password"
+                          autocomplete="new-password"
+                          placeholder="留空保持原值"
+                      /></label>
+                      <label class="check full-width"
+                        ><input id="vision" type="checkbox" /><span
+                          >启用图片理解<small>需要所选模型本身支持视觉输入。</small></span
+                        ></label
+                      >
+                    </div>
+                  </article>
+                  <article class="card">
+                    <div class="card-heading">
+                      <span class="card-number">02</span>
+                      <div>
+                        <h2>上下文与生成</h2>
+                        <p class="hint">按模型的实际能力填写窗口，再决定每轮用多少。</p>
+                      </div>
+                    </div>
+                    <div class="grid form-grid">
+                      <label
+                        >模型上下文窗口 <span class="unit">token</span
+                        ><input
+                          id="contextWindowTokens"
+                          type="number"
+                          min="8192"
+                          max="2000000"
+                          step="1"
+                          required
+                        /><small>填写提供商说明的窗口上限。</small></label
+                      >
+                      <label
+                        >输入预算 <span class="unit">估算 token</span
+                        ><input
+                          id="inputBudgetTokens"
+                          type="number"
+                          min="4096"
+                          max="1000000"
+                          step="1"
+                          required
+                        /><small>包含人物、历史、记忆与工具结果。</small></label
+                      >
+                      <label
+                        >最大输出 <span class="unit">token</span
+                        ><input
+                          id="maxOutputTokens"
+                          type="number"
+                          min="256"
+                          max="131072"
+                          step="1"
+                          required
+                        /><small>限制单次生成；部分模型也计入推理用量。</small></label
+                      >
+                      <label
+                        >温度<input
+                          id="temperature"
+                          type="number"
+                          min="0"
+                          max="2"
+                          step="any"
+                          placeholder="留空使用模型默认值"
+                        /><small>仅在模型支持时填写；数值越高通常越发散。</small></label
+                      >
+                      <label
+                        >单次请求超时 <span class="unit">秒</span
+                        ><input
+                          id="requestTimeoutSeconds"
+                          type="number"
+                          min="10"
+                          max="300"
+                          required
+                      /></label>
+                      <label
+                        >整轮处理超时 <span class="unit">秒</span
+                        ><input
+                          id="turnTimeoutSeconds"
+                          type="number"
+                          min="10"
+                          max="600"
+                          required
+                        /><small>包括本轮的模型与工具调用。</small></label
+                      >
+                    </div>
+                  </article>
+                  <article class="card">
+                    <div class="card-heading">
+                      <span class="card-number">03</span>
+                      <div>
+                        <h2>日记与联系时间</h2>
+                        <p class="hint">给回忆和问候，留一点恰当的时间。</p>
+                      </div>
+                    </div>
+                    <div class="grid form-grid">
+                      <label>使用时区<input id="timeZone" required /></label>
+                      <label
+                        >日记整理开始小时<input
+                          id="diaryHour"
+                          type="number"
+                          min="0"
+                          max="23"
+                          required
+                        /><small>0–23，整理此前日期尚未写入的经历。</small></label
+                      >
+                      <label class="check full-width"
+                        ><input id="proactiveEnabled" type="checkbox" /><span
+                          >允许主动联系<small>每天最多一次尝试，没有自然话题时会跳过。</small></span
+                        ></label
+                      >
+                      <label class="full-width"
+                        >至少静默多少小时后联系<input
+                          id="proactiveAfterHours"
+                          type="number"
+                          min="1"
+                          max="168"
+                          required
+                      /></label>
+                      <label
+                        >安静时段开始小时<input
+                          id="quietStart"
+                          type="number"
+                          min="0"
+                          max="23"
+                          required
+                      /></label>
+                      <label
+                        >安静时段结束小时<input
+                          id="quietEnd"
+                          type="number"
+                          min="0"
+                          max="23"
+                          required
+                      /></label>
+                    </div>
+                  </article>
+                </div>
+                <aside class="settings-aside">
+                  <article class="card budget-card">
+                    <span class="eyebrow">CONTEXT BUDGET</span>
+                    <h2>这一轮，留多少空间？</h2>
+                    <progress
+                      id="context-meter"
+                      max="65536"
+                      value="28024"
+                      aria-label="上下文预算占比"
+                    ></progress>
+                    <div class="budget-line">
+                      <span>输入预算</span><strong id="budget-input">—</strong>
+                    </div>
+                    <div class="budget-line">
+                      <span>输出上限</span><strong id="budget-output">—</strong>
+                    </div>
+                    <div class="budget-line"><span>协议余量</span><strong>1,024</strong></div>
+                    <div class="budget-line budget-total">
+                      <span>剩余窗口</span><strong id="budget-free">—</strong>
+                    </div>
+                    <p id="budget-note" class="hint">
+                      文本和图片按估算计入预算；实际用量以模型返回值为准。
+                    </p>
+                  </article>
+                  <article class="card">
+                    <div class="card-heading"><h2>最近的实际用量</h2></div>
+                    <div id="recent-usage"></div>
+                    <p class="hint footnote">保存参数后试聊，可在这里比较输入、输出与耗时。</p>
+                  </article>
+                </aside>
+              </div>
+              <div class="save-bar">
+                <span id="settings-saved" class="hint">修改后保存，无需重启服务。</span
+                ><button type="submit">保存并应用</button>
+              </div>
+            </form>
+          </section>
+          <footer>ATRI <span>·</span> 把经历留在日记里</footer>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+[
+  {
+    "slug": "happy",
+    "description": "开心地笑，分享好消息",
+    "tags": ["开心", "笑", "高兴"],
+    "file": "happy.png"
+  },
+  {
+    "slug": "listening",
+    "description": "点头，认真听你说",
+    "tags": ["倾听", "点头", "明白"],
+    "file": "listening.png"
+  },
+  {
+    "slug": "thinking",
+    "description": "想一想，有点疑惑",
+    "tags": ["思考", "疑问"],
+    "file": "thinking.png"
+  },
+  {
+    "slug": "shy",
+    "description": "有些害羞，不好意思",
+    "tags": ["害羞", "夸奖"],
+    "file": "shy.png"
+  },
+  {
+    "slug": "cheer",
+    "description": "为你加油，庆祝进展",
+    "tags": ["加油", "庆祝"],
+    "file": "cheer.png"
+  }
+]
